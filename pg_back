@@ -142,7 +142,7 @@ fi
 for db in $PGBK_DBLIST
 do
     # Do not dump excluded databases
-    echo $PGBK_EXCLUDE | grep $db >/dev/null 2>&1
+    echo $PGBK_EXCLUDE | grep -w $db >/dev/null 2>&1
     if [ $? = 0 ]; then
 	continue
     fi
