@@ -105,6 +105,15 @@ fi
 [ -n "$PGBK_PORT" ] && OPTS="$OPTS -p $PGBK_PORT"
 [ -n "$PGBK_USERNAME" ] && OPTS="$OPTS -U $PGBK_USERNAME"
 
+# Ensure there is a trailing slash in the path to the binaries
+if [ -n "$PGBK_BIN" ]; then
+    PGBK_BIN=$PGBK_BIN/
+    # Also, it must exist
+    if [ ! -d "$PGBK_BIN" ]; then
+	echo "$PGBK_BIN directory does not exists."
+	exit 1
+    fi
+fi
 
 # Create the backup directory if missing
 if [ ! -d $PGBK_BACKUP_DIR ]; then
@@ -116,7 +125,7 @@ if [ ! -d $PGBK_BACKUP_DIR ]; then
 fi
 
 # Dump roles and tablespaces first
-pg_dumpall $OPTS -g > $PGBK_BACKUP_DIR/pg_global_${PGBK_TIMESTAMP}.sql
+${PGBK_BIN}pg_dumpall $OPTS -g > $PGBK_BACKUP_DIR/pg_global_${PGBK_TIMESTAMP}.sql
 if [ $? != 0 ]; then
     echo "pg_dumpall failed."
     out_rc=1
@@ -132,7 +141,7 @@ if [ -z "$PGBK_DBLIST" ]; then
 	DB_QUERY="SELECT datname FROM pg_database WHERE datistemplate <> TRUE;"
     fi
 
-    PGBK_DBLIST=`psql $OPTS -At -c "$DB_QUERY" $PGBK_CONNDB`
+    PGBK_DBLIST=`${PGBK_BIN}psql $OPTS -At -c "$DB_QUERY" $PGBK_CONNDB`
     if [ $? != 0 ]; then
 	echo "could not list databases."
 	exit 1
@@ -148,7 +157,7 @@ do
     fi
 
     # Dump
-    pg_dump $OPTS $PGBK_OPTS -f $PGBK_BACKUP_DIR/${db}_${PGBK_TIMESTAMP}.dump $db
+    ${PGBK_BIN}pg_dump $OPTS $PGBK_OPTS -f $PGBK_BACKUP_DIR/${db}_${PGBK_TIMESTAMP}.dump $db
     rc=$?
     if [ $rc != 0 ]; then
 	out_rc=1
