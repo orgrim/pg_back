@@ -156,6 +156,13 @@ do
 	continue
     fi
 
+    # Force the exclusion of template0, because connection to template0 are
+    # disabled by default
+    echo $PGBK_EXCLUDE | grep -w template0  >/dev/null 2>&1
+    if [ $? = 0 ]; then
+	continue
+    fi
+
     # Dump
     ${PGBK_BIN}pg_dump $OPTS $PGBK_OPTS -f $PGBK_BACKUP_DIR/${db}_${PGBK_TIMESTAMP}.dump $db
     rc=$?
