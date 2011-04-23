@@ -31,19 +31,30 @@ PGBK_BACKUP_DIR=/var/backups/postgresql
 PGBK_TIMESTAMP=`date '+%Y%m%d_%H%M%S'`
 PGBK_PURGE=30
 PGBK_OPTS="-Fc"
+PGBK_WITH_TEMPLATES="no"
+PGBK_CONNDB="postgres"
 
 usage() {
-    echo "PostgreSQL simple backups script"
-    echo "Usage: `basename $0` [OPTIONS]"
-    echo "Options:"
-    echo "    -d dir      Store dump files there (default: $BACKUP_DIR)"
-    echo "    -c config   Alternate config file (default: $CONFIG)"
-    echo "    -P time     purge old backup (see find -ctime)"
+    echo "PostgreSQL simple backup script"
+    echo "usage: `basename $0` [OPTIONS] [DBNAME]..."
+    echo "options:"
+    echo "  -b dir        store dump files there (default: \"$PGBK_BACKUP_DIR\")"
+    echo "  -c config     alternate config file (default: \"$PGBK_CONFIG\")"
+    echo "  -P time       purge old backup, see find -ctime (default: \"$PGBK_PURGE\")"
+    echo "  -D db1,...    list of databases to exclude"
+    echo "  -t            include templates"
+    echo 
+    echo "  -h hostname   database server host or socket directory (default: \"${PGHOST:-local socket}\")"
+    echo "  -p port       database server port (default: \"$PGPORT\")"
+    echo "  -U username   database user name (default: \"$PGUSER\")"
+    echo "  -d db         database used for connection (default: \"$PGBK_CONNDB\")"
+    echo
+    echo "  -?            print usage"
     echo
     exit $1
 }
 
-args=`getopt c:d:P:h $*`
+args=`getopt "b:c:P:D:th:p:U:d:?" $*`
 if [ $? -ne 0 ]
 then
     usage 2
@@ -53,13 +64,21 @@ set -- $args
 for i in $*
 do
     case "$i" in
-	-d) CLI_BACKUP_DIR=$2; shift 2;;
+	-b) CLI_BACKUP_DIR=$2; shift 2;;
 	-c) PGBK_CONFIG=$2; shift 2;;
 	-P) CLI_PURGE=$2; shift 2;;
-	-h) usage 1;;
+	-D) CLI_EXCLUDE="`echo $2 | tr ',' ' '`"; shift 2;;
+	-t) CLI_WITH_TEMPLATES="yes"; shift;;
+	-h) CLI_HOSTNAME=$2; shift 2;;
+	-p) CLI_PORT=$2; shift 2;;
+	-d) CLI_CONNDB=$2; shift 2;;
+	-U) CLI_USERNAME=$2; shift 2;;
+	-\?) usage 1;;
 	--) shift; break;;
     esac
 done
+
+CLI_DBLIST=$*
 
 # Load configuration
 if [ -f "$PGBK_CONFIG" ]; then
@@ -71,9 +90,23 @@ if [ -n "$CLI_BACKUP_DIR" ]; then
     PGBK_BACKUP_DIR=$CLI_BACKUP_DIR
 fi
 
+# Override configuration with cli options
+[ -n "$CLI_PURGE" ] && PGBK_PURGE=$CLI_PURGE
+[ -n "$CLI_EXCLUDE" ] && PGBK_EXCLUDE=$CLI_EXCLUDE
+[ -n "$CLI_WITH_TEMPLATES" ] && PGBK_WITH_TEMPLATES=$CLI_WITH_TEMPLATES
+[ -n "$CLI_HOSTNAME" ] && PGBK_HOSTNAME=$CLI_HOSTNAME
+[ -n "$CLI_PORT" ] && PGBK_PORT=$CLI_PORT
+[ -n "$CLI_USERNAME" ] && PGBK_USERNAME=$CLI_USERNAME
+[ -n "$CLI_DBLIST" ] && PGBK_DBLIST=$CLI_DBLIST
+[ -n "$CLI_CONNDB" ] && PGBK_CONNDB=$CLI_CONNDB
+
+# Prepare common options for pg_dump and pg_dumpall
+[ -n "$PGBK_HOSTNAME" ] && OPTS="$OPTS -h $PGBK_HOSTNAME"
+[ -n "$PGBK_PORT" ] && OPTS="$OPTS -p $PGBK_PORT"
+[ -n "$PGBK_USERNAME" ] && OPTS="$OPTS -U $PGBK_USERNAME"
+
 
 # Create the backup directory if missing
-PGBK_BACKUP_DIR=$PGBK_BACKUP_DIR/$PGBK_TIMESTAMP
 if [ ! -d $PGBK_BACKUP_DIR ]; then
     mkdir -p $PGBK_BACKUP_DIR
     if [ $? != 0 ]; then
@@ -83,7 +116,7 @@ if [ ! -d $PGBK_BACKUP_DIR ]; then
 fi
 
 # Dump roles and tablespaces first
-pg_dumpall -g > $PGBK_BACKUP_DIR/pg_global_${PGBK_TIMESTAMP}.sql
+pg_dumpall $OPTS -g > $PGBK_BACKUP_DIR/pg_global_${PGBK_TIMESTAMP}.sql
 if [ $? != 0 ]; then
     echo "pg_dumpall failed."
     out_rc=1
@@ -91,33 +124,44 @@ fi
 
 gzip $PGBK_BACKUP_DIR/pg_global_${PGBK_TIMESTAMP}.sql
 
-# Dump all databases in a separated file
-DB_LIST=`mktemp -t pg_back.XXX`
-if [ $? != 0 ]; then
-    echo "could not create temp file."
-    exit 1
+# Prepare the list of databases to dump
+if [ -z "$PGBK_DBLIST" ]; then
+    if [ "$PGBK_WITH_TEMPLATES" = "yes" ]; then
+	DB_QUERY="SELECT datname FROM pg_database WHERE datname <> 'template0';"
+    else
+	DB_QUERY="SELECT datname FROM pg_database WHERE datistemplate <> TRUE;"
+    fi
+
+    PGBK_DBLIST=`psql $OPTS -At -c "$DB_QUERY" $PGBK_CONNDB`
+    if [ $? != 0 ]; then
+	echo "could not list databases."
+	exit 1
+    fi
 fi
 
-psql -lt > $DB_LIST
-if [ $? != 0 ]; then
-    echo "could not list databases."
-    exit 1
-fi
-
-awk '$1 !~ /(template[01]|^$|\|)/ { print $1}' $DB_LIST | while read db
+for db in $PGBK_DBLIST
 do
-    pg_dump $PGBK_OPTS -f $PGBK_BACKUP_DIR/pg_${PGBK_TIMESTAMP}_$db.pgdump $db
+    # Do not dump excluded databases
+    echo $PGBK_EXCLUDE | grep $db >/dev/null 2>&1
+    if [ $? = 0 ]; then
+	continue
+    fi
+
+    # Dump
+    pg_dump $OPTS $PGBK_OPTS -f $PGBK_BACKUP_DIR/${db}_${PGBK_TIMESTAMP}.dump $db
     rc=$?
     if [ $rc != 0 ]; then
-	[ -z "$out_rc" ] && out_rc=1
+	out_rc=1
 	echo "pg_dump of $db failed."
     fi
 done
 
+[ -z "$out_rc" ] && out_rc=0
+
 # Purge old backups, only if current backup succeded
-if [ -n "$out_rc" ]; then
+if [ "$out_rc" = 0 ]; then
     find $PGBK_BACKUP_DIR -mtime +$PGBK_PURGE -exec rm '{}' ';'
 fi
 
-rm $DB_LIST
 exit $out_rc
+
