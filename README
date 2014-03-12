@@ -21,7 +21,7 @@ configured to avoid running out of disk space in the backup directory. It is set
 DEVELOPMENT
 -----------
 
-The source code is available on github: https://github.com/dalibo/pg_back
+The source code is available on github: https://github.com/orgrim/pg_back
 
-pg_back is developped by Nicolas Thauvin <nicolas.thauvin@dalibo.com> under a
+pg_back is developped by Nicolas Thauvin <nico@orgrim.net> under a
 classic 2 clauses BSD license. See license block in the script.
