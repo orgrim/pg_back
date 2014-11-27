@@ -28,7 +28,7 @@
 # hardcoded defaults
 PGBK_CONFIG="/etc/postgresql/pg_back.conf"
 PGBK_BACKUP_DIR=/var/backups/postgresql
-PGBK_TIMESTAMP=`date '+%Y%m%d_%H%M%S'`
+PGBK_TIMESTAMP=`date '+%Y-%m-%d_%H-%M-%S'`
 PGBK_PURGE=30
 PGBK_OPTS="-Fc"
 PGBK_WITH_TEMPLATES="no"
