@@ -136,9 +136,9 @@ gzip $PGBK_BACKUP_DIR/pg_global_${PGBK_TIMESTAMP}.sql
 # Prepare the list of databases to dump
 if [ -z "$PGBK_DBLIST" ]; then
     if [ "$PGBK_WITH_TEMPLATES" = "yes" ]; then
-	DB_QUERY="SELECT datname FROM pg_database WHERE datname <> 'template0';"
+	DB_QUERY="SELECT datname FROM pg_database WHERE datallowconn;"
     else
-	DB_QUERY="SELECT datname FROM pg_database WHERE datistemplate <> TRUE;"
+	DB_QUERY="SELECT datname FROM pg_database WHERE datallowconn AND NOT datistemplate;"
     fi
 
     PGBK_DBLIST=`${PGBK_BIN}psql $OPTS -At -c "$DB_QUERY" $PGBK_CONNDB`
