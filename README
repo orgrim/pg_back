@@ -21,7 +21,7 @@ time can be configured to avoid running out of disk space in the
 backup directory. It is set to 30 days by default.
 
 The script is working out of the box, but you should consider editing
-it to fit your needs. This is why I want to keep the simplest
+it to fit your needs. This is why I want to keep it the simplest
 possible.
 
 
