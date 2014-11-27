@@ -28,7 +28,7 @@
 # hardcoded defaults
 PGBK_CONFIG="/etc/postgresql/pg_back.conf"
 PGBK_BACKUP_DIR=/var/backups/postgresql
-PGBK_TIMESTAMP=`date '+%Y-%m-%d_%H-%M-%S'`
+PGBK_TIMESTAMP="%Y-%m-%d_%H-%M-%S"
 PGBK_PURGE=30
 PGBK_OPTS="-Fc"
 PGBK_WITH_TEMPLATES="no"
@@ -125,13 +125,11 @@ if [ ! -d $PGBK_BACKUP_DIR ]; then
 fi
 
 # Dump roles and tablespaces first
-${PGBK_BIN}pg_dumpall $OPTS -g > $PGBK_BACKUP_DIR/pg_global_${PGBK_TIMESTAMP}.sql
+${PGBK_BIN}pg_dumpall $OPTS -g > $PGBK_BACKUP_DIR/pg_global_`date "+${PGBK_TIMESTAMP}"`.sql
 if [ $? != 0 ]; then
     echo "pg_dumpall failed."
     out_rc=1
 fi
-
-gzip $PGBK_BACKUP_DIR/pg_global_${PGBK_TIMESTAMP}.sql
 
 # Prepare the list of databases to dump
 if [ -z "$PGBK_DBLIST" ]; then
@@ -164,7 +162,7 @@ do
     fi
 
     # Dump
-    ${PGBK_BIN}pg_dump $OPTS $PGBK_OPTS -f $PGBK_BACKUP_DIR/${db}_${PGBK_TIMESTAMP}.dump $db
+    ${PGBK_BIN}pg_dump $OPTS $PGBK_OPTS -f $PGBK_BACKUP_DIR/${db}_`date "+${PGBK_TIMESTAMP}"`.dump $db
     rc=$?
     if [ $rc != 0 ]; then
 	out_rc=1
