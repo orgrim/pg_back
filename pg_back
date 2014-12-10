@@ -174,7 +174,7 @@ done
 
 [ -z "$out_rc" ] && out_rc=0
 
-# Purge old backups, only if current backup succeded
+# Purge old backups, only if current backup succeeded
 if [ "$out_rc" = 0 ]; then
     find $PGBK_BACKUP_DIR -maxdepth 1 -mtime +$PGBK_PURGE -exec rm -rf '{}' ';'
 fi
