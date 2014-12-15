@@ -30,7 +30,7 @@ USAGE
 
 It is best to run it as the postgres user. For example :
 
-    pg_back -d /var/lib/pgsql/9.3/backups
+    pg_back -b /var/lib/pgsql/9.3/backups
 
 See the help with pg_back -?.
 
