@@ -51,13 +51,36 @@ usage() {
     echo "  -U username   database user name (default: \"$PGUSER\")"
     echo "  -d db         database used for connection (default: \"$PGBK_CONNDB\")"
     echo
+    echo "  -q            quiet mode"
+    echo
     echo "  -V            print version"
     echo "  -?            print usage"
     echo
     exit $1
 }
 
-args=`getopt "b:c:P:D:th:p:U:d:V?" $*`
+now() {
+    echo "$(date "+%F %T %Z")"
+}
+
+error() {
+    echo "$(now)  ERROR: $*" 1>&2
+}
+
+die() {
+    error $*
+    exit 1
+}
+
+info() {
+    [ "$quiet" != "yes" ] && echo "$(now)  INFO: $*" 1>&2
+}
+
+warn() {
+    echo "$(now)  WARNING: $*" 1>&2
+}
+
+args=`getopt "b:c:P:D:th:p:U:d:qV?" $*`
 if [ $? -ne 0 ]
 then
     usage 2
@@ -76,7 +99,8 @@ do
 	-p) CLI_PORT=$2; shift 2;;
 	-d) CLI_CONNDB=$2; shift 2;;
 	-U) CLI_USERNAME=$2; shift 2;;
-	-V) echo "pg_back version $version"; exit 1;;
+	-q) quiet="yes"; shift;;
+	-V) echo "pg_back version $version"; exit 0;;
 	-\?) usage 1;;
 	--) shift; break;;
     esac
@@ -109,50 +133,46 @@ fi
 [ -n "$PGBK_PORT" ] && OPTS="$OPTS -p $PGBK_PORT"
 [ -n "$PGBK_USERNAME" ] && OPTS="$OPTS -U $PGBK_USERNAME"
 
+info "preparing to dump"
+
 # Ensure there is a trailing slash in the path to the binaries
 if [ -n "$PGBK_BIN" ]; then
     PGBK_BIN=$PGBK_BIN/
     # Also, it must exist
     if [ ! -d "$PGBK_BIN" ]; then
-	echo "$PGBK_BIN directory does not exists."
-	exit 1
+	die "$PGBK_BIN directory does not exist"
     fi
 fi
 
 # Create the backup directory if missing
 if [ ! -d $PGBK_BACKUP_DIR ]; then
+    info "creating directory $PGBK_BACKUP_DIR"
     mkdir -p $PGBK_BACKUP_DIR
     if [ $? != 0 ]; then
-	echo "Unable to create $PGBK_BACKUP_DIR. Aborting."
-	exit 1
+	die "could not create $PGBK_BACKUP_DIR"
     fi
 fi
+
+info "target directory is $PGBK_BACKUP_DIR"
 
 # Check if replay pause is available
 PG_HASPAUSE=`${PGBK_BIN}psql $OPTS -At -c "SELECT 1 FROM pg_proc WHERE proname='pg_xlog_replay_pause' AND pg_is_in_recovery();" $PGBK_CONNDB`
 if [ $? != 0 ]; then
-    echo "could not check for pause"
-    exit 1
+    die "could not check for replication control functions"
 fi
 
 # Pause replay if dumping from a slave
 if [ "${PG_HASPAUSE}" = "1" ]; then
+    info "pausing replication replay"
     ${PGBK_BIN}psql $OPTS -At -c "SELECT pg_xlog_replay_pause() where pg_is_in_recovery();" $PGBK_CONNDB
     if [ $? != 0 ]; then
-        echo "could not pause replay"
-        exit 1
+        die "could not pause replication replay"
     fi
-fi
-
-# Dump roles and tablespaces first
-${PGBK_BIN}pg_dumpall $OPTS -g > $PGBK_BACKUP_DIR/pg_global_`date "+${PGBK_TIMESTAMP}"`.sql
-if [ $? != 0 ]; then
-    echo "pg_dumpall failed."
-    out_rc=1
 fi
 
 # Prepare the list of databases to dump
 if [ -z "$PGBK_DBLIST" ]; then
+    info "listing databases"
     if [ "$PGBK_WITH_TEMPLATES" = "yes" ]; then
 	DB_QUERY="SELECT datname FROM pg_database WHERE datallowconn;"
     else
@@ -161,9 +181,16 @@ if [ -z "$PGBK_DBLIST" ]; then
 
     PGBK_DBLIST=`${PGBK_BIN}psql $OPTS -At -c "$DB_QUERY" $PGBK_CONNDB`
     if [ $? != 0 ]; then
-	echo "could not list databases."
-	exit 1
+	die "could not list databases"
     fi
+fi
+
+# Dump roles and tablespaces first
+info "dumping global objects"
+${PGBK_BIN}pg_dumpall $OPTS -g > $PGBK_BACKUP_DIR/pg_global_`date "+${PGBK_TIMESTAMP}"`.sql
+if [ $? != 0 ]; then
+    error "pg_dumpall -g failed"
+    out_rc=1
 fi
 
 for db in $PGBK_DBLIST
@@ -175,20 +202,21 @@ do
     fi
 
     # Dump
+    info "dumping database \"$db\""
     ${PGBK_BIN}pg_dump $OPTS $PGBK_OPTS -f $PGBK_BACKUP_DIR/${db}_`date "+${PGBK_TIMESTAMP}"`.dump $db
     rc=$?
     if [ $rc != 0 ]; then
 	out_rc=1
-	echo "pg_dump of $db failed."
+	error "pg_dump of database \"$db\" failed"
     fi
 done
 
 # Resume replay if dumping from a slave
 if [ "${PG_HASPAUSE}" = "1" ]; then
+    info "resuming replication replay"
     ${PGBK_BIN}psql $OPTS -At -c "SELECT pg_xlog_replay_resume();" $PGBK_CONNDB
     if [ $? != 0 ]; then
-        echo "could not resume replay"
-        exit 1
+        die "could not resume replication replay"
     fi
 fi
 
@@ -196,8 +224,16 @@ fi
 
 # Purge old backups, only if current backup succeeded
 if [ "$out_rc" = 0 ]; then
+    info "purging old backups"
     find $PGBK_BACKUP_DIR -maxdepth 1 -mtime +$PGBK_PURGE -exec rm -rf '{}' ';'
+    if [ $? != 0 ]; then
+	die "could not purge all old backups"
+    fi
+else
+    warn "some dumps failed, purge of all old backup cancelled"
 fi
+
+info "done"
 
 exit $out_rc
 
