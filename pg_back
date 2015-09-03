@@ -126,6 +126,22 @@ if [ ! -d $PGBK_BACKUP_DIR ]; then
     fi
 fi
 
+# Check if replay pause is available
+PG_HASPAUSE=`${PGBK_BIN}psql $OPTS -At -c "SELECT 1 FROM pg_proc WHERE proname='pg_xlog_replay_pause' AND pg_is_in_recovery();" $PGBK_CONNDB`
+if [ $? != 0 ]; then
+    echo "could not check for pause"
+    exit 1
+fi
+
+# Pause replay if dumping from a slave
+if [ "${PG_HASPAUSE}" = "1" ]; then
+    ${PGBK_BIN}psql $OPTS -At -c "SELECT pg_xlog_replay_pause() where pg_is_in_recovery();" $PGBK_CONNDB
+    if [ $? != 0 ]; then
+        echo "could not pause replay"
+        exit 1
+    fi
+fi
+
 # Dump roles and tablespaces first
 ${PGBK_BIN}pg_dumpall $OPTS -g > $PGBK_BACKUP_DIR/pg_global_`date "+${PGBK_TIMESTAMP}"`.sql
 if [ $? != 0 ]; then
@@ -171,6 +187,15 @@ do
 	echo "pg_dump of $db failed."
     fi
 done
+
+# Resume replay if dumping from a slave
+if [ "${PG_HASPAUSE}" = "1" ]; then
+    ${PGBK_BIN}psql $OPTS -At -c "SELECT pg_xlog_replay_resume();" $PGBK_CONNDB
+    if [ $? != 0 ]; then
+        echo "could not resume replay"
+        exit 1
+    fi
+fi
 
 [ -z "$out_rc" ] && out_rc=0
 
