@@ -25,6 +25,8 @@
 # THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #
 
+version="1.2-dev"
+
 # hardcoded defaults
 PGBK_CONFIG="/etc/postgresql/pg_back.conf"
 PGBK_BACKUP_DIR=/var/backups/postgresql
@@ -74,7 +76,7 @@ do
 	-p) CLI_PORT=$2; shift 2;;
 	-d) CLI_CONNDB=$2; shift 2;;
 	-U) CLI_USERNAME=$2; shift 2;;
-	-V) echo "pg_back version 1.1"; exit 1;;
+	-V) echo "pg_back version $version"; exit 1;;
 	-\?) usage 1;;
 	--) shift; break;;
     esac
