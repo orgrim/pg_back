@@ -1,0 +1,19 @@
+pg_back 1.2
+===========
+
+* Support pausing replication on standby servers
+
+* Add timestamped information messages
+
+
+pg_back 1.1
+===========
+
+* Support the directory format of pg_dump
+
+
+pg_back 1.0
+===========
+
+* First release
+
