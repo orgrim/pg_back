@@ -169,26 +169,28 @@ fi
 
 # Pause replay if dumping from a slave
 if [ "${PG_HASPAUSE}" = "1" ]; then
-    info "pausing replication replay"
-    pg_query_batch "SELECT pg_xlog_replay_pause() where pg_is_in_recovery();"
-    if [ $? != 0 ]; then
-        die "could not pause replication replay"
-    fi
+   info "pausing replication replay"
+   pg_query_batch "SELECT pg_xlog_replay_pause() where pg_is_in_recovery();"
+   if [ $? != 0 ]; then
+      die "could not pause replication replay"
+   fi
 fi
 
 # Prepare the list of databases to dump
-if [ -z "$PGBK_DBLIST" ]; then
-    info "listing databases"
-    if [ "$PGBK_WITH_TEMPLATES" = "yes" ]; then
-	DB_QUERY="SELECT datname FROM pg_database WHERE datallowconn;"
-    else
-	DB_QUERY="SELECT datname FROM pg_database WHERE datallowconn AND NOT datistemplate;"
-    fi
+info "listing databases"
+if [ "$PGBK_WITH_TEMPLATES" = "yes" ]; then
+   DB_QUERY="SELECT datname FROM pg_database WHERE datallowconn;"
+else
+   DB_QUERY="SELECT datname FROM pg_database WHERE datallowconn AND NOT datistemplate;"
+fi
 
-    PGBK_DBLIST=$(pg_query_batch "$DB_QUERY")
-    if [ $? != 0 ]; then
-	die "could not list databases"
-    fi
+PGBK_DBLIST_FULL=$(pg_query_batch "$DB_QUERY")
+if [ $? != 0 ]; then
+    die "could not list databases"
+fi
+
+if [ -z "$PGBK_DBLIST" ]; then
+  PGBK_DBLIST=${PGBK_DBLIST_FULL}
 fi
 
 # Dump roles and tablespaces first
@@ -205,6 +207,13 @@ do
     echo $PGBK_EXCLUDE | grep -w $db >/dev/null 2>&1
     if [ $? = 0 ]; then
 	continue
+    fi
+
+    # checking if db exists
+    echo $PGBK_DBLIST_FULL | grep -w $db >/dev/null 2>&1
+    if [ $? -ne 0 ]; then
+      info "database '${db}' does not exists, ignoring"
+      continue
     fi
 
     # Dump
