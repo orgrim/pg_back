@@ -222,7 +222,7 @@ do
     # create a directory per database
     if [ ! -d "${PGBK_BACKUP_DIR}/${db}" ]; then
       mkdir "${PGBK_BACKUP_DIR}/${db}"
-      [ $? -ne 0 ] && die "could not create $PGBK_BACKUP_DIR"
+      [ $? -ne 0 ] && die "could not create $PGBK_BACKUP_DIR/${db}"
     fi
 
     ${PGBK_BIN}pg_dump $OPTS $PGBK_OPTS -f $PGBK_BACKUP_DIR/${db}/${db}_`date "+${PGBK_TIMESTAMP}"`.dump $db
