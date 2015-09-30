@@ -81,6 +81,11 @@ warn() {
     echo "$(now)  WARNING: $*" 1>&2
 }
 
+pg_query_batch() {
+  [ -z "$1" ] && return 1
+  ${PGBK_BIN}psql $OPTS -At $PGBK_CONNDB -c "$1"
+}
+
 args=`getopt "b:c:P:D:th:p:U:d:qV?" $*`
 if [ $? -ne 0 ]
 then
@@ -157,33 +162,35 @@ fi
 info "target directory is $PGBK_BACKUP_DIR"
 
 # Check if replay pause is available
-PG_HASPAUSE=`${PGBK_BIN}psql $OPTS -At -c "SELECT 1 FROM pg_proc WHERE proname='pg_xlog_replay_pause' AND pg_is_in_recovery();" $PGBK_CONNDB`
+PG_HASPAUSE=$(pg_query_batch "SELECT 1 FROM pg_proc WHERE proname='pg_xlog_replay_pause' AND pg_is_in_recovery();")
 if [ $? != 0 ]; then
     die "could not check for replication control functions"
 fi
 
 # Pause replay if dumping from a slave
 if [ "${PG_HASPAUSE}" = "1" ]; then
-    info "pausing replication replay"
-    ${PGBK_BIN}psql $OPTS -At -c "SELECT pg_xlog_replay_pause() where pg_is_in_recovery();" $PGBK_CONNDB
-    if [ $? != 0 ]; then
-        die "could not pause replication replay"
-    fi
+   info "pausing replication replay"
+   pg_query_batch "SELECT pg_xlog_replay_pause() where pg_is_in_recovery();"
+   if [ $? != 0 ]; then
+      die "could not pause replication replay"
+   fi
 fi
 
 # Prepare the list of databases to dump
-if [ -z "$PGBK_DBLIST" ]; then
-    info "listing databases"
-    if [ "$PGBK_WITH_TEMPLATES" = "yes" ]; then
-	DB_QUERY="SELECT datname FROM pg_database WHERE datallowconn;"
-    else
-	DB_QUERY="SELECT datname FROM pg_database WHERE datallowconn AND NOT datistemplate;"
-    fi
+info "listing databases"
+if [ "$PGBK_WITH_TEMPLATES" = "yes" ]; then
+   DB_QUERY="SELECT datname FROM pg_database WHERE datallowconn;"
+else
+   DB_QUERY="SELECT datname FROM pg_database WHERE datallowconn AND NOT datistemplate;"
+fi
 
-    PGBK_DBLIST=`${PGBK_BIN}psql $OPTS -At -c "$DB_QUERY" $PGBK_CONNDB`
-    if [ $? != 0 ]; then
-	die "could not list databases"
-    fi
+PGBK_DBLIST_FULL=$(pg_query_batch "$DB_QUERY")
+if [ $? != 0 ]; then
+    die "could not list databases"
+fi
+
+if [ -z "$PGBK_DBLIST" ]; then
+  PGBK_DBLIST=${PGBK_DBLIST_FULL}
 fi
 
 # Dump roles and tablespaces first
@@ -202,9 +209,23 @@ do
 	continue
     fi
 
+    # checking if db exists
+    echo $PGBK_DBLIST_FULL | grep -w $db >/dev/null 2>&1
+    if [ $? -ne 0 ]; then
+      info "database '${db}' does not exists, ignoring"
+      continue
+    fi
+
     # Dump
     info "dumping database \"$db\""
-    ${PGBK_BIN}pg_dump $OPTS $PGBK_OPTS -f $PGBK_BACKUP_DIR/${db}_`date "+${PGBK_TIMESTAMP}"`.dump $db
+
+    # create a directory per database
+    if [ ! -d "${PGBK_BACKUP_DIR}/${db}" ]; then
+      mkdir "${PGBK_BACKUP_DIR}/${db}"
+      [ $? -ne 0 ] && die "could not create $PGBK_BACKUP_DIR/${db}"
+    fi
+
+    ${PGBK_BIN}pg_dump $OPTS $PGBK_OPTS -f $PGBK_BACKUP_DIR/${db}/${db}_`date "+${PGBK_TIMESTAMP}"`.dump $db
     rc=$?
     if [ $rc != 0 ]; then
 	out_rc=1
@@ -215,7 +236,7 @@ done
 # Resume replay if dumping from a slave
 if [ "${PG_HASPAUSE}" = "1" ]; then
     info "resuming replication replay"
-    ${PGBK_BIN}psql $OPTS -At -c "SELECT pg_xlog_replay_resume();" $PGBK_CONNDB
+    pg_query_batch "SELECT pg_xlog_replay_resume();"
     if [ $? != 0 ]; then
         die "could not resume replication replay"
     fi
