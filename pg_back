@@ -157,7 +157,7 @@ fi
 info "target directory is $PGBK_BACKUP_DIR"
 
 # Check if replay pause is available
-PG_HASPAUSE=`${PGBK_BIN}psql $OPTS -At -c "SELECT 1 FROM pg_proc WHERE proname='pg_xlog_replay_pause' AND pg_is_in_recovery();" $PGBK_CONNDB 2/dev/null`
+PG_HASPAUSE=`${PGBK_BIN}psql $OPTS -At -c "SELECT 1 FROM pg_proc WHERE proname='pg_xlog_replay_pause' AND pg_is_in_recovery();" $PGBK_CONNDB 2>/dev/null`
 if [ $? != 0 ]; then
     info "could not check for replication control functions"
 fi
