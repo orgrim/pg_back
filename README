@@ -12,7 +12,7 @@ hold the configuration to automate the backup. All options can be
 overridden on the command line.
 
 Databases to dump can be specified in the configuration file or on the
-command line.  A list fo databases can also be excluded. Database
+command line.  A list of databases can also be excluded. Database
 templates can be included, with the exception of template0, because
 connection to it are forbidden by default.
 
