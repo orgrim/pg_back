@@ -173,19 +173,18 @@ if [ "${PG_HASPAUSE}" = "1" ]; then
         if [ $? != 0 ]; then
             die "could not pause replication replay"
         fi
-	PGBK_EXCLLOCKS=`${PGBK_BIN}psql $OPTS -At -c "SELECT count(*) FROM pg_locks WHERE mode = 'AccessExclusiveLock';" $PGBK_CONNDB`
+        PGBK_EXCLLOCKS=`${PGBK_BIN}psql $OPTS -At -c "SELECT count(*) FROM pg_locks WHERE mode = 'AccessExclusiveLock';" $PGBK_CONNDB`
         if [ $? != 0 ]; then
             die "could not get lock information"
         fi
-	if [ $PGBK_EXCLLOCKS -gt 0 ]
-	then
+        if [ $PGBK_EXCLLOCKS -gt 0 ]; then
             ${PGBK_BIN}psql $OPTS -At -c "SELECT pg_xlog_replay_resume();" $PGBK_CONNDB
             if [ $? != 0 ]; then
                 die "could not resume replication replay"
             fi
-	    echo "The slave database has exclusive locks (vacuum full, truncate or other locking command running on master"
-	    echo "Resuming replication for 10s"
-	    sleep 10
+            echo "The slave database has exclusive locks (vacuum full, truncate or other locking command running on master"
+            echo "Resuming replication for 10s"
+            sleep 10
 	fi
     done
 fi
