@@ -165,10 +165,28 @@ fi
 # Pause replay if dumping from a slave
 if [ "${PG_HASPAUSE}" = "1" ]; then
     info "pausing replication replay"
-    ${PGBK_BIN}psql $OPTS -At -c "SELECT pg_xlog_replay_pause() where pg_is_in_recovery();" $PGBK_CONNDB
-    if [ $? != 0 ]; then
-        die "could not pause replication replay"
-    fi
+    typeset -i PGBK_EXCLLOCKS;
+    PGBK_EXCLLOCKS=1;
+    while [ $PGBK_EXCLLOCKS -gt 0  ]
+    do
+        ${PGBK_BIN}psql $OPTS -At -c "SELECT pg_xlog_replay_pause() where pg_is_in_recovery();" $PGBK_CONNDB
+        if [ $? != 0 ]; then
+            die "could not pause replication replay"
+        fi
+        PGBK_EXCLLOCKS=`${PGBK_BIN}psql $OPTS -At -c "SELECT count(*) FROM pg_locks WHERE mode = 'AccessExclusiveLock';" $PGBK_CONNDB`
+        if [ $? != 0 ]; then
+            die "could not get lock information"
+        fi
+        if [ $PGBK_EXCLLOCKS -gt 0 ]; then
+            ${PGBK_BIN}psql $OPTS -At -c "SELECT pg_xlog_replay_resume();" $PGBK_CONNDB
+            if [ $? != 0 ]; then
+                die "could not resume replication replay"
+            fi
+	    echo "The slave database has exclusive locks (vacuum full, truncate or other locking command) running on master"
+            echo "Resuming replication for 10s"
+            sleep 10
+	fi
+    done
 fi
 
 # Prepare the list of databases to dump
