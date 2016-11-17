@@ -74,7 +74,9 @@ die() {
 }
 
 info() {
-    [ "$quiet" != "yes" ] && echo "$(now)  INFO: $*" 1>&2
+    if [ "$quiet" != "yes" ]; then 
+        echo "$(now)  INFO: $*" 1>&2
+    fi
 }
 
 warn() {
@@ -217,6 +219,7 @@ do
     # Do not dump excluded databases
     echo $PGBK_EXCLUDE | grep -w $db >/dev/null 2>&1
     if [ $? = 0 ]; then
+        info "Do not dump excluded database:" $db
 	continue
     fi
 
@@ -244,10 +247,30 @@ fi
 # Purge old backups, only if current backup succeeded
 if [ "$out_rc" = 0 ]; then
     info "purging old backups"
-    find $PGBK_BACKUP_DIR -maxdepth 1 -mtime +$PGBK_PURGE -exec rm -rf '{}' ';'
+    # Purge pg_global dumps
+    find $PGBK_BACKUP_DIR -maxdepth 1 -mtime +$PGBK_PURGE -name pg_global_*.sql -exec rm -f '{}' ';'
     if [ $? != 0 ]; then
-	die "could not purge all old backups"
+	error "could not purge all old pg_global backups"
+    	out_rc=2
     fi
+    for db in $PGBK_DBLIST
+    do
+        # Do not purge excluded databases
+        echo $PGBK_EXCLUDE | grep -w $db >/dev/null 2>&1
+        if [ $? = 0 ]; then
+            info "Do not purge excluded database:" $db
+            continue
+        fi
+    
+        # Purge $db backups
+        info "purging database \"$db\""
+        find $PGBK_BACKUP_DIR -maxdepth 1 -mtime +$PGBK_PURGE -name ${db}_*.dump -exec rm -f '{}' ';'
+        rc=$?
+        if [ $rc != 0 ]; then
+    	    error "could not purge all old backups of database \"$db\""
+    	    out_rc=2
+        fi
+    done
 else
     warn "some dumps failed, purge of all old backup cancelled"
 fi
