@@ -157,7 +157,7 @@ fi
 info "target directory is $PGBK_BACKUP_DIR"
 
 # Check if replay pause is available
-PG_HASPAUSE=`${PGBK_BIN}psql $OPTS -At -c "SELECT 1 FROM pg_proc WHERE proname='pg_xlog_replay_pause' AND pg_is_in_recovery();" $PGBK_CONNDB 2>/dev/null`
+PG_HASPAUSE=`${PGBK_BIN}psql -X $OPTS -At -c "SELECT 1 FROM pg_proc WHERE proname='pg_xlog_replay_pause' AND pg_is_in_recovery();" $PGBK_CONNDB 2>/dev/null`
 if [ $? != 0 ]; then
     info "could not check for replication control functions"
 fi
@@ -169,16 +169,16 @@ if [ "${PG_HASPAUSE}" = "1" ]; then
     PGBK_EXCLLOCKS=1;
     while [ $PGBK_EXCLLOCKS -gt 0  ]
     do
-        ${PGBK_BIN}psql $OPTS -At -c "SELECT pg_xlog_replay_pause() where pg_is_in_recovery();" $PGBK_CONNDB
+        ${PGBK_BIN}psql -X $OPTS -At -c "SELECT pg_xlog_replay_pause() where pg_is_in_recovery();" $PGBK_CONNDB
         if [ $? != 0 ]; then
             die "could not pause replication replay"
         fi
-        PGBK_EXCLLOCKS=`${PGBK_BIN}psql $OPTS -At -c "SELECT count(*) FROM pg_locks WHERE mode = 'AccessExclusiveLock';" $PGBK_CONNDB`
+        PGBK_EXCLLOCKS=`${PGBK_BIN}psql -X $OPTS -At -c "SELECT count(*) FROM pg_locks WHERE mode = 'AccessExclusiveLock';" $PGBK_CONNDB`
         if [ $? != 0 ]; then
             die "could not get lock information"
         fi
         if [ $PGBK_EXCLLOCKS -gt 0 ]; then
-            ${PGBK_BIN}psql $OPTS -At -c "SELECT pg_xlog_replay_resume();" $PGBK_CONNDB
+            ${PGBK_BIN}psql -X $OPTS -At -c "SELECT pg_xlog_replay_resume();" $PGBK_CONNDB
             if [ $? != 0 ]; then
                 die "could not resume replication replay"
             fi
@@ -198,7 +198,7 @@ if [ -z "$PGBK_DBLIST" ]; then
 	DB_QUERY="SELECT datname FROM pg_database WHERE datallowconn AND NOT datistemplate;"
     fi
 
-    PGBK_DBLIST=`${PGBK_BIN}psql $OPTS -At -c "$DB_QUERY" $PGBK_CONNDB`
+    PGBK_DBLIST=`${PGBK_BIN}psql -X $OPTS -At -c "$DB_QUERY" $PGBK_CONNDB`
     if [ $? != 0 ]; then
 	die "could not list databases"
     fi
@@ -233,7 +233,7 @@ done
 # Resume replay if dumping from a slave
 if [ "${PG_HASPAUSE}" = "1" ]; then
     info "resuming replication replay"
-    ${PGBK_BIN}psql $OPTS -At -c "SELECT pg_xlog_replay_resume();" $PGBK_CONNDB
+    ${PGBK_BIN}psql -X $OPTS -At -c "SELECT pg_xlog_replay_resume();" $PGBK_CONNDB
     if [ $? != 0 ]; then
         die "could not resume replication replay"
     fi
