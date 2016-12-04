@@ -173,6 +173,9 @@ fi
 # Pause replay if dumping from a slave
 if [ "${PG_HASPAUSE}" = "1" ]; then
     info "pausing replication replay"
+
+    # Wait for exclusive locks to get released on the slave before
+    # pausing the replication replay
     typeset -i PGBK_EXCLLOCKS;
     PGBK_EXCLLOCKS=1;
     while [ $PGBK_EXCLLOCKS -gt 0  ]
@@ -251,8 +254,6 @@ if [ "${PG_HASPAUSE}" = "1" ]; then
         die "could not resume replication replay"
     fi
 fi
-
-[ -z "$out_rc" ] && out_rc=0
 
 # Purge old backups, only if current backup succeeded
 info "purging old backups"
