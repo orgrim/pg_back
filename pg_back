@@ -33,6 +33,7 @@ PGBK_CONFIG="/etc/postgresql/pg_back.conf"
 PGBK_BACKUP_DIR=/var/backups/postgresql
 PGBK_TIMESTAMP="%Y-%m-%d_%H-%M-%S"
 PGBK_PURGE=30
+PGBK_PURGE_MIN_KEEP=0
 PGBK_OPTS="-Fc"
 PGBK_WITH_TEMPLATES="no"
 PGBK_CONNDB="postgres"
@@ -43,7 +44,8 @@ usage() {
     echo "options:"
     echo "  -b dir        store dump files there (default: \"$PGBK_BACKUP_DIR\")"
     echo "  -c config     alternate config file (default: \"$PGBK_CONFIG\")"
-    echo "  -P time       purge old backup, see find -ctime (default: \"$PGBK_PURGE\")"
+    echo "  -P days       purge backups older than this number of days (default: \"$PGBK_PURGE\")"
+    echo "  -K number     minimum number of backups to keep when purging (default: \"$PGBK_PURGE_MIN_KEEP\")"
     echo "  -D db1,...    list of databases to exclude"
     echo "  -t            include templates"
     echo 
@@ -81,7 +83,7 @@ warn() {
     echo "$(now)  WARNING: $*" 1>&2
 }
 
-args=`getopt "b:c:P:D:th:p:U:d:qV?" $*`
+args=`getopt "b:c:P:K:D:th:p:U:d:qV?" $*`
 if [ $? -ne 0 ]
 then
     usage 2
@@ -94,6 +96,7 @@ do
 	-b) CLI_BACKUP_DIR=$2; shift 2;;
 	-c) PGBK_CONFIG=$2; shift 2;;
 	-P) CLI_PURGE=$2; shift 2;;
+        -K) CLI_PURGE_MIN_KEEP=$2; shift 2;;
 	-D) CLI_EXCLUDE="`echo $2 | tr ',' ' '`"; shift 2;;
 	-t) CLI_WITH_TEMPLATES="yes"; shift;;
 	-h) CLI_HOSTNAME=$2; shift 2;;
@@ -121,6 +124,7 @@ fi
 
 # Override configuration with cli options
 [ -n "$CLI_PURGE" ] && PGBK_PURGE=$CLI_PURGE
+[ -n "$CLI_PURGE_MIN_KEEP" ] && PGBK_PURGE_MIN_KEEP=$CLI_PURGE_MIN_KEEP
 [ -n "$CLI_EXCLUDE" ] && PGBK_EXCLUDE=$CLI_EXCLUDE
 [ -n "$CLI_WITH_TEMPLATES" ] && PGBK_WITH_TEMPLATES=$CLI_WITH_TEMPLATES
 [ -n "$CLI_HOSTNAME" ] && PGBK_HOSTNAME=$CLI_HOSTNAME
@@ -135,6 +139,10 @@ fi
 [ -n "$PGBK_USERNAME" ] && OPTS="$OPTS -U $PGBK_USERNAME"
 
 info "preparing to dump"
+
+# Check if some options are integers
+[[ $PGBK_PURGE =~ ^[[:digit:]]+$ ]] || die "PGBK_PURGE (-P) '$PGBK_PURGE' is not an integer"
+[[ $PGBK_PURGE_MIN_KEEP =~ ^[[:digit:]]+$ ]] || die "PGBK_PURGE_MIN_KEEP (-K) '$PGBK_PURGE_MIN_KEEP' is not an integer"
 
 # Ensure there is a trailing slash in the path to the binaries
 if [ -n "$PGBK_BIN" ]; then
@@ -204,14 +212,18 @@ if [ -z "$PGBK_DBLIST" ]; then
     fi
 fi
 
+dumped=()
 # Dump roles and tablespaces first
 info "dumping global objects"
 ${PGBK_BIN}pg_dumpall $OPTS -g > $PGBK_BACKUP_DIR/pg_global_`date "+${PGBK_TIMESTAMP}"`.sql
 if [ $? != 0 ]; then
     error "pg_dumpall -g failed"
     out_rc=1
+else
+    dumped+=( "pg_global" )
 fi
 
+# Dump database
 for db in $PGBK_DBLIST
 do
     # Do not dump excluded databases
@@ -220,13 +232,14 @@ do
 	continue
     fi
 
-    # Dump
+    # Dump and remember which db were properly dumped for purge
     info "dumping database \"$db\""
-    ${PGBK_BIN}pg_dump $OPTS $PGBK_OPTS -f $PGBK_BACKUP_DIR/${db}_`date "+${PGBK_TIMESTAMP}"`.dump $db
-    rc=$?
-    if [ $rc != 0 ]; then
+    if ! ${PGBK_BIN}pg_dump $OPTS $PGBK_OPTS -f $PGBK_BACKUP_DIR/${db}_`date "+${PGBK_TIMESTAMP}"`.dump $db; then
 	out_rc=1
+        rm $PGBK_BACKUP_DIR/${db}_`date "+${PGBK_TIMESTAMP}"`.dump
 	error "pg_dump of database \"$db\" failed"
+    else
+        dumped+=( "$db" )
     fi
 done
 
@@ -242,15 +255,37 @@ fi
 [ -z "$out_rc" ] && out_rc=0
 
 # Purge old backups, only if current backup succeeded
-if [ "$out_rc" = 0 ]; then
-    info "purging old backups"
-    find $PGBK_BACKUP_DIR -maxdepth 1 -mtime +$PGBK_PURGE -exec rm -rf '{}' ';'
-    if [ $? != 0 ]; then
-	die "could not purge all old backups"
-    fi
-else
-    warn "some dumps failed, purge of all old backup cancelled"
-fi
+info "purging old backups"
+
+# Transform number of days to a timestamp for Epoch
+limit_ts=$(($(date +%s) - 86400 * $PGBK_PURGE))
+
+for db in "${dumped[@]}"; do
+    # List the dump for databases that were successfully dumped along
+    # with the time of last modification since Epoch. Sort them so
+    # that the newest come first and keep
+    to_purge=()
+    i=1
+    while read line; do
+        if (( $i > ${PGBK_PURGE_MIN_KEEP:-0} )); then
+            to_purge+=( "$line" )
+        fi
+        (( i++ ))
+    done < <(stat -c '%Y|%n' $PGBK_BACKUP_DIR/${db}_*.{dump,sql} 2>/dev/null | sort -rn)
+
+    # Check if the file/dir is old enough to be removed
+    for dump in "${to_purge[@]}"; do
+        ts=$(cut -d'|' -f 1 <<< "$dump")
+        filename=$(cut -d'|' -f 2 <<< "$dump")
+
+        if (( $ts <= $limit_ts )); then
+            info "removing $filename"
+            if ! rm -rf -- "$filename"; then
+                error "could not purge $filename"
+            fi
+        fi
+    done
+done
 
 info "done"
 
