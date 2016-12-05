@@ -45,7 +45,8 @@ usage() {
     echo "  -b dir        store dump files there (default: \"$PGBK_BACKUP_DIR\")"
     echo "  -c config     alternate config file (default: \"$PGBK_CONFIG\")"
     echo "  -P days       purge backups older than this number of days (default: \"$PGBK_PURGE\")"
-    echo "  -K number     minimum number of backups to keep when purging (default: \"$PGBK_PURGE_MIN_KEEP\")"
+    echo "  -K number     minimum number of backups to keep when purging or 'all' to keep"
+    echo "                everything (default: \"$PGBK_PURGE_MIN_KEEP\")"
     echo "  -D db1,...    list of databases to exclude"
     echo "  -t            include templates"
     echo 
@@ -143,7 +144,9 @@ info "preparing to dump"
 
 # Check if some options are integers
 [[ $PGBK_PURGE =~ ^[[:digit:]]+$ ]] || die "PGBK_PURGE (-P) '$PGBK_PURGE' is not an integer"
-[[ $PGBK_PURGE_MIN_KEEP =~ ^[[:digit:]]+$ ]] || die "PGBK_PURGE_MIN_KEEP (-K) '$PGBK_PURGE_MIN_KEEP' is not an integer"
+if [[ $PGBK_PURGE_MIN_KEEP != "all" ]]; then
+    [[ $PGBK_PURGE_MIN_KEEP =~ ^[[:digit:]]+$ ]] || die "PGBK_PURGE_MIN_KEEP (-K) '$PGBK_PURGE_MIN_KEEP' is not an integer"
+fi
 
 # Ensure there is a trailing slash in the path to the binaries
 if [ -n "$PGBK_BIN" ]; then
@@ -256,38 +259,42 @@ if [ "${PG_HASPAUSE}" = "1" ]; then
     fi
 fi
 
-# Purge old backups, only if current backup succeeded
-info "purging old backups"
+if [[ $PGBK_PURGE_MIN_KEEP == "all" ]]; then
+    info "old backups kept as requested"
+else
+    # Purge old backups, only if current backup succeeded
+    info "purging old backups"
 
-# Transform number of days to a timestamp for Epoch
-limit_ts=$(($(date +%s) - 86400 * $PGBK_PURGE))
+    # Transform number of days to a timestamp for Epoch
+    limit_ts=$(($(date +%s) - 86400 * $PGBK_PURGE))
 
-for db in "${dumped[@]}"; do
-    # List the dump for databases that were successfully dumped along
-    # with the time of last modification since Epoch. Sort them so
-    # that the newest come first and keep
-    to_purge=()
-    i=1
-    while read line; do
-        if (( $i > ${PGBK_PURGE_MIN_KEEP:-0} )); then
-            to_purge+=( "$line" )
-        fi
-        (( i++ ))
-    done < <(stat -c '%Y|%n' $PGBK_BACKUP_DIR/${db}_*.{dump,sql} 2>/dev/null | sort -rn)
-
-    # Check if the file/dir is old enough to be removed
-    for dump in "${to_purge[@]}"; do
-        ts=$(cut -d'|' -f 1 <<< "$dump")
-        filename=$(cut -d'|' -f 2 <<< "$dump")
-
-        if (( $ts <= $limit_ts )); then
-            info "removing $filename"
-            if ! rm -rf -- "$filename"; then
-                error "could not purge $filename"
+    for db in "${dumped[@]}"; do
+        # List the dump for databases that were successfully dumped along
+        # with the time of last modification since Epoch. Sort them so
+        # that the newest come first and keep
+        to_purge=()
+        i=1
+        while read line; do
+            if (( $i > ${PGBK_PURGE_MIN_KEEP:-0} )); then
+                to_purge+=( "$line" )
             fi
-        fi
+            (( i++ ))
+        done < <(stat -c '%Y|%n' $PGBK_BACKUP_DIR/${db}_*.{dump,sql} 2>/dev/null | sort -rn)
+
+        # Check if the file/dir is old enough to be removed
+        for dump in "${to_purge[@]}"; do
+            ts=$(cut -d'|' -f 1 <<< "$dump")
+            filename=$(cut -d'|' -f 2 <<< "$dump")
+
+            if (( $ts <= $limit_ts )); then
+                info "removing $filename"
+                if ! rm -rf -- "$filename"; then
+                    error "could not purge $filename"
+                fi
+            fi
+        done
     done
-done
+fi
 
 info "done"
 
