@@ -166,10 +166,23 @@ if [ ! -d $PGBK_BACKUP_DIR ]; then
     fi
 fi
 
+# Get version of the server
+PG_VERSION=`${PGBK_BIN}psql -X $OPTS -At -c "SELECT setting FROM pg_settings WHERE name = 'server_version_num';" $PGBK_CONNDB 2>/dev/null`
+if [ $? != 0 ]; then
+    die "could not get the version of the server"
+fi
+
+# As of PostgreSQL 10, "xlog" has been changed to "wal", it applies to functions
+if (( 10#$PG_VERSION >= 100000 )); then
+    xlog_or_wal="wal"
+else
+    xlog_or_wal="xlog"
+fi
+
 info "target directory is $PGBK_BACKUP_DIR"
 
 # Check if replay pause is available
-PG_HASPAUSE=`${PGBK_BIN}psql -X $OPTS -At -c "SELECT 1 FROM pg_proc WHERE proname='pg_xlog_replay_pause' AND pg_is_in_recovery();" $PGBK_CONNDB 2>/dev/null`
+PG_HASPAUSE=`${PGBK_BIN}psql -X $OPTS -At -c "SELECT 1 FROM pg_proc WHERE proname='pg_${xlog_or_wal}_replay_pause' AND pg_is_in_recovery();" $PGBK_CONNDB 2>/dev/null`
 if [ $? != 0 ]; then
     info "could not check for replication control functions"
 fi
@@ -184,7 +197,7 @@ if [ "${PG_HASPAUSE}" = "1" ]; then
     PGBK_EXCLLOCKS=1;
     while [ $PGBK_EXCLLOCKS -gt 0  ]
     do
-        ${PGBK_BIN}psql -X $OPTS -At -c "SELECT pg_xlog_replay_pause() where pg_is_in_recovery();" $PGBK_CONNDB
+        ${PGBK_BIN}psql -X $OPTS -At -c "SELECT pg_${xlog_or_wal}_replay_pause() where pg_is_in_recovery();" $PGBK_CONNDB
         if [ $? != 0 ]; then
             die "could not pause replication replay"
         fi
@@ -193,7 +206,7 @@ if [ "${PG_HASPAUSE}" = "1" ]; then
             die "could not get lock information"
         fi
         if [ $PGBK_EXCLLOCKS -gt 0 ]; then
-            ${PGBK_BIN}psql -X $OPTS -At -c "SELECT pg_xlog_replay_resume();" $PGBK_CONNDB
+            ${PGBK_BIN}psql -X $OPTS -At -c "SELECT pg_${xlog_or_wal}_replay_resume();" $PGBK_CONNDB
             if [ $? != 0 ]; then
                 die "could not resume replication replay"
             fi
@@ -253,7 +266,7 @@ done
 # Resume replay if dumping from a slave
 if [ "${PG_HASPAUSE}" = "1" ]; then
     info "resuming replication replay"
-    ${PGBK_BIN}psql -X $OPTS -At -c "SELECT pg_xlog_replay_resume();" $PGBK_CONNDB
+    ${PGBK_BIN}psql -X $OPTS -At -c "SELECT pg_${xlog_or_wal}_replay_resume();" $PGBK_CONNDB
     if [ $? != 0 ]; then
         die "could not resume replication replay"
     fi
