@@ -1,3 +1,9 @@
+pg_back 1.4
+===========
+
+* Support PostgreSQL 10
+
+
 pg_back 1.3
 ===========
 
