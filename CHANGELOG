@@ -1,3 +1,9 @@
+pg_back 1.5
+===========
+
+* Support for pg_dumpacl (https://github.com/dalibo/pg_dumpacl)
+
+
 pg_back 1.4
 ===========
 
