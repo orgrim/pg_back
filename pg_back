@@ -252,6 +252,15 @@ do
 	continue
     fi
 
+    if [ -x ${PGBK_BIN}pg_dumpacl ] ; then
+        dump="${PGBK_BACKUP_DIR}/${db}_$(date +${PGBK_TIMESTAMP}).createdb.sql"
+        info "dumping creation statement of database \"$db\" into ${dump}"
+        if ! ${PGBK_BIN}pg_dumpacl $OPTS -d $db -f ${dump} ; then
+            out_rc=1
+            error "pg_dumpacl of database \"$db\" failed"
+        fi
+    fi
+
     # Dump and remember which db were properly dumped for purge
     dump="${PGBK_BACKUP_DIR}/${db}_$(date "+${PGBK_TIMESTAMP}").dump"
     info "dumping database \"$db\" into ${dump}"
