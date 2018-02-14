@@ -252,6 +252,8 @@ do
 	continue
     fi
 
+    # Dump all statements necessary to recreate the database include
+    # privileges with pg_dumpacl. See https://github.com/dalibo/pg_dumpacl
     if [ -x ${PGBK_BIN}pg_dumpacl ] ; then
         dump="${PGBK_BACKUP_DIR}/${db}_$(date +${PGBK_TIMESTAMP}).createdb.sql"
         info "dumping creation statement of database \"$db\" into ${dump}"
