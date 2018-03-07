@@ -1,0 +1,10 @@
+#!/bin/bash -eux
+
+cd $(readlink -m $0/..)
+SPEC=pg_back.spec
+sudo yum-builddep -y ${SPEC}
+rpmbuild \
+    --define "_sourcedir ${PWD}" \
+    --define "_rpmdir ${PWD}" \
+    --undefine _disable_source_fetch \
+    -ba ${SPEC}
