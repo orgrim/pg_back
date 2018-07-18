@@ -1,5 +1,5 @@
 Name:           pg_back
-Version:        1.5
+Version:        1.6
 Release:        1
 License:        BSD
 Summary:        Simple backup script for PostgreSQL
@@ -53,6 +53,9 @@ install -D -p -m 0644 CHANGELOG %{buildroot}/usr/share/doc/pg_back-%{version}/RE
 %{_bindir}/pg_back
 
 %changelog
+* Wed Jul 18 2018 Nicolas Thauvin <nico@orgrim.net> - 1.6-1
+* New upstream release
+
 * Thu Mar  8 2018 Nicolas Thauvin <nico@orgrim.net> - 1.5-1
 * New upstream release
 
