@@ -258,8 +258,11 @@ do
     # privileges with pg_dumpacl. See https://github.com/dalibo/pg_dumpacl
     if [ -x ${PGBK_BIN}pg_dumpacl ] ; then
         dump="${PGBK_BACKUP_DIR}/${db}_${DUMP_DATE}.createdb.sql"
+
+        # Since -l is renamed -d in pg_dumpacl 0.2, find the good switch
+        db_opt=$(${PGBK_BIN}pg_dumpacl --help | awk '$2 ~ /CONNSTR/ { if ($1 == "-c,") { print "-d" } else { print "-l" } }')
         info "dumping creation statement of database \"$db\" into ${dump}"
-        if ! ${PGBK_BIN}pg_dumpacl $OPTS -d $db -f ${dump} ; then
+        if ! ${PGBK_BIN}pg_dumpacl $OPTS $db_opt $db -f "${dump}" ; then
             out_rc=1
             error "pg_dumpacl of database \"$db\" failed"
         fi
@@ -268,7 +271,7 @@ do
     # Dump and remember which db were properly dumped for purge
     dump="${PGBK_BACKUP_DIR}/${db}_${DUMP_DATE}.dump"
     info "dumping database \"$db\" into ${dump}"
-    if ! ${PGBK_BIN}pg_dump $OPTS $PGBK_OPTS -f ${dump} $db; then
+    if ! ${PGBK_BIN}pg_dump $OPTS $PGBK_OPTS -f "${dump}" $db; then
         out_rc=1
         rm -f ${dump}
         error "pg_dump of database \"$db\" failed"
