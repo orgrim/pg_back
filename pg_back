@@ -233,9 +233,11 @@ if [ -z "$PGBK_DBLIST" ]; then
 fi
 
 dumped=()
+DUMP_DATE=$(date "+${PGBK_TIMESTAMP}")
 # Dump roles and tablespaces first
-info "dumping global objects"
-${PGBK_BIN}pg_dumpall $OPTS -g > $PGBK_BACKUP_DIR/pg_global_`date "+${PGBK_TIMESTAMP}"`.sql
+dump="$PGBK_BACKUP_DIR/pg_global_${DUMP_DATE}.sql"
+info "dumping global objects into ${dump}"
+${PGBK_BIN}pg_dumpall $OPTS -g > "$dump"
 if [ $? != 0 ]; then
     error "pg_dumpall -g failed"
     out_rc=1
@@ -255,7 +257,7 @@ do
     # Dump all statements necessary to recreate the database include
     # privileges with pg_dumpacl. See https://github.com/dalibo/pg_dumpacl
     if [ -x ${PGBK_BIN}pg_dumpacl ] ; then
-        dump="${PGBK_BACKUP_DIR}/${db}_$(date +${PGBK_TIMESTAMP}).createdb.sql"
+        dump="${PGBK_BACKUP_DIR}/${db}_${DUMP_DATE}.createdb.sql"
         info "dumping creation statement of database \"$db\" into ${dump}"
         if ! ${PGBK_BIN}pg_dumpacl $OPTS -d $db -f ${dump} ; then
             out_rc=1
@@ -264,7 +266,7 @@ do
     fi
 
     # Dump and remember which db were properly dumped for purge
-    dump="${PGBK_BACKUP_DIR}/${db}_$(date "+${PGBK_TIMESTAMP}").dump"
+    dump="${PGBK_BACKUP_DIR}/${db}_${DUMP_DATE}.dump"
     info "dumping database \"$db\" into ${dump}"
     if ! ${PGBK_BIN}pg_dump $OPTS $PGBK_OPTS -f ${dump} $db; then
         out_rc=1
