@@ -13,9 +13,9 @@ pg_back uses pg_dumpall to dump roles and tablespaces, pg_dump to dump
 each selected database to a separate file. The custom format of
 pg_dump is used by default.
 
-A configuration file, by default /etc/postgresql/pg_back.conf, can
-hold the configuration to automate the backup. All options can be
-overridden on the command line.
+A configuration file, by default /etc/pg_back/pg_back.conf, can hold the
+configuration to automate the backup. All options can be overridden on the
+command line.
 
 Databases to dump can be specified in the configuration file or on the
 command line.  A list fo databases can also be excluded. Database
@@ -37,7 +37,7 @@ possible.
 
 %install
 install -D -p -m 0755 pg_back %{buildroot}/usr/bin/pg_back
-install -D -p -m 0644 pg_back.conf %{buildroot}/etc/postgresql/pg_back.conf
+install -D -p -m 0644 pg_back.conf %{buildroot}/etc/pg_back/pg_back.conf
 install -D -p -m 0644 CHANGELOG %{buildroot}/usr/share/doc/pg_back-%{version}/CHANGELOG
 install -D -p -m 0644 CHANGELOG %{buildroot}/usr/share/doc/pg_back-%{version}/CONTRIBUTORS
 install -D -p -m 0644 CHANGELOG %{buildroot}/usr/share/doc/pg_back-%{version}/README
@@ -49,7 +49,7 @@ install -D -p -m 0644 CHANGELOG %{buildroot}/usr/share/doc/pg_back-%{version}/RE
 %doc /usr/share/doc/pg_back-%{version}/CHANGELOG
 %doc /usr/share/doc/pg_back-%{version}/CONTRIBUTORS
 %doc /usr/share/doc/pg_back-%{version}/README
-%config(noreplace) /etc/postgresql/%{name}.conf
+%config(noreplace) /etc/pg_back/%{name}.conf
 %{_bindir}/pg_back
 
 %changelog
