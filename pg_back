@@ -303,13 +303,15 @@ else
         # with the time of last modification since Epoch. Sort them so
         # that the newest come first and keep
         to_purge=()
-        i=1
-        while read line; do
-            if (( $i > ${PGBK_PURGE_MIN_KEEP:-0} )); then
-                to_purge+=( "$line" )
-            fi
-            (( i++ ))
-        done < <(stat -c '%Y|%n' $PGBK_BACKUP_DIR/${db}_*.{dump,sql} 2>/dev/null | sort -rn)
+        for t in dump sql; do
+            i=1
+            while read line; do
+                if (( $i > ${PGBK_PURGE_MIN_KEEP:-0} )); then
+                    to_purge+=( "$line" )
+                fi
+                (( i++ ))
+            done < <(stat -c '%Y|%n' "$PGBK_BACKUP_DIR"/"${db}"_*.${t} 2>/dev/null | sort -rn)
+        done
 
         # Check if the file/dir is old enough to be removed
         for dump in "${to_purge[@]}"; do
