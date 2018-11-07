@@ -1,3 +1,11 @@
+pg_back 1.7
+===========
+
+* Fix the purge not handling pg_dumpacl SQL file properly
+
+* Improve documentation of the configuration file
+
+
 pg_back 1.6
 ===========
 
