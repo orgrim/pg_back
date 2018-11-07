@@ -256,7 +256,7 @@ do
 
     # Dump all statements necessary to recreate the database include
     # privileges with pg_dumpacl. See https://github.com/dalibo/pg_dumpacl
-    if [ -x ${PGBK_BIN}pg_dumpacl ] ; then
+    if command -v ${PGBK_BIN}pg_dumpacl &>>/dev/null ; then
         dump="${PGBK_BACKUP_DIR}/${db}_${DUMP_DATE}.createdb.sql"
 
         # Since -l is renamed -d in pg_dumpacl 0.2, find the good switch
