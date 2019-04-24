@@ -273,7 +273,7 @@ do
     info "dumping database \"$db\" into ${dump}"
     if ! ${PGBK_BIN}pg_dump $OPTS $PGBK_OPTS -f "${dump}" $db; then
         out_rc=1
-        rm -f ${dump}
+        rm -rf ${dump}
         error "pg_dump of database \"$db\" failed"
     else
         dumped+=( "$db" )
