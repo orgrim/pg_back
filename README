@@ -1,5 +1,6 @@
 pg_back is a simple backup script for PostgreSQL.
 
+
 FEATURES
 --------
 
@@ -7,8 +8,8 @@ pg_back uses pg_dumpall to dump roles and tablespaces, pg_dump to dump
 each selected database to a separate file. The custom format of
 pg_dump is used by default.
 
-A configuration file, by default /etc/postgresql/pg_back.conf, can
-hold the configuration to automate the backup. All options can be
+A configuration file, by default /etc/pg_back/pg_back.conf, can
+hold the configuration to automate the backup. Most options can be
 overridden on the command line.
 
 Databases to dump can be specified in the configuration file or on the
@@ -25,8 +26,7 @@ If running on a standby database, il will pause replication for the duration of
 the dump.
 
 The script is working out of the box, but you should consider editing
-it to fit your needs. This is why I want to keep it the simplest
-possible.
+it to fit your needs.
 
 
 USAGE
