@@ -37,6 +37,7 @@ PGBK_PURGE_MIN_KEEP=0
 PGBK_OPTS=("-Fc")
 PGBK_WITH_TEMPLATES="no"
 PGBK_CONNDB="postgres"
+PGBK_COMP=""
 
 usage() {
     echo "PostgreSQL simple backup script"
@@ -49,6 +50,8 @@ usage() {
     echo "                everything (default: \"$PGBK_PURGE_MIN_KEEP\")"
     echo "  -D db1,...    list of databases to exclude"
     echo "  -t            include templates"
+    echo "  -C compress   type compression (bzip2, zip, gz)"
+    echo "  -C compress   type compression: bzip2, zip, gz (default: none)"
     echo 
     echo "  -h hostname   database server host or socket directory (default: \"${PGHOST:-local socket}\")"
     echo "  -p port       database server port (default: \"$PGPORT\")"
@@ -105,6 +108,7 @@ do
         -K) CLI_PURGE_MIN_KEEP=$2; shift 2;;
 	-D) CLI_EXCLUDE="`echo $2 | tr ',' ' '`"; shift 2;;
 	-t) CLI_WITH_TEMPLATES="yes"; shift;;
+        -C) CLI_COMP=$2; shift 2;;
 	-h) CLI_HOSTNAME=$2; shift 2;;
 	-p) CLI_PORT=$2; shift 2;;
 	-d) CLI_CONNDB=$2; shift 2;;
@@ -138,6 +142,7 @@ fi
 [ -n "$CLI_USERNAME" ] && PGBK_USERNAME=$CLI_USERNAME
 [ -n "$CLI_DBLIST" ] && PGBK_DBLIST=$CLI_DBLIST
 [ -n "$CLI_CONNDB" ] && PGBK_CONNDB=$CLI_CONNDB
+[ -n "$CLI_COMP" ] && PGBK_COMPRESS=$CLI_COMP
 
 # Prepare common options for pg_dump and pg_dumpall
 [ -n "$PGBK_HOSTNAME" ] && OPTS="$OPTS -h $PGBK_HOSTNAME"
@@ -281,6 +286,19 @@ do
         error "pg_dump of database \"$db\" failed"
     else
         dumped+=( "$db" )
+	# Compress dump if PGBK_COMPRESS is filled
+        if [ -n $PGBK_COMPRESS ]; then
+            if [ "$PGBK_COMPRESS" = "bzip2" ]; then
+                info "compress dump \"$db\""
+                bzip2 -f $dump
+            elif [ "$PGBK_COMPRESS" = "gzip" ]; then
+                info "compress dump \"$db\""
+                gzip $dump
+            elif [ "$PGBK_COMPRESS" = "zip" ]; then
+                info "compress dump \"$db\""
+                zip -9 -m ${dump}.zip $dump
+            fi
+        fi
     fi
 done
 
@@ -307,7 +325,7 @@ else
         # with the time of last modification since Epoch. Sort them so
         # that the newest come first and keep
         to_purge=()
-        for t in dump sql; do
+        for t in dump sql dump.*; do
             i=1
             while read line; do
                 if (( $i > ${PGBK_PURGE_MIN_KEEP:-0} )); then
