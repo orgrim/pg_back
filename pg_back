@@ -295,7 +295,7 @@ do
     fi
     if [ -n "${SIGNATURE_ALGO}" -a "${SIGNATURE_ALGO}" != "none" ]; then
         info "creating signature file for $(basename ${dump}) into $(basename ${dump}).${SIGNATURE_ALGO}"
-        ${SIGNATURE_ALGO}sum ${dump} | awk '{ print $1 }' > ${dump}.${SIGNATURE_ALGO}
+        ${SIGNATURE_ALGO}sum ${dump} > ${dump}.${SIGNATURE_ALGO}
     fi
 done
 
