@@ -47,7 +47,7 @@ usage() {
     echo "  -c config     alternate config file (default: \"$PGBK_CONFIG\")"
     echo "  -P days       purge backups older than this number of days (default: \"$PGBK_PURGE\")"
     echo "  -S algo       signature algorithm (default: \"$SIGNATURE_ALGO\")"
-    echo "                available algo.: none $(find /usr/bin -iname "sha*sum" | xargs -i -n 1 basename '{}' sum | sort | tr '\n' ' ')"
+    echo "                available algo.: none $(find /usr/bin/sha*?sum -type f -printf '%f ' | sed 's/sum//g')"
     echo "  -K number     minimum number of backups to keep when purging or 'all' to keep"
     echo "                everything (default: \"$PGBK_PURGE_MIN_KEEP\")"
     echo "  -D db1,...    list of databases to exclude"
