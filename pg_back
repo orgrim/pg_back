@@ -149,7 +149,7 @@ fi
 [ -n "$PGBK_PORT" ] && OPTS="$OPTS -p $PGBK_PORT"
 [ -n "$PGBK_USERNAME" ] && OPTS="$OPTS -U $PGBK_USERNAME"
 
-# As of 1.8, it recommanded to use an array for PGBK_OPTS to set
+# As of 1.8, it recommended to use an array for PGBK_OPTS to set
 # pg_dump cli options. Ensure backward compatibility.
 if [[ "$(declare -p PGBK_OPTS)" =~ "declare --" ]]; then
     declare -a _PGBK_OPTS=($PGBK_OPTS)
