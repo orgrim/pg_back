@@ -34,7 +34,7 @@ PGBK_BACKUP_DIR=/var/backups/postgresql
 PGBK_TIMESTAMP="%Y-%m-%d_%H-%M-%S"
 PGBK_PURGE=30
 PGBK_PURGE_MIN_KEEP=0
-PGBK_OPTS=("-Fc")
+PGBK_OPTS="-Fc"
 PGBK_WITH_TEMPLATES="no"
 PGBK_CONNDB="postgres"
 SIGNATURE_ALGO="none"
@@ -148,6 +148,14 @@ fi
 [ -n "$PGBK_HOSTNAME" ] && OPTS="$OPTS -h $PGBK_HOSTNAME"
 [ -n "$PGBK_PORT" ] && OPTS="$OPTS -p $PGBK_PORT"
 [ -n "$PGBK_USERNAME" ] && OPTS="$OPTS -U $PGBK_USERNAME"
+
+# As of 1.8, it recommended to use an array for PGBK_OPTS to set
+# pg_dump cli options. Ensure backward compatibility.
+if [[ "$(declare -p PGBK_OPTS)" =~ "declare --" ]]; then
+    declare -a _PGBK_OPTS=($PGBK_OPTS)
+else
+    _PGBK_OPTS=("${PGBK_OPTS[@]}")
+fi
 
 info "preparing to dump"
 
@@ -286,7 +294,7 @@ do
     # Dump and remember which db were properly dumped for purge
     dump="${PGBK_BACKUP_DIR}/${db}_${DUMP_DATE}.dump"
     info "dumping database \"$db\" into ${dump}"
-    if ! ${PGBK_BIN}pg_dump $OPTS "${PGBK_OPTS[@]}" -f "${dump}" $db; then
+    if ! ${PGBK_BIN}pg_dump $OPTS "${_PGBK_OPTS[@]}" -f "${dump}" $db; then
         out_rc=1
         rm -rf ${dump}
         error "pg_dump of database \"$db\" failed"
