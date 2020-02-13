@@ -233,7 +233,7 @@ if [ "${PG_HASPAUSE}" = "1" ]; then
         
         if [ $PGBK_EXCLLOCKS -gt 0 ]; then
             if [ $PGBK_PAUSE_TIMEOUT -le 0 ]; then
-                die "attemp to pause replication exceeds timeout"
+                die "attempt to pause replication exceeded timeout"
             fi
 
             echo "The slave database has exclusive locks (vacuum full, truncate or other locking command) running on master"
