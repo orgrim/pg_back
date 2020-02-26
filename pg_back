@@ -36,7 +36,7 @@ PGBK_PURGE=30
 PGBK_PURGE_MIN_KEEP=0
 PGBK_OPTS="-Fc"
 PGBK_WITH_TEMPLATES="no"
-PGBK_PAUSE_TIMEOUT=3600
+PGBK_STANDBY_PAUSE_TIMEOUT=3600
 PGBK_CONNDB="postgres"
 SIGNATURE_ALGO="none"
 
@@ -53,7 +53,7 @@ usage() {
     echo "                everything (default: \"$PGBK_PURGE_MIN_KEEP\")"
     echo "  -D db1,...    list of databases to exclude"
     echo "  -t            include templates"
-    echo "  -T timeout    seconds of pausing attempt (default: \"$PGBK_PAUSE_TIMEOUT\")"
+    echo "  -T timeout    seconds of pausing attempt (default: \"$PGBK_STANDBY_PAUSE_TIMEOUT\")"
     echo
     echo "  -h hostname   database server host or socket directory (default: \"${PGHOST:-local socket}\")"
     echo "  -p port       database server port (default: \"$PGPORT\")"
@@ -111,7 +111,7 @@ do
 	-K) CLI_PURGE_MIN_KEEP=$2; shift 2;;
 	-D) CLI_EXCLUDE="`echo $2 | tr ',' ' '`"; shift 2;;
 	-t) CLI_WITH_TEMPLATES="yes"; shift;;
-    -T) CLI_PAUSE_TIMEOUT=$2; shift 2;;
+    -T) CLI_STANDBY_PAUSE_TIMEOUT=$2; shift 2;;
 	-h) CLI_HOSTNAME=$2; shift 2;;
 	-p) CLI_PORT=$2; shift 2;;
 	-d) CLI_CONNDB=$2; shift 2;;
@@ -140,7 +140,7 @@ fi
 [ -n "$CLI_PURGE_MIN_KEEP" ] && PGBK_PURGE_MIN_KEEP=$CLI_PURGE_MIN_KEEP
 [ -n "$CLI_EXCLUDE" ] && PGBK_EXCLUDE=$CLI_EXCLUDE
 [ -n "$CLI_WITH_TEMPLATES" ] && PGBK_WITH_TEMPLATES=$CLI_WITH_TEMPLATES
-[ -n "$CLI_PAUSE_TIMEOUT" ] && PGBK_PAUSE_TIMEOUT=$CLI_PAUSE_TIMEOUT
+[ -n "$CLI_STANDBY_PAUSE_TIMEOUT" ] && PGBK_STANDBY_PAUSE_TIMEOUT=$CLI_STANDBY_PAUSE_TIMEOUT
 [ -n "$CLI_HOSTNAME" ] && PGBK_HOSTNAME=$CLI_HOSTNAME
 [ -n "$CLI_PORT" ] && PGBK_PORT=$CLI_PORT
 [ -n "$CLI_USERNAME" ] && PGBK_USERNAME=$CLI_USERNAME
@@ -168,7 +168,7 @@ info "preparing to dump"
 if [[ $PGBK_PURGE_MIN_KEEP != "all" ]]; then
     [[ $PGBK_PURGE_MIN_KEEP =~ ^[[:digit:]]+$ ]] || die "PGBK_PURGE_MIN_KEEP (-K) '$PGBK_PURGE_MIN_KEEP' is not an integer"
 fi
-[[ $PGBK_PAUSE_TIMEOUT =~ ^[[:digit:]]+$ ]] || die "PGBK_PAUSE_TIMEOUT (-T) '$PGBK_PAUSE_TIMEOUT' is not an integer"
+[[ $PGBK_STANDBY_PAUSE_TIMEOUT =~ ^[[:digit:]]+$ ]] || die "PGBK_STANDBY_PAUSE_TIMEOUT (-T) '$PGBK_STANDBY_PAUSE_TIMEOUT' is not an integer"
 
 # Ensure there is a trailing slash in the path to the binaries
 if [ -n "$PGBK_BIN" ]; then
@@ -232,13 +232,13 @@ if [ "${PG_HASPAUSE}" = "1" ]; then
         fi
         
         if [ $PGBK_EXCLLOCKS -gt 0 ]; then
-            if [ $PGBK_PAUSE_TIMEOUT -le 0 ]; then
+            if [ $PGBK_STANDBY_PAUSE_TIMEOUT -le 0 ]; then
                 die "attempt to pause replication exceeded timeout"
             fi
 
             echo "The slave database has exclusive locks (vacuum full, truncate or other locking command) running on master"
             echo "Resuming replication for ${PGBK_PAUSE}s"
-            let "PGBK_PAUSE_TIMEOUT-=$PGBK_PAUSE"
+            let "PGBK_STANDBY_PAUSE_TIMEOUT-=$PGBK_PAUSE"
             sleep $PGBK_PAUSE
         else
             ${PGBK_BIN}psql -X $OPTS -At -c "SELECT pg_${xlog_or_wal}_replay_pause() where pg_is_in_recovery();" $PGBK_CONNDB
