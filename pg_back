@@ -215,11 +215,11 @@ if [ $? != 0 ]; then
     info "could not check for replication control functions"
 fi
 
-# Pause replay if dumping from a slave
+# Pause replay if dumping from a standby
 if [ "${PG_HASPAUSE}" = "1" ]; then
     info "pausing replication replay"
 
-    # Wait for exclusive locks to get released on the slave before
+    # Wait for exclusive locks to get released on the standby before
     # pausing the replication replay
     typeset -i PGBK_EXCLLOCKS;
     PGBK_EXCLLOCKS=1;
@@ -236,7 +236,7 @@ if [ "${PG_HASPAUSE}" = "1" ]; then
                 die "attempt to pause replication exceeded timeout"
             fi
 
-            echo "The slave database has exclusive locks (vacuum full, truncate or other locking command) running on master"
+            echo "The standby database has exclusive locks (vacuum full, truncate or other locking command) running on primary"
             echo "Resuming replication for ${PGBK_PAUSE}s"
             let "PGBK_STANDBY_PAUSE_TIMEOUT-=$PGBK_PAUSE"
             sleep $PGBK_PAUSE
@@ -327,7 +327,7 @@ do
     fi
 done
 
-# Resume replay if dumping from a slave
+# Resume replay if dumping from a standby
 if [ "${PG_HASPAUSE}" = "1" ]; then
     info "resuming replication replay"
     ${PGBK_BIN}psql -X $OPTS -At -c "SELECT pg_${xlog_or_wal}_replay_resume();" $PGBK_CONNDB
