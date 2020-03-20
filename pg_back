@@ -236,8 +236,8 @@ if [ "${PG_HASPAUSE}" = "1" ]; then
                 die "attempt to pause replication exceeded timeout"
             fi
 
-            echo "The standby database has exclusive locks (vacuum full, truncate or other locking command) running on primary"
-            echo "Resuming replication for ${PGBK_PAUSE}s"
+            info "the standby database has exclusive locks (vacuum full, truncate or other locking command) running on primary"
+            info "resuming replication for ${PGBK_PAUSE}s"
             let "PGBK_STANDBY_PAUSE_TIMEOUT-=$PGBK_PAUSE"
             sleep $PGBK_PAUSE
         else
