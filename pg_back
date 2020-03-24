@@ -297,6 +297,25 @@ do
 	continue
     fi
 
+    # Try to lock a file named after to database we are going to dump
+    # to prevent stacking pg_back processes if pg_dump last longer
+    # than a schedule of pg_back. If the lock cannot be acquired, skip
+    # the dump and exit with an error at the end.
+    if [ -x /usr/bin/flock ]; then
+        lockfile="${PGBK_BACKUP_DIR}/${db}.lock"
+        if ! exec 3>"$lockfile"; then
+            warn "unable to open lockfile $lockfile"
+        else
+            info "acquiring internal lock for $db"
+            if ! /usr/bin/flock -n 3; then
+                warn "unable to obtain the lock on $db, skipping this database"
+                out_rc=1
+                continue
+            fi
+            need_unlock="yes"
+        fi
+    fi
+
     # Recompute the date of dump so that the real time of the pg_dump
     # execution is close to the filenames of the group of files we are
     # going to create. This avoid misleading file names if dumping
@@ -327,6 +346,15 @@ do
     else
         dumped+=( "$db" )
     fi
+
+    # Unlock and clean lockfile
+    if [[ "$need_unlock" == "yes" ]]; then
+        /usr/bin/flock -u 3
+        exec 3>&-
+        rm "$lockfile"
+        unset need_unlock
+    fi
+
     if [ -n "${SIGNATURE_ALGO}" -a "${SIGNATURE_ALGO}" != "none" ]; then
         info "creating signature file for $(basename ${dump}) into $(basename ${dump}).${SIGNATURE_ALGO}"
         ${SIGNATURE_ALGO}sum ${dump} > ${dump}.${SIGNATURE_ALGO}
