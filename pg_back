@@ -297,6 +297,12 @@ do
 	continue
     fi
 
+    # Recompute the date of dump so that the real time of the pg_dump
+    # execution is close to the filenames of the group of files we are
+    # going to create. This avoid misleading file names if dumping
+    # takes hours.
+    DUMP_DATE=$(date "+${PGBK_TIMESTAMP}")
+
     # Dump all statements necessary to recreate the database include
     # privileges with pg_dumpacl. See https://github.com/dalibo/pg_dumpacl
     if command -v ${PGBK_BIN}pg_dumpacl &>>/dev/null ; then
