@@ -38,6 +38,8 @@ PGBK_OPTS="-Fc"
 PGBK_WITH_TEMPLATES="no"
 PGBK_STANDBY_PAUSE_TIMEOUT=3600
 PGBK_CONNDB="postgres"
+PGBK_PRE_BACKUP_COMMAND=
+PGBK_POST_BACKUP_COMMAND=
 SIGNATURE_ALGO="none"
 
 usage() {
@@ -76,9 +78,8 @@ error() {
     echo "$(now)  ERROR: $*" 1>&2
 }
 
-die() {
-    error $*
-    exit 1
+warn() {
+    echo "$(now)  WARNING: $*" 1>&2
 }
 
 info() {
@@ -86,8 +87,35 @@ info() {
     return 0
 }
 
-warn() {
-    echo "$(now)  WARNING: $*" 1>&2
+die() {
+    error $*
+    exit 1
+}
+
+# Hooks
+pre_backup_hook() {
+    if [ -n "$PGBK_PRE_BACKUP_COMMAND" ]; then
+        info "running pre-backup command"
+        if ! $PGBK_PRE_BACKUP_COMMAND; then
+            die_and_hook "pre-backup command exited with a non-zero code"
+        fi
+    fi
+}
+
+post_backup_hook() {
+    if [ -n "$PGBK_POST_BACKUP_COMMAND" ]; then
+        info "running post-backup command"
+        if ! $PGBK_POST_BACKUP_COMMAND; then
+            die "post-backup command exited with a non-zero code"
+        fi
+    fi
+}
+
+# post_backup_hook should always be run
+die_and_hook() {
+    error $*
+    post_backup_hook
+    exit 1
 }
 
 # When the default config file does not exist, try the old path
@@ -185,6 +213,7 @@ if [ -n "${SIGNATURE_ALGO}" -a "${SIGNATURE_ALGO}" != "none" ]; then
         die "Signature program ${SIGNATURE_ALGO}sum is not available to create signature file"
     fi
 fi
+
 # Create the backup directory if missing
 if [ ! -d $PGBK_BACKUP_DIR ]; then
     info "creating directory $PGBK_BACKUP_DIR"
@@ -208,6 +237,7 @@ else
 fi
 
 info "target directory is $PGBK_BACKUP_DIR"
+pre_backup_hook
 
 # Check if replay pause is available
 PG_HASPAUSE=`${PGBK_BIN}psql -X $OPTS -At -c "SELECT 1 FROM pg_proc WHERE proname='pg_${xlog_or_wal}_replay_pause' AND pg_is_in_recovery();" $PGBK_CONNDB 2>/dev/null`
@@ -228,12 +258,12 @@ if [ "${PG_HASPAUSE}" = "1" ]; then
     do
         PGBK_EXCLLOCKS=`${PGBK_BIN}psql -X $OPTS -At -c "SELECT count(*) FROM pg_locks WHERE mode = 'AccessExclusiveLock';" $PGBK_CONNDB`
         if [ $? != 0 ]; then
-            die "could not get lock information"
+            die_and_hook "could not get lock information"
         fi
         
         if [ $PGBK_EXCLLOCKS -gt 0 ]; then
             if [ $PGBK_STANDBY_PAUSE_TIMEOUT -le 0 ]; then
-                die "attempt to pause replication exceeded timeout"
+                die_and_hook "attempt to pause replication exceeded timeout"
             fi
 
             info "the standby database has exclusive locks (vacuum full, truncate or other locking command) running on primary"
@@ -243,7 +273,7 @@ if [ "${PG_HASPAUSE}" = "1" ]; then
         else
             ${PGBK_BIN}psql -X $OPTS -At -c "SELECT pg_${xlog_or_wal}_replay_pause() where pg_is_in_recovery();" $PGBK_CONNDB
             if [ $? != 0 ]; then
-                die "could not pause replication replay"
+                die_and_hook "could not pause replication replay"
             fi
         fi
     done
@@ -260,7 +290,7 @@ if [ -z "$PGBK_DBLIST" ]; then
 
     PGBK_DBLIST=`${PGBK_BIN}psql -X $OPTS -At -c "$DB_QUERY" $PGBK_CONNDB`
     if [ $? != 0 ]; then
-	die "could not list databases"
+	die_and_hook "could not list databases"
     fi
 fi
 
@@ -338,7 +368,7 @@ if [ "${PG_HASPAUSE}" = "1" ]; then
     info "resuming replication replay"
     ${PGBK_BIN}psql -X $OPTS -At -c "SELECT pg_${xlog_or_wal}_replay_resume();" $PGBK_CONNDB
     if [ $? != 0 ]; then
-        die "could not resume replication replay"
+        die_and_hook "could not resume replication replay"
     fi
 fi
 
@@ -381,6 +411,7 @@ else
     done
 fi
 
+post_backup_hook
 info "done"
 
 exit $out_rc
