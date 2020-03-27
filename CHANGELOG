@@ -1,3 +1,20 @@
+pg_back 1.8
+===========
+
+* Add a timeout when trying to pause replication on standby clusters
+
+* Add pre/post-backup hooks
+
+* Save to output of SHOW ALL to a file, to backup parameters
+
+* Add optionnal checksum of dump files
+
+* New default configuration file path (/etc/pg_back/pg_back.conf) with
+  backward compatibility
+
+* Some bugfixes and improvements
+
+
 pg_back 1.7
 ===========
 
