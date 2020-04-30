@@ -47,7 +47,7 @@ func DbGetVersionNum(db *sql.DB) (int, bool) {
 
 	err := db.QueryRow("select setting from pg_settings where name = 'server_version_num'").Scan(&version)
 	if err != nil {
-		fmt.Println(err)
+		l.Errorln(err)
 		return 0, false
 	}
 
@@ -69,7 +69,7 @@ func ListAllDatabases(db *DB, withTemplates bool) ([]string, bool) {
 	dbs := make([]string, 0)
 	rows, err := db.conn.Query(query)
 	if err != nil {
-		fmt.Println(err)
+		l.Errorln(err)
 		return dbs, false
 	}
 	defer rows.Close()
@@ -77,13 +77,13 @@ func ListAllDatabases(db *DB, withTemplates bool) ([]string, bool) {
 	for rows.Next() {
 		err := rows.Scan(&dbname)
 		if err != nil {
-			fmt.Println(err)
+			l.Errorln(err)
 			continue
 		}
 		dbs = append(dbs, dbname)
 	}
 	if err = rows.Err(); err != nil {
-		fmt.Println(err)
+		l.Errorln(err)
 		return dbs, false
 	}
 	return dbs, true
@@ -121,12 +121,12 @@ func DbOpen(conninfo string) (*DB, bool) {
 
 	db, err := sql.Open("postgres", conninfo)
 	if err != nil {
-		fmt.Println(err)
+		l.Errorln(err)
 		return nil, false
 	}
 	err = db.Ping()
 	if err != nil {
-		fmt.Println(err)
+		l.Errorln(err)
 		db.Close()
 		return nil, false
 	}

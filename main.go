@@ -35,7 +35,6 @@ import (
 	"strings"
 	"time"
 	"path/filepath"
-	"log"
 )
 
 var version = "0.0.1"
@@ -66,7 +65,7 @@ func (d *Dump) Dump() error {
 	file := FormatDumpPath(d.Directory, "dump", dbname)
 
 	if err := os.MkdirAll(filepath.Dir(file), 0755); err != nil {
-		l.err.Println("error:", err)
+		l.Errorln(err)
 		return err
 	}
 	command := "pg_dump"
@@ -78,12 +77,12 @@ func (d *Dump) Dump() error {
 	pgDumpCmd := exec.Command(command, args...)
 	stdoutStderr, err := pgDumpCmd.CombinedOutput()
 	if err != nil {
-		l.err.Println("error:", string(stdoutStderr))
-		l.err.Println("error:", err)
+		l.Errorln(string(stdoutStderr))
+		l.Errorln(err)
 		return err
 	}
 	if len(stdoutStderr) > 0 {
-		l.out.Printf("%s\n", stdoutStderr)
+		l.Infof("%s\n", stdoutStderr)
 	}
 
 	d.Path = file
@@ -97,12 +96,12 @@ func (d *Dump) Checksum() error {
 
 func dumper(id int, jobs <-chan *Dump, results chan<- int) {
 	for j := range jobs {
-		l.out.Println("[", id, "] Dumping", j.Database)
+		l.Infoln("Dumping", j.Database)
 		if err := j.Dump(); err != nil {
-			l.err.Println("[", id, "] Dump of", j.Database, "failed")
+			l.Errorln("Dump of", j.Database, "failed")
 			results <- 1
 		} else {
-			l.out.Println("[", id, "] Dump of", j.Database, "to", j.Path, "done")
+			l.Infoln("Dump of", j.Database, "to", j.Path, "done")
 			results <- 0
 		}
 	}
@@ -158,33 +157,23 @@ func DumpGlobals(dir string, host string, port int, username string, connDb stri
 	args = append(args, "-f", file)
 
 	if err := os.MkdirAll(filepath.Dir(file), 0755); err != nil {
-		log.Println("error:", err)
+		l.Errorln(err)
 		return err
 	}
 	
 	pgDumpallCmd := exec.Command(command, args...)
 	stdoutStderr, err := pgDumpallCmd.CombinedOutput()
 	if err != nil {
-		fmt.Println("error:", string(stdoutStderr))
-		fmt.Println("error:", err)
+		l.Errorf("%s\n", stdoutStderr)
+		l.Errorln(err)
 		return err
 	}
 	if len(stdoutStderr) > 0 {
-		fmt.Printf("%s\n", stdoutStderr)
+		l.Infof("%s\n", stdoutStderr)
 	}
 	return nil
 }
-/*
 
-struct dump pour stocker ce que l'user veut en fonction de la conf
-
-
-=> fonction pgdump pour créer et exécuter la commande pg_dump
-=> fonction pg_dumpall -g avec dumpacl
-
-
-
-*/
 
 type CliOptions struct {
 	directory     string
@@ -201,7 +190,7 @@ func ParseCli() CliOptions {
 	opts := CliOptions{}
 
 	pflag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "pg_goback dumps some PostgreSQL database\n\n")
+		fmt.Fprintf(os.Stderr, "pg_goback dumps some PostgreSQL databases\n\n")
 		fmt.Fprintf(os.Stderr, "Usage:\n")
 		fmt.Fprintf(os.Stderr, "  pg_goback [OPTION]... [DBNAME]...\n")
 		fmt.Fprintf(os.Stderr, "\nOptions:\n")
@@ -211,14 +200,14 @@ func ParseCli() CliOptions {
 
 	pflag.StringVarP(&opts.directory, "backup-directory", "b", "/var/backups/postgresql", "store dump files there")
 	pflag.BoolVarP(&opts.withTemplates, "with-templates", "t", false, "include templates\n")
-	pflag.IntVarP(&opts.jobs, "jobs", "j", 1, "use this many parallel jobs to dump\n")
+	pflag.IntVarP(&opts.jobs, "jobs", "j", 1, "dump this many databases in parallel\n")
 	pflag.StringVarP(&opts.host, "host", "h", "", "database server host or socket directory")
 	pflag.IntVarP(&opts.port, "port", "p", 0, "database server port number")
 	pflag.StringVarP(&opts.username, "username", "U", "", "connect as specified database user")
 	pflag.StringVarP(&opts.connDb, "dbname", "d", "", "connect to database name")
 
 	helpF := pflag.BoolP("help", "?", false, "print usage")
-	versionF := pflag.BoolP("version", "v", false, "print version")
+	versionF := pflag.BoolP("version", "V", false, "print version")
 
 	pflag.Parse()
 
@@ -236,22 +225,6 @@ func ParseCli() CliOptions {
 	return opts
 }
 
-type mylog struct {
-	err *log.Logger
-	out *log.Logger
-}
-
-func SetupLogger() mylog {
-	e := log.New(os.Stderr, "ERROR: ", log.LstdFlags)
-	o := log.New(os.Stdout, "INFO: ", log.LstdFlags)
-	return mylog{
-		err: e,
-		out: o,
-	}
-}
-
-var l = SetupLogger()
-
 func main() {
 	var databases []string
 
@@ -262,7 +235,7 @@ func main() {
 	// pg_dumpall -g
 	err := DumpGlobals(CliOpts.directory, CliOpts.host, CliOpts.port, CliOpts.username, CliOpts.connDb)
 	if err != nil {
-		l.err.Fatalln("pg_dumpall -g failed")
+		l.Fatalln("pg_dumpall -g failed")
 	}
 
 	if len(CliOpts.dbnames) > 0 {
