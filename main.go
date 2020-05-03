@@ -23,8 +23,6 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
 // THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-
-
 package main
 
 import (
@@ -32,9 +30,9 @@ import (
 	"github.com/spf13/pflag"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
-	"path/filepath"
 )
 
 var version = "0.0.1"
@@ -70,10 +68,10 @@ func (d *Dump) Dump() error {
 	}
 	command := "pg_dump"
 	args := []string{"-Fc", "-f", file}
-	
+
 	AppendConnectionOptions(&args, d.Host, d.Port, d.Username)
 	args = append(args, dbname)
-	
+
 	pgDumpCmd := exec.Command(command, args...)
 	stdoutStderr, err := pgDumpCmd.CombinedOutput()
 	if err != nil {
@@ -86,7 +84,7 @@ func (d *Dump) Dump() error {
 	}
 
 	d.Path = file
-	
+
 	return err
 }
 
@@ -147,7 +145,7 @@ func FormatDumpPath(dir string, suffix string, dbname string) string {
 func DumpGlobals(dir string, host string, port int, username string, connDb string) error {
 	command := "pg_dumpall"
 	args := []string{"-g"}
-	
+
 	AppendConnectionOptions(&args, host, port, username)
 	if connDb != "" {
 		args = append(args, "-l", connDb)
@@ -160,7 +158,7 @@ func DumpGlobals(dir string, host string, port int, username string, connDb stri
 		l.Errorln(err)
 		return err
 	}
-	
+
 	pgDumpallCmd := exec.Command(command, args...)
 	stdoutStderr, err := pgDumpallCmd.CombinedOutput()
 	if err != nil {
@@ -174,13 +172,13 @@ func DumpGlobals(dir string, host string, port int, username string, connDb stri
 	return nil
 }
 
-
 type CliOptions struct {
 	directory     string
 	host          string
 	port          int
 	username      string
 	connDb        string
+	excludeDbs    []string
 	dbnames       []string
 	withTemplates bool
 	jobs          int
@@ -199,6 +197,7 @@ func ParseCli() CliOptions {
 	}
 
 	pflag.StringVarP(&opts.directory, "backup-directory", "b", "/var/backups/postgresql", "store dump files there")
+	pflag.StringSliceVarP(&opts.excludeDbs, "exclude-dbs", "D", []string{}, "list of databases to exclude")
 	pflag.BoolVarP(&opts.withTemplates, "with-templates", "t", false, "include templates\n")
 	pflag.IntVarP(&opts.jobs, "jobs", "j", 1, "dump this many databases in parallel\n")
 	pflag.StringVarP(&opts.host, "host", "h", "", "database server host or socket directory")
@@ -238,25 +237,42 @@ func main() {
 		l.Fatalln("pg_dumpall -g failed")
 	}
 
+	conninfo := PrepareConnInfo(CliOpts.host, CliOpts.port, CliOpts.username, CliOpts.connDb)
+
+	db, ok := DbOpen(conninfo)
+	if !ok {
+		os.Exit(1)
+	}
+	defer db.Close()
+
 	if len(CliOpts.dbnames) > 0 {
 		databases = CliOpts.dbnames
 	} else {
 		var ok bool
-
-		conninfo := PrepareConnInfo(CliOpts.host, CliOpts.port, CliOpts.username, CliOpts.connDb)
-
-		db, ok := DbOpen(conninfo)
-		if !ok {
-			os.Exit(1)
-		}
 
 		databases, ok = ListAllDatabases(db, CliOpts.withTemplates)
 		if !ok {
 			db.Close()
 			os.Exit(0)
 		}
-		db.Close()
+
 		// exclure les bases
+		if len(CliOpts.excludeDbs) > 0 {
+			filtered := []string{}
+			for _, d := range databases {
+				found := false
+				for _, e := range CliOpts.excludeDbs {
+					if d == e {
+						found = true
+						break
+					}
+				}
+				if !found {
+					filtered = append(filtered, d)
+				}
+			}
+			databases = filtered
+		}
 	}
 
 	exitCode := 0
@@ -273,11 +289,11 @@ func main() {
 	// feed the database
 	for _, dbname := range databases {
 		d := &Dump{
-			Database: dbname,
+			Database:  dbname,
 			Directory: CliOpts.directory,
-			Host: CliOpts.host,
-			Port: CliOpts.port,
-			Username: CliOpts.username,
+			Host:      CliOpts.host,
+			Port:      CliOpts.port,
+			Username:  CliOpts.username,
 		}
 		jobs <- d
 	}
