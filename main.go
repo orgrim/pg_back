@@ -183,6 +183,7 @@ type CliOptions struct {
 	dbnames       []string
 	withTemplates bool
 	jobs          int
+	pauseTimeout  int
 }
 
 func ParseCli() CliOptions {
@@ -199,9 +200,10 @@ func ParseCli() CliOptions {
 
 	pflag.StringVarP(&opts.directory, "backup-directory", "b", "/var/backups/postgresql", "store dump files there")
 	pflag.StringSliceVarP(&opts.excludeDbs, "exclude-dbs", "D", []string{}, "list of databases to exclude")
-	pflag.BoolVarP(&opts.withTemplates, "with-templates", "t", false, "include templates\n")
-	pflag.IntVarP(&opts.jobs, "jobs", "j", 1, "dump this many databases concurrently\n")
-	pflag.StringVarP(&opts.host, "host", "h", "", "database server host or socket directory")
+	pflag.BoolVarP(&opts.withTemplates, "with-templates", "t", false, "include templates")
+	pflag.IntVarP(&opts.pauseTimeout, "pause-timeout", "T", 3600, "abort if replication cannot be paused after this number of seconds")
+	pflag.IntVarP(&opts.jobs, "jobs", "j", 1, "dump this many databases concurrently")
+	pflag.StringVarP(&opts.host, "host", "h", "", "\ndatabase server host or socket directory")
 	pflag.IntVarP(&opts.port, "port", "p", 0, "database server port number")
 	pflag.StringVarP(&opts.username, "username", "U", "", "connect as specified database user")
 	pflag.StringVarP(&opts.connDb, "dbname", "d", "", "connect to database name")
@@ -233,6 +235,7 @@ func main() {
 	// mettre en pause la replication
 
 	// pg_dumpall -g
+	l.Infoln("Dumping globals")
 	err := DumpGlobals(CliOpts.directory, CliOpts.host, CliOpts.port, CliOpts.username, CliOpts.connDb)
 	if err != nil {
 		l.Fatalln("pg_dumpall -g failed")
@@ -274,6 +277,11 @@ func main() {
 			}
 			databases = filtered
 		}
+	}
+
+	if err := PauseReplicationWithTimeout(db, CliOpts.pauseTimeout); err != nil {
+		db.Close()
+		l.Fatalln(err)
 	}
 
 	exitCode := 0
@@ -328,6 +336,11 @@ func main() {
 			}
 		}
 	}
+
+	if err := ResumeReplication(db); err != nil {
+		l.Errorln(err)
+	}
+
 	db.Close()
 	os.Exit(exitCode)
 }

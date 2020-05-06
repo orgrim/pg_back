@@ -32,6 +32,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"time"
 )
 
 type DB struct {
@@ -294,5 +295,123 @@ func DumpCreateDB(out io.Writer, db *DB, dbname string) error {
 		l.Errorln(err)
 		return err
 	}
+	return nil
+}
+
+func PauseReplication(db *DB) error {
+	// If an AccessExclusiveLock is granted when the replay is
+	// paused, it will remain and pg_dump would be stuck forever
+	rows, err := db.conn.Query(fmt.Sprintf("SELECT pg_%s_replay_pause() "+
+		"WHERE NOT EXISTS (SELECT 1 FROM pg_locks WHERE mode = 'AccessExclusiveLock') "+
+		"AND pg_is_in_recovery();", db.xlogOrWal))
+	if err != nil {
+		l.Errorln(err)
+		return err
+	}
+	defer rows.Close()
+
+	// The query returns a single row with one column of type void,
+	// which is and empty string, on success. It does not return
+	// any row on failure
+	void := "failed"
+	for rows.Next() {
+		err := rows.Scan(&void)
+		if err != nil {
+			l.Errorln(err)
+			return err
+		}
+	}
+	if void == "failed" {
+		return fmt.Errorf("Replication not paused because of AccessExclusiveLock")
+	}
+	return nil
+}
+
+func CanPauseReplication(db *DB) (bool, error) {
+
+	rows, err := db.conn.Query(fmt.Sprintf("SELECT 1 FROM pg_proc "+
+		"WHERE proname='pg_%s_replay_pause' AND pg_is_in_recovery()", db.xlogOrWal))
+	if err != nil {
+		l.Errorln(err)
+		return false, err
+	}
+	defer rows.Close()
+
+	// The query returns 1 on success, no row on failure
+	var one int
+	for rows.Next() {
+		err := rows.Scan(&one)
+		if err != nil {
+			l.Errorln(err)
+			return false, err
+		}
+	}
+	if one == 0 {
+		return false, nil
+	}
+
+	return true, nil
+}
+
+func PauseReplicationWithTimeout(db *DB, timeOut int) error {
+
+	if ok, err := CanPauseReplication(db); !ok {
+		return err
+	}
+
+	ticker := time.NewTicker(time.Duration(10) * time.Second)
+	done := make(chan bool)
+	stop := make(chan bool)
+
+	l.Infoln("Pausing replication")
+
+	// We want to retry pausing replication at a defined interval
+	// but not forever. We cannot put the timeout in the same
+	// select as the ticker since the ticker would always win
+	go func() {
+		defer ticker.Stop()
+
+		for {
+			if err := PauseReplication(db); err != nil {
+				l.Warnln(err)
+			} else {
+				done <- true
+				return
+			}
+
+			select {
+			case <-stop:
+				return
+			case <-ticker.C:
+				break
+			}
+		}
+	}()
+
+	// Return as soon as the replication is paused or stop the
+	// goroutine if we hit the timeout
+	select {
+	case <-done:
+		l.Infoln("Replication paused")
+	case <-time.After(time.Duration(timeOut) * time.Second):
+		stop <- true
+		return fmt.Errorf("Replication not paused after %v\n", time.Duration(timeOut)*time.Second)
+	}
+
+	return nil
+}
+
+func ResumeReplication(db *DB) error {
+	if ok, err := CanPauseReplication(db); !ok {
+		return err
+	}
+
+	l.Infoln("Resuming replication")
+	_, err := db.conn.Exec(fmt.Sprintf("SELECT pg_%s_replay_resume() WHERE pg_is_in_recovery();", db.xlogOrWal))
+	if err != nil {
+		l.Errorln(err)
+		return err
+	}
+
 	return nil
 }
