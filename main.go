@@ -64,14 +64,25 @@ type Dump struct {
 
 func (d *Dump) Dump() error {
 	dbname := d.Database
-	d.When = time.Now()
 	d.ExitCode = 1
+
+	// Try to lock a file named after to database we are going to
+	// dump to prevent stacking pg_back processes if pg_dump last
+	// longer than a schedule of pg_back. If the lock cannot be
+	// acquired, skip the dump and exit with an error.
+	f, locked, lerr := LockPath(FormatDumpPath(d.Directory, "lock", dbname, time.Time{}))
+	if lerr != nil {
+		return lerr
+	}
+
+	if !locked {
+		l.Errorln("Could not acquire lock for ", dbname)
+		return fmt.Errorf("lock error")
+	}
+
+	d.When = time.Now()
 	file := FormatDumpPath(d.Directory, "dump", dbname, d.When)
 
-	if err := os.MkdirAll(filepath.Dir(file), 0755); err != nil {
-		l.Errorln(err)
-		return err
-	}
 	command := "pg_dump"
 	args := []string{"-Fc", "-f", file}
 
@@ -83,10 +94,18 @@ func (d *Dump) Dump() error {
 	if err != nil {
 		l.Errorln(string(stdoutStderr))
 		l.Errorln(err)
+		if lerr = UnLockPath(f); lerr != nil {
+			f.Close()
+		}
 		return err
 	}
 	if len(stdoutStderr) > 0 {
 		l.Infof("%s\n", stdoutStderr)
+	}
+
+	if lerr = UnLockPath(f); lerr != nil {
+		f.Close()
+		return lerr
 	}
 
 	d.Path = file
@@ -136,9 +155,15 @@ func FormatDumpPath(dir string, suffix string, dbname string, when time.Time) st
 		s = "dump"
 	}
 
-	// Output is: dir(formatted)/dbname_date.suffix
-	// Reference time for time.Format(): "Mon Jan 2 15:04:05 MST 2006"
-	f = fmt.Sprintf("%s_%s.%s", dbname, when.Format("2006-01-02_15-04-05"), s)
+	// Output is "dir(formatted)/dbname_date.suffix" when the
+	// input time is not zero, otherwise do not include the date
+	// and time. Reference time for time.Format(): "Mon Jan 2
+	// 15:04:05 MST 2006"
+	if when.IsZero() {
+		f = fmt.Sprintf("%s.%s", dbname, s)
+	} else {
+		f = fmt.Sprintf("%s_%s.%s", dbname, when.Format("2006-01-02_15-04-05"), s)
+	}
 
 	return filepath.Join(d, f)
 }
@@ -232,12 +257,9 @@ func main() {
 
 	CliOpts := ParseCli()
 
-	// mettre en pause la replication
-
-	// pg_dumpall -g
 	l.Infoln("Dumping globals")
-	err := DumpGlobals(CliOpts.directory, CliOpts.host, CliOpts.port, CliOpts.username, CliOpts.connDb)
-	if err != nil {
+	if err := DumpGlobals(CliOpts.directory, CliOpts.host,
+		CliOpts.port, CliOpts.username, CliOpts.connDb); err != nil {
 		l.Fatalln("pg_dumpall -g failed")
 	}
 
