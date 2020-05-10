@@ -209,6 +209,8 @@ type CliOptions struct {
 	withTemplates bool
 	jobs          int
 	pauseTimeout  int
+	purgeInterval string
+	purgeKeep     string
 }
 
 func ParseCli() CliOptions {
@@ -228,7 +230,9 @@ func ParseCli() CliOptions {
 	pflag.BoolVarP(&opts.withTemplates, "with-templates", "t", false, "include templates")
 	pflag.IntVarP(&opts.pauseTimeout, "pause-timeout", "T", 3600, "abort if replication cannot be paused after this number of seconds")
 	pflag.IntVarP(&opts.jobs, "jobs", "j", 1, "dump this many databases concurrently")
-	pflag.StringVarP(&opts.host, "host", "h", "", "\ndatabase server host or socket directory")
+	pflag.StringVarP(&opts.purgeInterval, "purge-older-than", "P", "30", "purge backups older than this duration in days\nuse an interval with units \"s\" (seconds), \"m\" (minutes) or \"h\" (hours)\nfor less than a day.")
+	pflag.StringVarP(&opts.purgeKeep, "purge-min-keep", "K", "0", "minimum number of dumps to keep when purging or 'all' to keep everything\n")
+	pflag.StringVarP(&opts.host, "host", "h", "", "database server host or socket directory")
 	pflag.IntVarP(&opts.port, "port", "p", 0, "database server port number")
 	pflag.StringVarP(&opts.username, "username", "U", "", "connect as specified database user")
 	pflag.StringVarP(&opts.connDb, "dbname", "d", "", "connect to database name")
@@ -253,9 +257,24 @@ func ParseCli() CliOptions {
 }
 
 func main() {
-	var databases []string
+	var (
+		databases []string
+		limit     time.Time
+	)
 
 	CliOpts := ParseCli()
+
+	// validate purge options and do the extra parsing
+	keep := PurgeValidateKeepValue(CliOpts.purgeKeep)
+
+	if interval, err := PurgeValidateTimeLimitValue(CliOpts.purgeInterval); err != nil {
+		l.Fatalln(err)
+	} else {
+		// computing the limit before taking the dumps ensure
+		// a purge interval of 0s won't remove the dumps we
+		// are taking
+		limit = time.Now().Add(interval)
+	}
 
 	l.Infoln("Dumping globals")
 	if err := DumpGlobals(CliOpts.directory, CliOpts.host,
@@ -364,5 +383,18 @@ func main() {
 	}
 
 	db.Close()
+
+	// purge
+	l.Infoln("Purging old dumps")
+
+	for _, dbname := range databases {
+		if err := PurgeDumps(CliOpts.directory, dbname, keep, limit); err != nil {
+			exitCode = 1
+		}
+	}
+
+	if err := PurgeDumps(CliOpts.directory, "pg_globals", keep, limit); err != nil {
+		exitCode = 1
+	}
 	os.Exit(exitCode)
 }
