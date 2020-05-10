@@ -357,6 +357,9 @@ func main() {
 			exitCode = 1
 		} else if d.ExitCode == 0 {
 			// When it is ok, dump the creation and ACL commands as SQL commands
+			if db.version >= 110000 || db.version < 90000 {
+				continue
+			}
 			dbname := d.Database
 			aclpath := FormatDumpPath(d.Directory, "sql", dbname, d.When)
 			if err := os.MkdirAll(filepath.Dir(aclpath), 0755); err != nil {
