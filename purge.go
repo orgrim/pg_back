@@ -82,6 +82,8 @@ func PurgeDumps(directory string, dbname string, keep int, limit time.Time) erro
 		var f []os.FileInfo
 		f, err = dir.Readdir(1)
 		if errors.Is(err, io.EOF) {
+			// reset to avoid returning is.EOF at the end
+			err = nil
 			break
 		} else if err != nil {
 			l.Errorln(err)
@@ -103,6 +105,7 @@ func PurgeDumps(directory string, dbname string, keep int, limit time.Time) erro
 		for _, f := range dirContents[keep:] {
 			if f.ModTime().Before(limit) {
 				file := filepath.Join(dirpath, f.Name())
+				l.Infoln("removing", file)
 				if err = os.Remove(file); err != nil {
 					l.Errorf("Could not remove %s: %v\n", file, err)
 				}
