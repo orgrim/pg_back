@@ -57,6 +57,9 @@ type Dump struct {
 	Port     int
 	Username string
 
+	// Checksum
+	SumAlgo string
+
 	// Result
 	When     time.Time
 	ExitCode int
@@ -65,6 +68,8 @@ type Dump struct {
 func (d *Dump) Dump() error {
 	dbname := d.Database
 	d.ExitCode = 1
+
+	l.Infoln("Dumping database", dbname)
 
 	// Try to lock a file named after to database we are going to
 	// dump to prevent stacking pg_back processes if pg_dump last
@@ -109,8 +114,19 @@ func (d *Dump) Dump() error {
 	}
 
 	d.Path = file
+
+	// Compute the checksum tha goes with the dump file right
+	// after the dump, to this is done concurrently too.
+	if d.SumAlgo != "none" {
+		l.Infoln("Computing checksum of", file)
+
+		if err = ChecksumFile(file, d.SumAlgo); err != nil {
+			return err
+		}
+	}
+
 	d.ExitCode = 0
-	return err
+	return nil
 }
 
 func (d *Dump) Checksum() error {
@@ -119,7 +135,7 @@ func (d *Dump) Checksum() error {
 
 func dumper(id int, jobs <-chan *Dump, results chan<- *Dump) {
 	for j := range jobs {
-		l.Infoln("Dumping", j.Database)
+
 		if err := j.Dump(); err != nil {
 			l.Errorln("Dump of", j.Database, "failed")
 			results <- j
@@ -211,6 +227,7 @@ type CliOptions struct {
 	pauseTimeout  int
 	purgeInterval string
 	purgeKeep     string
+	sumAlgo       string
 }
 
 func ParseCli() CliOptions {
@@ -230,6 +247,7 @@ func ParseCli() CliOptions {
 	pflag.BoolVarP(&opts.withTemplates, "with-templates", "t", false, "include templates")
 	pflag.IntVarP(&opts.pauseTimeout, "pause-timeout", "T", 3600, "abort if replication cannot be paused after this number of seconds")
 	pflag.IntVarP(&opts.jobs, "jobs", "j", 1, "dump this many databases concurrently")
+	pflag.StringVarP(&opts.sumAlgo, "checksum-algo", "S", "none", "signature algorithm: none sha1 sha224 sha256 sha384 sha512")
 	pflag.StringVarP(&opts.purgeInterval, "purge-older-than", "P", "30", "purge backups older than this duration in days\nuse an interval with units \"s\" (seconds), \"m\" (minutes) or \"h\" (hours)\nfor less than a day.")
 	pflag.StringVarP(&opts.purgeKeep, "purge-min-keep", "K", "0", "minimum number of dumps to keep when purging or 'all' to keep everything\n")
 	pflag.StringVarP(&opts.host, "host", "h", "", "database server host or socket directory")
@@ -344,6 +362,7 @@ func main() {
 			Host:      CliOpts.host,
 			Port:      CliOpts.port,
 			Username:  CliOpts.username,
+			SumAlgo:   CliOpts.sumAlgo,
 			ExitCode:  -1,
 		}
 
