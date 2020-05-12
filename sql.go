@@ -159,21 +159,22 @@ func sqlEscapeString(i string) string {
 }
 
 // pg_dumpacl stuff
-func DumpCreateDB(out io.Writer, db *DB, dbname string) error {
+func DumpCreateDBAndACL(out io.Writer, db *DB, dbname string) (int, error) {
+	var n, i int
 
 	if dbname == "" {
-		return fmt.Errorf("empty input dbname")
+		return 0, fmt.Errorf("empty input dbname")
 	}
 
 	// this query only work from 9.0, where datcollate and datctype were added to pg_database
 	if db.version < 90000 {
 		l.Warnln("Cluster version is older than 9.0, not dumping ACL")
-		return nil
+		return 0, nil
 	}
 
 	// this is no longer necessary after 11
 	if db.version >= 110000 {
-		return nil
+		return 0, nil
 	}
 
 	rows, err := db.conn.Query(
@@ -186,11 +187,12 @@ func DumpCreateDB(out io.Writer, db *DB, dbname string) error {
 			"  LEFT JOIN pg_authid u ON (datdba = u.oid) "+
 			"WHERE datallowconn AND datname = $1",
 		dbname)
-	defer rows.Close()
 	if err != nil {
 		l.Errorln(err)
-		return err
+		return 0, err
 	}
+	defer rows.Close()
+
 	for rows.Next() {
 		var (
 			owner      string
@@ -205,97 +207,194 @@ func DumpCreateDB(out io.Writer, db *DB, dbname string) error {
 		err := rows.Scan(&owner, &encoding, &collate, &ctype, &istemplate, pq.Array(&acl), &connlimit, &tablespace)
 		if err != nil {
 			l.Errorln(err)
-			return err
+			return 0, err
 		}
 
 		if dbname != "template1" && dbname != "postgres" {
-			fmt.Fprintf(out, "CREATE DATABASE \"%s\" WITH TEMPLATE = template0 OWNER = \"%s\"", dbname, owner)
-			fmt.Fprintf(out, " ENCODING = '%s'", sqlEscapeString(encoding))
-			fmt.Fprintf(out, " LC_COLLATE = '%s'", sqlEscapeString(collate))
-			fmt.Fprintf(out, " LC_CTYPE = '%s'", sqlEscapeString(ctype))
+			i, _ = fmt.Fprintf(out, "--\n-- Database creation\n--\n\n")
+			n += i
+			i, _ = fmt.Fprintf(out, "CREATE DATABASE \"%s\" WITH TEMPLATE = template0 OWNER = \"%s\"", dbname, owner)
+			n += i
+			i, _ = fmt.Fprintf(out, " ENCODING = '%s'", sqlEscapeString(encoding))
+			n += i
+			i, _ = fmt.Fprintf(out, " LC_COLLATE = '%s'", sqlEscapeString(collate))
+			n += i
+			i, _ = fmt.Fprintf(out, " LC_CTYPE = '%s'", sqlEscapeString(ctype))
+			n += i
 
 			if tablespace != "pg_default" {
-				fmt.Fprintf(out, " TABLESPACE = \"%s\"", tablespace)
+				i, _ = fmt.Fprintf(out, " TABLESPACE = \"%s\"", tablespace)
+				n += i
 			}
 			if connlimit != -1 {
-				fmt.Fprintf(out, " CONNECTION LIMIT = %d", connlimit)
+				i, _ = fmt.Fprintf(out, " CONNECTION LIMIT = %d", connlimit)
+				n += i
 			}
-			fmt.Fprintf(out, ";\n")
+			i, _ = fmt.Fprintf(out, ";\n\n")
+			n += i
 
 			if istemplate {
-				fmt.Fprintf(out, "UPDATE pg_catalog.pg_database SET datistemplate = 't' WHERE datname = '%s';\n", sqlEscapeString(dbname))
+				i, _ = fmt.Fprintf(out, "UPDATE pg_catalog.pg_database SET datistemplate = 't' WHERE datname = '%s';\n", sqlEscapeString(dbname))
+				n += i
 			}
-			for _, e := range acl {
-				if !e.Valid {
+		}
+		for _, e := range acl {
+			if !e.Valid {
+				continue
+			}
+
+			// the aclitem format is "grantee=privs/grantor" where privs
+			// is a list of letters, one for each privilege followed by *
+			// when grantee as WITH GRANT OPTION for it
+			s := strings.Split(e.String, "=")
+			grantee := s[0]
+			s = strings.Split(s[1], "/")
+			privs := s[0]
+			grantor := s[1]
+
+			// public role: when the privs differ from the default, issue grants
+			if grantee == "" {
+				grantee = "PUBLIC"
+				if privs != "Tc" {
+					i, _ = fmt.Fprintf(out, "REVOKE ALL ON DATABASE \"%s\" FROM PUBLIC;\n", dbname)
+					n += i
+				} else {
 					continue
 				}
+			}
+			// owner: when other roles have been given privileges, all
+			// privileges are shown for the owner
+			if grantee == owner {
+				if privs != "CTc" {
+					i, _ = fmt.Fprintf(out, "REVOKE ALL ON DATABASE \"%s\" FROM \"%s\";\n", dbname, grantee)
+					n += i
+				} else {
+					continue
+				}
+			}
 
-				// the aclitem format is "grantee=privs/grantor" where privs
-				// is a list of letters, one for each privilege followed by *
-				// when grantee as WITH GRANT OPTION for it
-				s := strings.Split(e.String, "=")
-				grantee := s[0]
-				s = strings.Split(s[1], "/")
-				privs := s[0]
-				grantor := s[1]
+			if grantor != owner {
+				i, _ = fmt.Fprintf(out, "SET SESSION AUTHORIZATION \"%s\";\n", grantor)
+				n += i
+			}
+			for i, b := range privs {
+				switch b {
+				case 'C':
+					i, _ = fmt.Fprintf(out, "GRANT CREATE ON DATABASE \"%s\" TO \"%s\"", dbname, grantee)
+					n += i
+				case 'T':
+					i, _ = fmt.Fprintf(out, "GRANT TEMPORARY ON DATABASE \"%s\" TO \"%s\"", dbname, grantee)
+					n += i
+				case 'c':
+					i, _ = fmt.Fprintf(out, "GRANT CONNECT ON DATABASE \"%s\" TO \"%s\"", dbname, grantee)
+					n += i
+				}
 
-				// public role: when the privs differ from the default, issue grants
-				if grantee == "" {
-					grantee = "PUBLIC"
-					if privs != "Tc" {
-						fmt.Fprintf(out, "REVOKE ALL ON DATABASE \"%s\" FROM PUBLIC;\n", dbname)
+				if i+1 < len(privs) {
+					if privs[i+1] == '*' {
+						i, _ = fmt.Fprintf(out, " WITH GRANT OPTION;\n")
+						n += i
 					} else {
-						continue
+						i, _ = fmt.Fprintf(out, ";\n")
+						n += i
 					}
+				} else {
+					i, _ = fmt.Fprintf(out, ";\n")
+					n += i
 				}
-				// owner: when other roles have been given privileges, all
-				// privileges are shown for the owner
-				if grantee == owner {
-					if privs != "CTc" {
-						fmt.Fprintf(out, "REVOKE ALL ON DATABASE \"%s\" FROM \"%s\";\n", dbname, grantee)
-					} else {
-						continue
-					}
-				}
-
-				if grantor != owner {
-					fmt.Fprintf(out, "SET SESSION AUTHORIZATION \"%s\";\n", grantor)
-				}
-				for i, b := range privs {
-					switch b {
-					case 'C':
-						fmt.Fprintf(out, "GRANT CREATE ON DATABASE \"%s\" TO \"%s\"", dbname, grantee)
-					case 'T':
-						fmt.Fprintf(out, "GRANT TEMPORARY ON DATABASE \"%s\" TO \"%s\"", dbname, grantee)
-					case 'c':
-						fmt.Fprintf(out, "GRANT CONNECT ON DATABASE \"%s\" TO \"%s\"", dbname, grantee)
-					}
-
-					if i+1 < len(privs) {
-						if privs[i+1] == '*' {
-							fmt.Fprintf(out, " WITH GRANT OPTION;\n")
-						} else {
-							fmt.Fprintf(out, ";\n")
-						}
-					} else {
-						fmt.Fprintf(out, ";\n")
-					}
-				}
-				if grantor != owner {
-					fmt.Fprintf(out, "RESET SESSION AUTHORIZATION;\n")
-				}
-
+			}
+			if grantor != owner {
+				i, _ = fmt.Fprintf(out, "RESET SESSION AUTHORIZATION;\n")
+				n += i
 			}
 
 		}
-
+		// do not count this newline, we could have an empty
+		// file with only this newline otherwise
+		fmt.Fprintf(out, "\n")
 	}
 	err = rows.Err()
 	if err != nil {
 		l.Errorln(err)
-		return err
+		return 0, err
 	}
-	return nil
+	rows.Close()
+
+	// dump config
+	rows, err = db.conn.Query("SELECT unnest(setconfig) FROM pg_db_role_setting WHERE setrole = 0 AND setdatabase = (SELECT oid FROM pg_database WHERE datname = $1)", dbname)
+	if err != nil {
+		l.Errorln(err)
+		return 0, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var keyVal string
+
+		err := rows.Scan(&keyVal)
+		if err != nil {
+			l.Errorln(err)
+			return 0, err
+		}
+
+		// split
+		tokens := strings.Split(keyVal, "=")
+
+		// do not quote the value for those two parameters
+		if tokens[0] != "DateStyle" && tokens[0] != "search_path" {
+			tokens[1] = fmt.Sprintf("'%s'", tokens[1])
+		}
+		i, _ = fmt.Fprintf(out, "ALTER DATABASE \"%s\" SET \"%s\" TO %s;\n", dbname, tokens[0], tokens[1])
+		n += i
+	}
+	err = rows.Err()
+	if err != nil {
+		l.Errorln(err)
+		return 0, err
+	}
+
+	return n, nil
+}
+
+func ShowSettings(out io.Writer, db *DB) (int, error) {
+	var n, i int
+	// get the non default values set in the files and applied,
+	// this avoid duplicates when multiple files define
+	// parameters.
+	rows, err := db.conn.Query("SELECT name, setting FROM pg_show_all_file_settings() WHERE applied ORDER BY name")
+	if err != nil {
+		l.Errorln(err)
+		return 0, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var (
+			name  string
+			value string
+		)
+
+		err := rows.Scan(&name, &value)
+		if err != nil {
+			l.Errorln(err)
+			return 0, err
+		}
+
+		if name != "DateStyle" && name != "search_path" {
+			value = fmt.Sprintf("'%s'", value)
+		}
+
+		i, _ = fmt.Fprintf(out, "%s = %s\n", name, value)
+		n += i
+	}
+
+	err = rows.Err()
+	if err != nil {
+		l.Errorln(err)
+		return 0, err
+	}
+
+	return n, nil
 }
 
 func PauseReplication(db *DB) error {

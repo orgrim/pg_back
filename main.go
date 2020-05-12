@@ -214,6 +214,37 @@ func DumpGlobals(dir string, host string, port int, username string, connDb stri
 	return nil
 }
 
+func DumpSettings(dir string, db *DB) error {
+
+	file := FormatDumpPath(dir, "out", "pg_settings", time.Now())
+
+	if err := os.MkdirAll(filepath.Dir(file), 0755); err != nil {
+		l.Errorln(err)
+		return err
+	}
+
+	f, err := os.Create(file)
+	if err != nil {
+		l.Errorln(err)
+		return err
+	}
+
+	n, err := ShowSettings(f, db)
+
+	// Do not leave an empty file
+	f.Close()
+	if err != nil {
+		os.Remove(file)
+		return err
+	}
+
+	if n == 0 {
+		os.Remove(file)
+	}
+
+	return nil
+}
+
 type CliOptions struct {
 	directory     string
 	host          string
@@ -308,6 +339,12 @@ func main() {
 	}
 	defer db.Close()
 
+	l.Infoln("Dumping instance configuration")
+	if err := DumpSettings(CliOpts.directory, db); err != nil {
+		db.Close()
+		l.Fatalln("Could not dump configuration parameters")
+	}
+
 	if len(CliOpts.dbnames) > 0 {
 		databases = CliOpts.dbnames
 	} else {
@@ -389,12 +426,20 @@ func main() {
 					l.Errorln(err)
 					exitCode = 1
 				} else {
-					l.Infoln("Dumping database creation and ACL commands to", aclpath)
-					if err := DumpCreateDB(f, db, dbname); err != nil {
+					l.Infoln("Dumping database creation and ACL commands of database", dbname)
+
+					n, err := DumpCreateDBAndACL(f, db, dbname)
+					if err != nil {
 						l.Errorln("Dump of ACL failed")
 						exitCode = 1
 					}
 					f.Close()
+					if n == 0 {
+						l.Infoln("No ACL found for", dbname)
+						os.Remove(aclpath)
+					} else {
+						l.Infoln("Dump of ACL of", dbname, "to", aclpath, "done")
+					}
 				}
 			}
 		}
@@ -403,7 +448,6 @@ func main() {
 	if err := ResumeReplication(db); err != nil {
 		l.Errorln(err)
 	}
-
 	db.Close()
 
 	// purge
@@ -415,8 +459,10 @@ func main() {
 		}
 	}
 
-	if err := PurgeDumps(CliOpts.directory, "pg_globals", keep, limit); err != nil {
-		exitCode = 1
+	for _, other := range []string{"pg_globals", "pg_settings"} {
+		if err := PurgeDumps(CliOpts.directory, other, keep, limit); err != nil {
+			exitCode = 1
+		}
 	}
 	os.Exit(exitCode)
 }
