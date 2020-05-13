@@ -26,11 +26,11 @@
 package main
 
 import (
-	"fmt"
 	"bytes"
-	"testing"
+	"fmt"
 	"os"
 	"regexp"
+	"testing"
 )
 
 func TestLevelLogSetVerbose(t *testing.T) {
@@ -47,18 +47,18 @@ func TestLevelLogSetVerbose(t *testing.T) {
 }
 
 func TestLevelLogVerbose(t *testing.T) {
-	var tests = []struct{
+	var tests = []struct {
 		verbose bool
 		message string
-		re string
-		fOrln bool
+		re      string
+		fOrln   bool
 	}{
 		{true, "test", `^\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} DEBUG: test$`, true},
 		{true, "test", `^\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} DEBUG: test$`, false},
 		{false, "test", `^$`, true},
 		{false, "test", `^$`, false},
 	}
-		
+
 	l := NewLevelLog()
 
 	for i, subt := range tests {
@@ -88,15 +88,15 @@ func TestLevelLogVerbose(t *testing.T) {
 }
 
 func TestLevelLogInfo(t *testing.T) {
-	var tests = []struct{
+	var tests = []struct {
 		message string
-		re string
-		fOrln bool
+		re      string
+		fOrln   bool
 	}{
 		{"test", `^\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} INFO: test$`, true},
 		{"test", `^\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} INFO: test$`, false},
 	}
-		
+
 	l := NewLevelLog()
 
 	for i, subt := range tests {
@@ -124,15 +124,15 @@ func TestLevelLogInfo(t *testing.T) {
 }
 
 func TestLevelLogWarn(t *testing.T) {
-	var tests = []struct{
+	var tests = []struct {
 		message string
-		re string
-		fOrln bool
+		re      string
+		fOrln   bool
 	}{
 		{"test", `^\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} WARN: test$`, true},
 		{"test", `^\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} WARN: test$`, false},
 	}
-		
+
 	l := NewLevelLog()
 
 	for i, subt := range tests {
@@ -160,15 +160,15 @@ func TestLevelLogWarn(t *testing.T) {
 }
 
 func TestLevelLogError(t *testing.T) {
-	var tests = []struct{
+	var tests = []struct {
 		message string
-		re string
-		fOrln bool
+		re      string
+		fOrln   bool
 	}{
 		{"test", `^\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} ERROR: test$`, true},
 		{"test", `^\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} ERROR: test$`, false},
 	}
-		
+
 	l := NewLevelLog()
 
 	for i, subt := range tests {
@@ -195,4 +195,38 @@ func TestLevelLogError(t *testing.T) {
 	}
 }
 
-// We do not test Fatalx because the underlying call to log.Fatalx calls os.Exit(1)
+func TestLevelLogFatal(t *testing.T) {
+	var tests = []struct {
+		message string
+		re      string
+		fOrln   bool
+	}{
+		{"test", `^\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} FATAL: test$`, true},
+		{"test", `^\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} FATAL: test$`, false},
+	}
+
+	l := NewLevelLog()
+
+	for i, subt := range tests {
+		t.Run(fmt.Sprintf("%v", i), func(t *testing.T) {
+			buf := new(bytes.Buffer)
+			l.logger.SetOutput(buf)
+			if subt.fOrln {
+				l.Fatalf("%s", subt.message)
+			} else {
+				l.Fatalln(subt.message)
+			}
+			line := buf.String()
+			line = line[0 : len(line)-1]
+
+			matched, err := regexp.MatchString(subt.re, line)
+			if err != nil {
+				t.Fatal("pattern did not compile:", err)
+			}
+			if !matched {
+				t.Errorf("log output should match %q is %q", subt.re, line)
+			}
+			l.logger.SetOutput(os.Stderr)
+		})
+	}
+}

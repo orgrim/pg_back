@@ -259,6 +259,8 @@ type CliOptions struct {
 	purgeInterval string
 	purgeKeep     string
 	sumAlgo       string
+	preHook       string
+	postHook      string
 }
 
 func ParseCli() CliOptions {
@@ -281,6 +283,8 @@ func ParseCli() CliOptions {
 	pflag.StringVarP(&opts.sumAlgo, "checksum-algo", "S", "none", "signature algorithm: none sha1 sha224 sha256 sha384 sha512")
 	pflag.StringVarP(&opts.purgeInterval, "purge-older-than", "P", "30", "purge backups older than this duration in days\nuse an interval with units \"s\" (seconds), \"m\" (minutes) or \"h\" (hours)\nfor less than a day.")
 	pflag.StringVarP(&opts.purgeKeep, "purge-min-keep", "K", "0", "minimum number of dumps to keep when purging or 'all' to keep everything\n")
+	pflag.StringVar(&opts.preHook, "pre-backup-hook", "", "command to run before taking dumps")
+	pflag.StringVar(&opts.postHook, "post-backup-hook", "", "command to run after taking dumps")
 	pflag.StringVarP(&opts.host, "host", "h", "", "database server host or socket directory")
 	pflag.IntVarP(&opts.port, "port", "p", 0, "database server port number")
 	pflag.StringVarP(&opts.username, "username", "U", "", "connect as specified database user")
@@ -318,6 +322,7 @@ func main() {
 
 	if interval, err := PurgeValidateTimeLimitValue(CliOpts.purgeInterval); err != nil {
 		l.Fatalln(err)
+		os.Exit(1)
 	} else {
 		// computing the limit before taking the dumps ensure
 		// a purge interval of 0s won't remove the dumps we
@@ -325,16 +330,24 @@ func main() {
 		limit = time.Now().Add(interval)
 	}
 
+	if err := PreBackupHook(CliOpts.preHook); err != nil {
+		PostBackupHook(CliOpts.postHook)
+		os.Exit(1)
+	}
+
 	l.Infoln("Dumping globals")
 	if err := DumpGlobals(CliOpts.directory, CliOpts.host,
 		CliOpts.port, CliOpts.username, CliOpts.connDb); err != nil {
 		l.Fatalln("pg_dumpall -g failed")
+		PostBackupHook(CliOpts.postHook)
+		os.Exit(1)
 	}
 
 	conninfo := PrepareConnInfo(CliOpts.host, CliOpts.port, CliOpts.username, CliOpts.connDb)
 
 	db, ok := DbOpen(conninfo)
 	if !ok {
+		PostBackupHook(CliOpts.postHook)
 		os.Exit(1)
 	}
 	defer db.Close()
@@ -343,6 +356,8 @@ func main() {
 	if err := DumpSettings(CliOpts.directory, db); err != nil {
 		db.Close()
 		l.Fatalln("Could not dump configuration parameters")
+		PostBackupHook(CliOpts.postHook)
+		os.Exit(1)
 	}
 
 	if len(CliOpts.dbnames) > 0 {
@@ -353,6 +368,7 @@ func main() {
 		databases, ok = ListAllDatabases(db, CliOpts.withTemplates)
 		if !ok {
 			db.Close()
+			PostBackupHook(CliOpts.postHook)
 			os.Exit(0)
 		}
 
@@ -378,6 +394,8 @@ func main() {
 	if err := PauseReplicationWithTimeout(db, CliOpts.pauseTimeout); err != nil {
 		db.Close()
 		l.Fatalln(err)
+		PostBackupHook(CliOpts.postHook)
+		os.Exit(1)
 	}
 
 	exitCode := 0
@@ -464,5 +482,7 @@ func main() {
 			exitCode = 1
 		}
 	}
+
+	PostBackupHook(CliOpts.postHook)
 	os.Exit(exitCode)
 }

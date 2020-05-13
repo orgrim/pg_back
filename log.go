@@ -26,20 +26,20 @@
 package main
 
 import (
-	"os"
 	"log"
+	"os"
 )
 
 type LevelLog struct {
-	logger *log.Logger
+	logger  *log.Logger
 	verbose bool
 }
 
 var l = NewLevelLog()
 
-func NewLevelLog() (* LevelLog) {
+func NewLevelLog() *LevelLog {
 	return &LevelLog{
-		logger: log.New(os.Stderr, "", log.LstdFlags|log.Lmsgprefix),
+		logger:  log.New(os.Stderr, "", log.LstdFlags|log.Lmsgprefix),
 		verbose: false,
 	}
 }
@@ -96,13 +96,13 @@ func (l *LevelLog) Errorln(v ...interface{}) {
 	l.logger.Println(v...)
 }
 
-// Fatal is the same as log.Fatalx with a prefix
+// Fatal
 func (l *LevelLog) Fatalf(format string, v ...interface{}) {
 	l.logger.SetPrefix("FATAL: ")
-	l.logger.Fatalf(format, v...)
+	l.logger.Printf(format, v...)
 }
 
 func (l *LevelLog) Fatalln(v ...interface{}) {
 	l.logger.SetPrefix("FATAL: ")
-	l.logger.Fatalln(v...)
+	l.logger.Println(v...)
 }
