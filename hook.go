@@ -26,6 +26,7 @@
 package main
 
 import (
+	"fmt"
 	"github.com/anmitsu/go-shlex"
 	"os"
 	"os/exec"
@@ -33,6 +34,9 @@ import (
 )
 
 func HookCommand(cmd string, logPrefix string) error {
+	if cmd == "" {
+		return fmt.Errorf("unable to run an empty command")
+	}
 
 	words, lerr := shlex.Split(cmd, true)
 	if lerr != nil {

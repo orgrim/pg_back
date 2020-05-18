@@ -71,8 +71,8 @@ func ChecksumFile(path string, algo string) error {
 
 	o, oerr := os.Create(fmt.Sprintf("%s.%s", path, algo))
 	if oerr != nil {
-		l.Errorln(err)
-		return err
+		l.Errorln(oerr)
+		return oerr
 	}
 	defer o.Close()
 
