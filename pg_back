@@ -310,7 +310,7 @@ fi
 # Dump configuration using SHOW ALL
 dump="$PGBK_BACKUP_DIR/pg_settings_${DUMP_DATE}.out"
 info "saving output of SHOW ALL to ${dump}"
-${PGBK_BIN}psql -X -o "${dump}" -c "SHOW ALL;" $PGBK_CONNDB
+${PGBK_BIN}psql $OPTS -X -o "${dump}" -c "SHOW ALL;" $PGBK_CONNDB
 if [ $? != 0 ]; then
     error "psql -c 'SHOW ALL' failed"
     out_rc=1
