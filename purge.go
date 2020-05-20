@@ -90,7 +90,8 @@ func PurgeDumps(directory string, dbname string, keep int, limit time.Time) erro
 			return err
 		}
 
-		if strings.HasPrefix(f[0].Name(), dbname+"_") && !f[0].IsDir() {
+		if strings.HasPrefix(f[0].Name(), dbname+"_") &&
+			(!f[0].IsDir() || strings.HasSuffix(f[0].Name(), ".d")) {
 			dirContents = append(dirContents, f[0])
 		}
 	}
@@ -106,8 +107,14 @@ func PurgeDumps(directory string, dbname string, keep int, limit time.Time) erro
 			if f.ModTime().Before(limit) {
 				file := filepath.Join(dirpath, f.Name())
 				l.Infoln("removing", file)
-				if err = os.Remove(file); err != nil {
-					l.Errorf("Could not remove %s: %v\n", file, err)
+				if f.IsDir() {
+					if err = os.RemoveAll(file); err != nil {
+						l.Errorln(err)
+					}
+				} else {
+					if err = os.Remove(file); err != nil {
+						l.Errorln(err)
+					}
 				}
 			}
 		}

@@ -27,7 +27,6 @@ package main
 
 import (
 	"fmt"
-	"github.com/spf13/pflag"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -86,10 +85,24 @@ func (d *Dump) Dump() error {
 	}
 
 	d.When = time.Now()
-	file := FormatDumpPath(d.Directory, "dump", dbname, d.When)
+
+	var fileEnd string
+	switch string([]rune(d.Format)[0]) {
+	case "p":
+		fileEnd = "sql"
+	case "c":
+		fileEnd = "dump"
+	case "t":
+		fileEnd = "tar"
+	case "d":
+		fileEnd = "d"
+	}
+
+	file := FormatDumpPath(d.Directory, fileEnd, dbname, d.When)
+	formatOpt := fmt.Sprintf("-F%c", []rune(d.Format)[0])
 
 	command := "pg_dump"
-	args := []string{"-Fc", "-f", file}
+	args := []string{formatOpt, "-f", file}
 
 	AppendConnectionOptions(&args, d.Host, d.Port, d.Username)
 	args = append(args, dbname)
@@ -245,70 +258,6 @@ func DumpSettings(dir string, db *DB) error {
 	return nil
 }
 
-type CliOptions struct {
-	directory     string
-	host          string
-	port          int
-	username      string
-	connDb        string
-	excludeDbs    []string
-	dbnames       []string
-	withTemplates bool
-	jobs          int
-	pauseTimeout  int
-	purgeInterval string
-	purgeKeep     string
-	sumAlgo       string
-	preHook       string
-	postHook      string
-}
-
-func ParseCli() CliOptions {
-	opts := CliOptions{}
-
-	pflag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "pg_goback dumps some PostgreSQL databases\n\n")
-		fmt.Fprintf(os.Stderr, "Usage:\n")
-		fmt.Fprintf(os.Stderr, "  pg_goback [OPTION]... [DBNAME]...\n")
-		fmt.Fprintf(os.Stderr, "\nOptions:\n")
-		pflag.CommandLine.SortFlags = false
-		pflag.PrintDefaults()
-	}
-
-	pflag.StringVarP(&opts.directory, "backup-directory", "b", "/var/backups/postgresql", "store dump files there")
-	pflag.StringSliceVarP(&opts.excludeDbs, "exclude-dbs", "D", []string{}, "list of databases to exclude")
-	pflag.BoolVarP(&opts.withTemplates, "with-templates", "t", false, "include templates")
-	pflag.IntVarP(&opts.pauseTimeout, "pause-timeout", "T", 3600, "abort if replication cannot be paused after this number of seconds")
-	pflag.IntVarP(&opts.jobs, "jobs", "j", 1, "dump this many databases concurrently")
-	pflag.StringVarP(&opts.sumAlgo, "checksum-algo", "S", "none", "signature algorithm: none sha1 sha224 sha256 sha384 sha512")
-	pflag.StringVarP(&opts.purgeInterval, "purge-older-than", "P", "30", "purge backups older than this duration in days\nuse an interval with units \"s\" (seconds), \"m\" (minutes) or \"h\" (hours)\nfor less than a day.")
-	pflag.StringVarP(&opts.purgeKeep, "purge-min-keep", "K", "0", "minimum number of dumps to keep when purging or 'all' to keep everything\n")
-	pflag.StringVar(&opts.preHook, "pre-backup-hook", "", "command to run before taking dumps")
-	pflag.StringVar(&opts.postHook, "post-backup-hook", "", "command to run after taking dumps")
-	pflag.StringVarP(&opts.host, "host", "h", "", "database server host or socket directory")
-	pflag.IntVarP(&opts.port, "port", "p", 0, "database server port number")
-	pflag.StringVarP(&opts.username, "username", "U", "", "connect as specified database user")
-	pflag.StringVarP(&opts.connDb, "dbname", "d", "", "connect to database name")
-
-	helpF := pflag.BoolP("help", "?", false, "print usage")
-	versionF := pflag.BoolP("version", "V", false, "print version")
-
-	pflag.Parse()
-
-	if *helpF {
-		pflag.Usage()
-		os.Exit(0)
-	}
-
-	if *versionF {
-		fmt.Printf("pg_goback version %v\n", version)
-		os.Exit(0)
-	}
-
-	opts.dbnames = pflag.Args()
-	return opts
-}
-
 func main() {
 	var (
 		databases []string
@@ -414,6 +363,7 @@ func main() {
 		d := &Dump{
 			Database:  dbname,
 			Directory: CliOpts.directory,
+			Format:    CliOpts.format,
 			Host:      CliOpts.host,
 			Port:      CliOpts.port,
 			Username:  CliOpts.username,
