@@ -42,13 +42,13 @@ func TestDbOpen(t *testing.T) {
 
 func TestPrepareConnInfo(t *testing.T) {
 	var tests = []struct {
-		host string
-		port int
+		host     string
+		port     int
 		username string
-		dbname string
-		want string
+		dbname   string
+		want     string
 	}{
-		{"", 0, "", "", "host=/var/run/postgresql application_name=pg_goback"},
+		{"", 0, "", "", "host=/tmp application_name=pg_goback"},
 		{"localhost", 5432, "postgres", "postgres", "host=localhost port=5432 user=postgres dbname=postgres application_name=pg_goback"},
 		{"localhost", 0, "postgres", "postgres", "host=localhost user=postgres dbname=postgres application_name=pg_goback"},
 		{"localhost", 5432, "", "postgres", "host=localhost port=5432 dbname=postgres application_name=pg_goback"},

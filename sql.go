@@ -102,7 +102,7 @@ func PrepareConnInfo(host string, port int, username string, dbname string) stri
 		// we have to check PGHOST and fallback to the unix
 		// socket directory to avoid overriding PGHOST
 		if _, ok := os.LookupEnv("PGHOST"); !ok {
-			conninfo += "host=/var/run/postgresql "
+			conninfo += "host=/tmp "
 		}
 	}
 	if port != 0 {
