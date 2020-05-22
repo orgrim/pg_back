@@ -163,6 +163,8 @@ func TestLoadConfigurationFile(t *testing.T) {
 
 			if st.fail {
 				os.Remove(f.Name())
+			} else {
+				defer os.Remove(f.Name())
 			}
 
 			var got Options
