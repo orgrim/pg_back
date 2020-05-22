@@ -28,28 +28,53 @@ package main
 import (
 	"fmt"
 	"github.com/spf13/pflag"
+	"gopkg.in/ini.v1"
 	"os"
 	"strings"
 )
 
 type Options struct {
-	directory     string
-	host          string
-	port          int
-	username      string
-	connDb        string
-	excludeDbs    []string
-	dbnames       []string
-	withTemplates bool
-	format        string
-	dirJobs       int
-	jobs          int
-	pauseTimeout  int
-	purgeInterval string
-	purgeKeep     string
-	sumAlgo       string
-	preHook       string
-	postHook      string
+	Directory     string
+	Host          string
+	Port          int
+	Username      string
+	ConnDb        string
+	ExcludeDbs    []string
+	Dbnames       []string
+	WithTemplates bool
+	Format        string
+	DirJobs       int
+	Jobs          int
+	PauseTimeout  int
+	PurgeInterval string
+	PurgeKeep     string
+	SumAlgo       string
+	PreHook       string
+	PostHook      string
+	CfgFile       string
+}
+
+func DefaultOptions() Options {
+	return Options{
+		Directory:     "/var/backups/postgresql",
+		Format:        "custom",
+		DirJobs:       1,
+		Jobs:          1,
+		PauseTimeout:  3600,
+		PurgeInterval: "30",
+		PurgeKeep:     "0",
+		SumAlgo:       "none",
+		CfgFile:       defaultCfgFile,
+	}
+}
+
+type ParseCliError struct {
+	ShowHelp    bool
+	ShowVersion bool
+}
+
+func (*ParseCliError) Error() string {
+	return fmt.Sprintf("parsing of command line args failed")
 }
 
 func ValidateDumpFormat(s string) error {
@@ -61,8 +86,11 @@ func ValidateDumpFormat(s string) error {
 	return fmt.Errorf("invalid dump format %q", s)
 }
 
-func ParseCli() Options {
-	opts := Options{}
+var defaultCfgFile = "/etc/pg_goback/pg_goback.conf"
+var configParseCliInput = os.Args[1:]
+
+func ParseCli() (Options, []string, error) {
+	opts := DefaultOptions()
 
 	pflag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "pg_goback dumps some PostgreSQL databases\n\n")
@@ -73,43 +101,148 @@ func ParseCli() Options {
 		pflag.PrintDefaults()
 	}
 
-	pflag.StringVarP(&opts.directory, "backup-directory", "b", "/var/backups/postgresql", "store dump files there")
-	pflag.StringSliceVarP(&opts.excludeDbs, "exclude-dbs", "D", []string{}, "list of databases to exclude")
-	pflag.BoolVarP(&opts.withTemplates, "with-templates", "t", false, "include templates")
-	pflag.IntVarP(&opts.pauseTimeout, "pause-timeout", "T", 3600, "abort if replication cannot be paused after this number of seconds")
-	pflag.IntVarP(&opts.jobs, "jobs", "j", 1, "dump this many databases concurrently")
-	pflag.StringVarP(&opts.format, "format", "F", "custom", "database dump format: plain, custom, tar or directory")
-
-	pflag.StringVarP(&opts.sumAlgo, "checksum-algo", "S", "none", "signature algorithm: none sha1 sha224 sha256 sha384 sha512")
-	pflag.StringVarP(&opts.purgeInterval, "purge-older-than", "P", "30", "purge backups older than this duration in days\nuse an interval with units \"s\" (seconds), \"m\" (minutes) or \"h\" (hours)\nfor less than a day.")
-	pflag.StringVarP(&opts.purgeKeep, "purge-min-keep", "K", "0", "minimum number of dumps to keep when purging or 'all' to keep everything\n")
-	pflag.StringVar(&opts.preHook, "pre-backup-hook", "", "command to run before taking dumps")
-	pflag.StringVar(&opts.postHook, "post-backup-hook", "", "command to run after taking dumps")
-	pflag.StringVarP(&opts.host, "host", "h", "", "database server host or socket directory")
-	pflag.IntVarP(&opts.port, "port", "p", 0, "database server port number")
-	pflag.StringVarP(&opts.username, "username", "U", "", "connect as specified database user")
-	pflag.StringVarP(&opts.connDb, "dbname", "d", "", "connect to database name")
+	pflag.StringVarP(&opts.Directory, "backup-directory", "b", "/var/backups/postgresql", "store dump files there")
+	pflag.StringVarP(&opts.CfgFile, "config", "c", defaultCfgFile, "alternate config file")
+	pflag.StringSliceVarP(&opts.ExcludeDbs, "exclude-dbs", "D", []string{}, "list of databases to exclude")
+	pflag.BoolVarP(&opts.WithTemplates, "with-templates", "t", false, "include templates")
+	WithoutTemplates := pflag.Bool("without-templates", false, "force exclude templates")
+	pflag.IntVarP(&opts.PauseTimeout, "pause-timeout", "T", 3600, "abort if replication cannot be paused after this number of seconds")
+	pflag.IntVarP(&opts.Jobs, "jobs", "j", 1, "dump this many databases concurrently")
+	pflag.StringVarP(&opts.Format, "format", "F", "custom", "database dump format: plain, custom, tar or directory")
+	pflag.IntVarP(&opts.DirJobs, "parallel-backup-jobs", "J", 1, "number of parallel jobs to dumps when using directory format")
+	pflag.StringVarP(&opts.SumAlgo, "checksum-algo", "S", "none", "signature algorithm: none sha1 sha224 sha256 sha384 sha512")
+	pflag.StringVarP(&opts.PurgeInterval, "purge-older-than", "P", "30", "purge backups older than this duration in days\nuse an interval with units \"s\" (seconds), \"m\" (minutes) or \"h\" (hours)\nfor less than a day.")
+	pflag.StringVarP(&opts.PurgeKeep, "purge-min-keep", "K", "0", "minimum number of dumps to keep when purging or 'all' to keep everything\n")
+	pflag.StringVar(&opts.PreHook, "pre-backup-hook", "", "command to run before taking dumps")
+	pflag.StringVar(&opts.PostHook, "post-backup-hook", "", "command to run after taking dumps")
+	pflag.StringVarP(&opts.Host, "host", "h", "", "database server host or socket directory")
+	pflag.IntVarP(&opts.Port, "port", "p", 0, "database server port number")
+	pflag.StringVarP(&opts.Username, "username", "U", "", "connect as specified database user")
+	pflag.StringVarP(&opts.ConnDb, "dbname", "d", "", "connect to database name")
 
 	helpF := pflag.BoolP("help", "?", false, "print usage")
 	versionF := pflag.BoolP("version", "V", false, "print version")
 
-	pflag.Parse()
+	// Do not use the default pflag.Parse() that use os.Args[1:],
+	// but pass it explicitly so that unit-tests can feed any set
+	// of flags
+	pflag.CommandLine.Parse(configParseCliInput)
 
+	// Record the list of flags set on the command line to allow
+	// overriding the configuration later, if an alternate
+	// configuration file has been provided
 	changed := make([]string, 0)
 	pflag.Visit(func(f *pflag.Flag) {
 		changed = append(changed, f.Name)
 	})
 
+	// To override with_templates = true on the command line and
+	// make it false, we have to ensure MergeCliAndConfigOptions()
+	// use the cli value
+	if *WithoutTemplates {
+		opts.WithTemplates = false
+		changed = append(changed, "with-templates")
+	}
+
+	// When --help or --version is given print and tell the caller
+	// through the error
 	if *helpF {
 		pflag.Usage()
-		os.Exit(0)
+		return opts, changed, &ParseCliError{true, false}
 	}
 
 	if *versionF {
 		fmt.Printf("pg_goback version %v\n", version)
-		os.Exit(0)
+		return opts, changed, &ParseCliError{false, true}
 	}
 
-	opts.dbnames = pflag.Args()
+	opts.Dbnames = pflag.Args()
+
+	// When a list of databases have been provided ensure it will
+	// override the one from the configuration when options are
+	// merged
+	if len(opts.Dbnames) > 0 {
+		changed = append(changed, "include-dbs")
+	}
+	return opts, changed, nil
+}
+
+func LoadConfigurationFile(path string) (Options, error) {
+	opts := DefaultOptions()
+
+	cfg, err := ini.Load(path)
+	if err != nil {
+		return opts, fmt.Errorf("Could load configuration file: %v", err)
+	}
+
+	var s *ini.Section
+	s, err = cfg.GetSection(ini.DEFAULT_SECTION)
+
+	// Read all configuration parameters ensuring the destination
+	// struct member has the same default value as the commandline
+	// flags
+	opts.Directory = s.Key("backup_directory").MustString("/var/backups/postgresql")
+	opts.Host = s.Key("host").MustString("")
+	opts.Port = s.Key("port").MustInt(0)
+	opts.Username = s.Key("user").MustString("")
+	opts.ConnDb = s.Key("dbname").MustString("")
+	opts.ExcludeDbs = s.Key("exclude_dbs").Strings(",")
+	opts.Dbnames = s.Key("include_dbs").Strings(",")
+	opts.WithTemplates = s.Key("with_templates").MustBool(false)
+	opts.Format = s.Key("format").MustString("custom")
+	opts.DirJobs = s.Key("parallel_backup_jobs").MustInt(1)
+	opts.Jobs = s.Key("jobs").MustInt(1)
+	opts.PauseTimeout = s.Key("pause_timeout").MustInt(3600)
+	opts.PurgeInterval = s.Key("purge_older_than").MustString("30")
+	opts.PurgeKeep = s.Key("purge_min_keep").MustString("0")
+	opts.SumAlgo = s.Key("checksum_algorithm").MustString("none")
+	opts.PreHook = s.Key("pre_backup_hook").MustString("")
+	opts.PostHook = s.Key("post_backup_hook").MustString("")
+
+	return opts, nil
+}
+
+func MergeCliAndConfigOptions(cliOpts Options, configOpts Options, onCli []string) Options {
+	opts := configOpts
+
+	for _, o := range onCli {
+		switch o {
+		case "backup-directory":
+			opts.Directory = cliOpts.Directory
+		case "exclude-dbs":
+			opts.ExcludeDbs = cliOpts.ExcludeDbs
+		case "include-dbs":
+			opts.Dbnames = cliOpts.Dbnames
+		case "with-templates":
+			opts.WithTemplates = cliOpts.WithTemplates
+		case "pause-timeout":
+			opts.PauseTimeout = cliOpts.PauseTimeout
+		case "jobs":
+			opts.Jobs = cliOpts.Jobs
+		case "format":
+			opts.Format = cliOpts.Format
+		case "parallel-backup-jobs":
+			opts.DirJobs = cliOpts.DirJobs
+		case "checksum-algo":
+			opts.SumAlgo = cliOpts.SumAlgo
+		case "purge-older-than":
+			opts.PurgeInterval = cliOpts.PurgeInterval
+		case "purge-min-keep":
+			opts.PurgeKeep = cliOpts.PurgeKeep
+		case "pre-backup-hook":
+			opts.PreHook = cliOpts.PreHook
+		case "post-backup-hook":
+			opts.PostHook = cliOpts.PostHook
+		case "host":
+			opts.Host = cliOpts.Host
+		case "port":
+			opts.Port = cliOpts.Port
+		case "username":
+			opts.Username = cliOpts.Username
+		case "dbname":
+			opts.ConnDb = cliOpts.ConnDb
+		}
+	}
+
 	return opts
 }

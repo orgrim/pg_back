@@ -26,6 +26,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -264,12 +265,28 @@ func main() {
 		limit     time.Time
 	)
 
-	CliOpts := ParseCli()
+	// Parse commanline arguments first so that we can quit if you
+	// have shown usage or version string and load a non default
+	// configuration file
+	CliOpts, cliOptList, perr := ParseCli()
+	var pce *ParseCliError
+	if perr != nil && errors.As(perr, &pce) {
+		os.Exit(0)
+	}
+
+	// Load configuration file and allow the default configuration file to be absent
+	ConfigOpts, err := LoadConfigurationFile(CliOpts.CfgFile)
+	if err != nil && CliOpts.CfgFile != defaultCfgFile {
+		l.Fatalln(err)
+		os.Exit(1)
+	}
+
+	Opts := MergeCliAndConfigOptions(CliOpts, ConfigOpts, cliOptList)
 
 	// validate purge options and do the extra parsing
-	keep := PurgeValidateKeepValue(CliOpts.purgeKeep)
+	keep := PurgeValidateKeepValue(Opts.PurgeKeep)
 
-	if interval, err := PurgeValidateTimeLimitValue(CliOpts.purgeInterval); err != nil {
+	if interval, err := PurgeValidateTimeLimitValue(Opts.PurgeInterval); err != nil {
 		l.Fatalln(err)
 		os.Exit(1)
 	} else {
@@ -279,54 +296,54 @@ func main() {
 		limit = time.Now().Add(interval)
 	}
 
-	if err := PreBackupHook(CliOpts.preHook); err != nil {
-		PostBackupHook(CliOpts.postHook)
+	if err := PreBackupHook(Opts.PreHook); err != nil {
+		PostBackupHook(Opts.PostHook)
 		os.Exit(1)
 	}
 
 	l.Infoln("Dumping globals")
-	if err := DumpGlobals(CliOpts.directory, CliOpts.host,
-		CliOpts.port, CliOpts.username, CliOpts.connDb); err != nil {
+	if err := DumpGlobals(Opts.Directory, Opts.Host,
+		Opts.Port, Opts.Username, Opts.ConnDb); err != nil {
 		l.Fatalln("pg_dumpall -g failed")
-		PostBackupHook(CliOpts.postHook)
+		PostBackupHook(Opts.PostHook)
 		os.Exit(1)
 	}
 
-	conninfo := PrepareConnInfo(CliOpts.host, CliOpts.port, CliOpts.username, CliOpts.connDb)
+	conninfo := PrepareConnInfo(Opts.Host, Opts.Port, Opts.Username, Opts.ConnDb)
 
 	db, ok := DbOpen(conninfo)
 	if !ok {
-		PostBackupHook(CliOpts.postHook)
+		PostBackupHook(Opts.PostHook)
 		os.Exit(1)
 	}
 	defer db.Close()
 
 	l.Infoln("Dumping instance configuration")
-	if err := DumpSettings(CliOpts.directory, db); err != nil {
+	if err := DumpSettings(Opts.Directory, db); err != nil {
 		db.Close()
 		l.Fatalln("Could not dump configuration parameters")
-		PostBackupHook(CliOpts.postHook)
+		PostBackupHook(Opts.PostHook)
 		os.Exit(1)
 	}
 
-	if len(CliOpts.dbnames) > 0 {
-		databases = CliOpts.dbnames
+	if len(Opts.Dbnames) > 0 {
+		databases = Opts.Dbnames
 	} else {
 		var ok bool
 
-		databases, ok = ListAllDatabases(db, CliOpts.withTemplates)
+		databases, ok = ListAllDatabases(db, Opts.WithTemplates)
 		if !ok {
 			db.Close()
-			PostBackupHook(CliOpts.postHook)
+			PostBackupHook(Opts.PostHook)
 			os.Exit(0)
 		}
 
 		// exclure les bases
-		if len(CliOpts.excludeDbs) > 0 {
+		if len(Opts.ExcludeDbs) > 0 {
 			filtered := []string{}
 			for _, d := range databases {
 				found := false
-				for _, e := range CliOpts.excludeDbs {
+				for _, e := range Opts.ExcludeDbs {
 					if d == e {
 						found = true
 						break
@@ -340,15 +357,15 @@ func main() {
 		}
 	}
 
-	if err := PauseReplicationWithTimeout(db, CliOpts.pauseTimeout); err != nil {
+	if err := PauseReplicationWithTimeout(db, Opts.PauseTimeout); err != nil {
 		db.Close()
 		l.Fatalln(err)
-		PostBackupHook(CliOpts.postHook)
+		PostBackupHook(Opts.PostHook)
 		os.Exit(1)
 	}
 
 	exitCode := 0
-	maxWorkers := CliOpts.jobs
+	maxWorkers := Opts.Jobs
 	numJobs := len(databases)
 	jobs := make(chan *Dump, numJobs)
 	results := make(chan *Dump, numJobs)
@@ -362,12 +379,12 @@ func main() {
 	for _, dbname := range databases {
 		d := &Dump{
 			Database:  dbname,
-			Directory: CliOpts.directory,
-			Format:    CliOpts.format,
-			Host:      CliOpts.host,
-			Port:      CliOpts.port,
-			Username:  CliOpts.username,
-			SumAlgo:   CliOpts.sumAlgo,
+			Directory: Opts.Directory,
+			Format:    Opts.Format,
+			Host:      Opts.Host,
+			Port:      Opts.Port,
+			Username:  Opts.Username,
+			SumAlgo:   Opts.SumAlgo,
 			ExitCode:  -1,
 		}
 
@@ -422,17 +439,17 @@ func main() {
 	l.Infoln("Purging old dumps")
 
 	for _, dbname := range databases {
-		if err := PurgeDumps(CliOpts.directory, dbname, keep, limit); err != nil {
+		if err := PurgeDumps(Opts.Directory, dbname, keep, limit); err != nil {
 			exitCode = 1
 		}
 	}
 
 	for _, other := range []string{"pg_globals", "pg_settings"} {
-		if err := PurgeDumps(CliOpts.directory, other, keep, limit); err != nil {
+		if err := PurgeDumps(Opts.Directory, other, keep, limit); err != nil {
 			exitCode = 1
 		}
 	}
 
-	PostBackupHook(CliOpts.postHook)
+	PostBackupHook(Opts.PostHook)
 	os.Exit(exitCode)
 }
