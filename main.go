@@ -143,10 +143,6 @@ func (d *Dump) Dump() error {
 	return nil
 }
 
-func (d *Dump) Checksum() error {
-	return nil
-}
-
 func dumper(id int, jobs <-chan *Dump, results chan<- *Dump) {
 	for j := range jobs {
 
