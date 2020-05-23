@@ -34,6 +34,7 @@ import (
 )
 
 type Options struct {
+	BinDirectory  string
 	Directory     string
 	Host          string
 	Port          int
@@ -101,6 +102,7 @@ func ParseCli() (Options, []string, error) {
 		pflag.PrintDefaults()
 	}
 
+	pflag.StringVarP(&opts.BinDirectory, "bin-directory", "B", "", "PostgreSQL binaries directory. Empty to search $PATH")
 	pflag.StringVarP(&opts.Directory, "backup-directory", "b", "/var/backups/postgresql", "store dump files there")
 	pflag.StringVarP(&opts.CfgFile, "config", "c", defaultCfgFile, "alternate config file")
 	pflag.StringSliceVarP(&opts.ExcludeDbs, "exclude-dbs", "D", []string{}, "list of databases to exclude")
@@ -181,6 +183,7 @@ func LoadConfigurationFile(path string) (Options, error) {
 	// Read all configuration parameters ensuring the destination
 	// struct member has the same default value as the commandline
 	// flags
+	opts.BinDirectory = s.Key("bin_directory").MustString("")
 	opts.Directory = s.Key("backup_directory").MustString("/var/backups/postgresql")
 	opts.Host = s.Key("host").MustString("")
 	opts.Port = s.Key("port").MustInt(0)
@@ -207,6 +210,8 @@ func MergeCliAndConfigOptions(cliOpts Options, configOpts Options, onCli []strin
 
 	for _, o := range onCli {
 		switch o {
+		case "bin-directory":
+			opts.BinDirectory = cliOpts.BinDirectory
 		case "backup-directory":
 			opts.Directory = cliOpts.Directory
 		case "exclude-dbs":

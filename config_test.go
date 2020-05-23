@@ -181,6 +181,7 @@ func TestLoadConfigurationFile(t *testing.T) {
 
 func TestMergeCliAndConfigOptions(t *testing.T) {
 	want := Options{
+		BinDirectory:  "/bin",
 		Directory:     "test",
 		Host:          "localhost",
 		Port:          5433,
@@ -202,6 +203,7 @@ func TestMergeCliAndConfigOptions(t *testing.T) {
 	}
 
 	cliOptList := []string{
+		"bin-directory",
 		"backup-directory",
 		"exclude-dbs",
 		"include-dbs",

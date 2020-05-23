@@ -102,7 +102,7 @@ func (d *Dump) Dump() error {
 	file := FormatDumpPath(d.Directory, fileEnd, dbname, d.When)
 	formatOpt := fmt.Sprintf("-F%c", []rune(d.Format)[0])
 
-	command := "pg_dump"
+	command := filepath.Join(binDir, "pg_dump")
 	args := []string{formatOpt, "-f", file}
 
 	AppendConnectionOptions(&args, d.Host, d.Port, d.Username)
@@ -195,7 +195,7 @@ func FormatDumpPath(dir string, suffix string, dbname string, when time.Time) st
 }
 
 func DumpGlobals(dir string, host string, port int, username string, connDb string) error {
-	command := "pg_dumpall"
+	command := filepath.Join(binDir, "pg_dumpall")
 	args := []string{"-g"}
 
 	AppendConnectionOptions(&args, host, port, username)
@@ -255,6 +255,8 @@ func DumpSettings(dir string, db *DB) error {
 	return nil
 }
 
+var binDir string
+
 func main() {
 	var (
 		databases []string
@@ -290,6 +292,10 @@ func main() {
 		// a purge interval of 0s won't remove the dumps we
 		// are taking
 		limit = time.Now().Add(interval)
+	}
+
+	if Opts.BinDirectory != "" {
+		binDir = Opts.BinDirectory
 	}
 
 	if err := PreBackupHook(Opts.PreHook); err != nil {
