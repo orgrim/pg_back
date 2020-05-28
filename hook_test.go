@@ -40,11 +40,11 @@ func TestHookCommand(t *testing.T) {
 		re  string
 	}{
 		{"echo 'a'", `^\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} INFO: test: a\n$`},
-		{"echo a'", `^\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} ERROR: No closing quotation\n\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} ERROR: No closing quotation\n$`},
+		{"echo a'", `^\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} ERROR: unable to parse hook command: No closing quotation\n$`},
 		{"echo -e 'a\nb'", `^\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} INFO: test: a\n\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} INFO: test: b\n$`},
 		{"", `^\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} ERROR: unable to run an empty command\n$`},
-		{"/nothingBLA a", `^\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} ERROR: fork/exec /nothingBLA: no such file or directory\n\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} ERROR: fork/exec /nothingBLA: no such file or directory\n$`},
-		{"sh -c 'echo test; exit 1'", `^\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} ERROR: test\n\n\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} ERROR: exit status 1\n\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} ERROR: exit status 1\n$`},
+		{"/nothingBLA a", `^\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} ERROR: fork/exec /nothingBLA: no such file or directory\n$`},
+		{"sh -c 'echo test; exit 1'", `^\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} ERROR: test: test\n\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} ERROR: exit status 1\n$`},
 	}
 
 	//	l := NewLevelLog()
@@ -53,7 +53,7 @@ func TestHookCommand(t *testing.T) {
 			buf := new(bytes.Buffer)
 			l.logger.SetOutput(buf)
 
-			if err := HookCommand(subt.cmd, "test:"); err != nil {
+			if err := hookCommand(subt.cmd, "test:"); err != nil {
 				l.Errorln(err)
 			}
 
@@ -78,14 +78,14 @@ func TestPreBackupHook(t *testing.T) {
 	}{
 		{"echo 'a'", `\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} INFO: running pre-backup command: echo 'a'\n\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} INFO: pre-backup: a\n$`, false},
 		{"", "", false},
-		{"/nothingBLA a", `\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} INFO: running pre-backup command: /nothingBLA a\n\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} ERROR: fork/exec /nothingBLA: no such file or directory\n\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} FATAL: hook command failed, exiting\n$`, true},
+		{"/nothingBLA a", `\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} INFO: running pre-backup command: /nothingBLA a\n\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} FATAL: hook command failed: fork/exec /nothingBLA: no such file or directory\n$`, true},
 	}
 	for i, subt := range tests {
 		t.Run(fmt.Sprintf("%v", i), func(t *testing.T) {
 			buf := new(bytes.Buffer)
 			l.logger.SetOutput(buf)
 
-			if err := PreBackupHook(subt.cmd); err != nil {
+			if err := preBackupHook(subt.cmd); err != nil {
 				if !subt.fails {
 					t.Errorf("function test must not fail, got error: %q\n", err)
 				}
@@ -110,12 +110,12 @@ func TestPreBackupHook(t *testing.T) {
 
 func TestPostBackupHook(t *testing.T) {
 	t.Run("0", func(t *testing.T) {
-		if os.Getenv("TEST_HOOK") == "1" {
-			PostBackupHook("false")
+		if os.Getenv("_TEST_HOOK") == "1" {
+			postBackupHook("false")
 			return
 		}
 		cmd := exec.Command(os.Args[0], "-test.run=TestPostBackupHook")
-		cmd.Env = append(os.Environ(), "TEST_HOOK=1")
+		cmd.Env = append(os.Environ(), "_TEST_HOOK=1")
 		err := cmd.Run()
 		if e, ok := err.(*exec.ExitError); ok && !e.Success() {
 			return
@@ -126,7 +126,7 @@ func TestPostBackupHook(t *testing.T) {
 	t.Run("1", func(t *testing.T) {
 		buf := new(bytes.Buffer)
 		l.logger.SetOutput(buf)
-		PostBackupHook("")
+		postBackupHook("")
 		lines := buf.String()
 		if len(lines) != 0 {
 			t.Errorf("did not expect any output, got %q\n", lines)

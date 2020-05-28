@@ -26,14 +26,17 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"github.com/spf13/pflag"
 	"gopkg.in/ini.v1"
 	"os"
+	"strconv"
 	"strings"
+	"time"
 )
 
-type Options struct {
+type options struct {
 	BinDirectory  string
 	Directory     string
 	Host          string
@@ -55,8 +58,8 @@ type Options struct {
 	CfgFile       string
 }
 
-func DefaultOptions() Options {
-	return Options{
+func defaultOptions() options {
+	return options{
 		Directory:     "/var/backups/postgresql",
 		Format:        "custom",
 		DirJobs:       1,
@@ -78,7 +81,7 @@ func (*ParseCliError) Error() string {
 	return fmt.Sprintf("parsing of command line args failed")
 }
 
-func ValidateDumpFormat(s string) error {
+func validateDumpFormat(s string) error {
 	for _, v := range []string{"plain", "custom", "tar", "directory"} {
 		if strings.HasPrefix(v, s) {
 			return nil
@@ -87,11 +90,42 @@ func ValidateDumpFormat(s string) error {
 	return fmt.Errorf("invalid dump format %q", s)
 }
 
+func validatePurgeKeepValue(k string) int {
+	// returning -1 means keep all dumps
+	if k == "all" {
+		return -1
+	}
+
+	if keep, err := strconv.ParseInt(k, 10, 0); err != nil {
+		// return -1 too when the input is not convertible to an int, this way we avoid any
+		l.Warnln("Invalid input for -K, keeping everything")
+		return -1
+	} else {
+		return int(keep)
+	}
+}
+
+func validatePurgeTimeLimitValue(l string) (time.Duration, error) {
+	if days, err := strconv.ParseInt(l, 10, 0); err != nil {
+		if errors.Is(err, strconv.ErrRange) {
+			return 0, errors.New("Invalid input for -P, number too big")
+		}
+	} else {
+		return time.Duration(-days*24) * time.Hour, nil
+	}
+
+	if d, err := time.ParseDuration(l); err != nil {
+		return 0, err
+	} else {
+		return -d, nil
+	}
+}
+
 var defaultCfgFile = "/etc/pg_goback/pg_goback.conf"
 var configParseCliInput = os.Args[1:]
 
-func ParseCli() (Options, []string, error) {
-	opts := DefaultOptions()
+func parseCli() (options, []string, error) {
+	opts := defaultOptions()
 
 	pflag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "pg_goback dumps some PostgreSQL databases\n\n")
@@ -169,16 +203,15 @@ func ParseCli() (Options, []string, error) {
 	return opts, changed, nil
 }
 
-func LoadConfigurationFile(path string) (Options, error) {
-	opts := DefaultOptions()
+func loadConfigurationFile(path string) (options, error) {
+	opts := defaultOptions()
 
 	cfg, err := ini.Load(path)
 	if err != nil {
 		return opts, fmt.Errorf("Could load configuration file: %v", err)
 	}
 
-	var s *ini.Section
-	s, err = cfg.GetSection(ini.DEFAULT_SECTION)
+	s, err := cfg.GetSection(ini.DEFAULT_SECTION)
 
 	// Read all configuration parameters ensuring the destination
 	// struct member has the same default value as the commandline
@@ -205,7 +238,7 @@ func LoadConfigurationFile(path string) (Options, error) {
 	return opts, nil
 }
 
-func MergeCliAndConfigOptions(cliOpts Options, configOpts Options, onCli []string) Options {
+func mergeCliAndConfigOptions(cliOpts options, configOpts options, onCli []string) options {
 	opts := configOpts
 
 	for _, o := range onCli {

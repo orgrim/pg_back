@@ -33,15 +33,14 @@ import (
 	"strings"
 )
 
-func HookCommand(cmd string, logPrefix string) error {
+func hookCommand(cmd string, logPrefix string) error {
 	if cmd == "" {
 		return fmt.Errorf("unable to run an empty command")
 	}
 
-	words, lerr := shlex.Split(cmd, true)
-	if lerr != nil {
-		l.Errorln(lerr)
-		return lerr
+	words, err := shlex.Split(cmd, true)
+	if err != nil {
+		return fmt.Errorf("unable to parse hook command: %s", err)
 	}
 
 	prog := words[0]
@@ -50,15 +49,16 @@ func HookCommand(cmd string, logPrefix string) error {
 	c := exec.Command(prog, args...)
 	stdoutStderr, err := c.CombinedOutput()
 	if err != nil {
-		if len(stdoutStderr) != 0 {
-			l.Errorf("%s\n", stdoutStderr)
+		for _, line := range strings.Split(string(stdoutStderr), "\n") {
+			if line != "" {
+				l.Errorln(logPrefix, line)
+			}
 		}
-		l.Errorln(err)
 		return err
-	} else {
-		if len(stdoutStderr) > 0 {
-			out := strings.Trim(string(stdoutStderr), "\n")
-			for _, line := range strings.Split(out, "\n") {
+	}
+	if len(stdoutStderr) > 0 {
+		for _, line := range strings.Split(string(stdoutStderr), "\n") {
+			if line != "" {
 				l.Infoln(logPrefix, line)
 			}
 		}
@@ -66,22 +66,22 @@ func HookCommand(cmd string, logPrefix string) error {
 	return nil
 }
 
-func PreBackupHook(cmd string) error {
+func preBackupHook(cmd string) error {
 	if cmd != "" {
 		l.Infoln("running pre-backup command:", cmd)
-		if err := HookCommand(cmd, "pre-backup:"); err != nil {
-			l.Fatalln("hook command failed, exiting")
+		if err := hookCommand(cmd, "pre-backup:"); err != nil {
+			l.Fatalln("hook command failed:", err)
 			return err
 		}
 	}
 	return nil
 }
 
-func PostBackupHook(cmd string) {
+func postBackupHook(cmd string) {
 	if cmd != "" {
 		l.Infoln("running post-backup command:", cmd)
-		if err := HookCommand(cmd, "post-backup:"); err != nil {
-			l.Fatalln("hook command failed, exiting")
+		if err := hookCommand(cmd, "post-backup:"); err != nil {
+			l.Fatalln("hook command failed:", err)
 			os.Exit(1)
 		}
 	}

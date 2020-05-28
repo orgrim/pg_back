@@ -26,73 +26,67 @@
 package main
 
 import (
+	"bytes"
 	"database/sql"
 	"fmt"
 	"github.com/lib/pq"
-	"io"
 	"os"
 	"strings"
 	"time"
 )
 
-type DB struct {
+type pg struct {
 	conn      *sql.DB
 	version   int
 	xlogOrWal string
 }
 
-func (db DB) String() string {
-	return fmt.Sprintf("conn=%v, version=%v, walkeywork=%v", db.conn, db.version, db.xlogOrWal)
-}
-
-func DbGetVersionNum(db *sql.DB) (int, bool) {
+func pgGetVersionNum(db *sql.DB) (int, error) {
 	var version int
 
 	err := db.QueryRow("select setting from pg_settings where name = 'server_version_num'").Scan(&version)
 	if err != nil {
-		l.Errorln(err)
-		return 0, false
+		return 0, fmt.Errorf("could not get PostgreSQL server version: %s", err)
 	}
 
-	return version, true
+	return version, nil
 }
 
-func ListAllDatabases(db *DB, withTemplates bool) ([]string, bool) {
-	var (
-		query  string
-		dbname string
-	)
+func dbOpen(conninfo string) (*pg, error) {
 
-	if withTemplates {
-		query = "select datname from pg_database where datallowconn;"
-	} else {
-		query = "select datname from pg_database where datallowconn and not datistemplate;"
-	}
-
-	dbs := make([]string, 0)
-	rows, err := db.conn.Query(query)
+	db, err := sql.Open("postgres", conninfo)
 	if err != nil {
-		l.Errorln(err)
-		return dbs, false
+		return nil, fmt.Errorf("could not open database: %s", err)
 	}
-	defer rows.Close()
 
-	for rows.Next() {
-		err := rows.Scan(&dbname)
-		if err != nil {
-			l.Errorln(err)
-			continue
-		}
-		dbs = append(dbs, dbname)
+	if err := db.Ping(); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("could not connect to database: %s", err)
 	}
-	if err = rows.Err(); err != nil {
-		l.Errorln(err)
-		return dbs, false
+
+	newDB := new(pg)
+	newDB.conn = db
+	newDB.version, err = pgGetVersionNum(db)
+	if err != nil {
+		db.Close()
+		return nil, err
 	}
-	return dbs, true
+
+	// Keyword xlog has been replaced by wal as of PostgreSQL 10
+	if newDB.version >= 100000 {
+		newDB.xlogOrWal = "wal"
+	} else {
+		newDB.xlogOrWal = "xlog"
+	}
+
+	return newDB, nil
 }
 
-func PrepareConnInfo(host string, port int, username string, dbname string) string {
+func (db *pg) Close() error {
+	return db.conn.Close()
+}
+
+func prepareConnInfo(host string, port int, username string, dbname string) string {
 	var conninfo string
 
 	if host != "" {
@@ -119,62 +113,73 @@ func PrepareConnInfo(host string, port int, username string, dbname string) stri
 	return conninfo
 }
 
-func DbOpen(conninfo string) (*DB, bool) {
-	var ok bool
+func sqlQuoteLiteral(s string) string {
+	var o string
+	// Make standard_conforming_strings happy if the input
+	// contains some backslash
+	if strings.ContainsAny(s, "\\") {
+		o = "E"
+	}
+	o += "'"
 
-	db, err := sql.Open("postgres", conninfo)
-	if err != nil {
-		l.Errorln(err)
-		return nil, false
-	}
-	err = db.Ping()
-	if err != nil {
-		l.Errorln(err)
-		db.Close()
-		return nil, false
-	}
+	// double single quotes and backslahses
+	o += strings.ReplaceAll(s, "'", "''")
+	o = strings.ReplaceAll(o, "\\", "\\\\")
 
-	newDB := new(DB)
-	newDB.conn = db
-	newDB.version, ok = DbGetVersionNum(db)
-	if !ok {
-		db.Close()
-		return nil, false
-	}
-	if newDB.version >= 100000 {
-		newDB.xlogOrWal = "wal"
+	o += "'"
+
+	return o
+}
+
+func listAllDatabases(db *pg, withTemplates bool) ([]string, error) {
+	var (
+		query  string
+		dbname string
+	)
+
+	if withTemplates {
+		query = "select datname from pg_database where datallowconn;"
 	} else {
-		newDB.xlogOrWal = "xlog"
+		query = "select datname from pg_database where datallowconn and not datistemplate;"
 	}
 
-	return newDB, true
-}
+	dbs := make([]string, 0)
+	rows, err := db.conn.Query(query)
+	if err != nil {
+		return dbs, fmt.Errorf("could not list databases: %s", err)
+	}
+	defer rows.Close()
 
-func (db *DB) Close() error {
-	return db.conn.Close()
-}
-
-func sqlEscapeString(i string) string {
-	return strings.ReplaceAll(i, "'", "''")
+	for rows.Next() {
+		err := rows.Scan(&dbname)
+		if err != nil {
+			continue
+		}
+		dbs = append(dbs, dbname)
+	}
+	if err := rows.Err(); err != nil {
+		return dbs, fmt.Errorf("could not retrieve rows: %s", err)
+	}
+	return dbs, nil
 }
 
 // pg_dumpacl stuff
-func DumpCreateDBAndACL(out io.Writer, db *DB, dbname string) (int, error) {
-	var n, i int
+func dumpCreateDBAndACL(db *pg, dbname string) (string, error) {
+	var s string
 
 	if dbname == "" {
-		return 0, fmt.Errorf("empty input dbname")
+		return "", fmt.Errorf("empty input dbname")
 	}
 
 	// this query only work from 9.0, where datcollate and datctype were added to pg_database
 	if db.version < 90000 {
-		l.Warnln("Cluster version is older than 9.0, not dumping ACL")
-		return 0, nil
+		l.Warnln("cluster version is older than 9.0, not dumping ACL")
+		return "", nil // XXX replace by a custom error
 	}
 
 	// this is no longer necessary after 11
 	if db.version >= 110000 {
-		return 0, nil
+		return "", nil // XXX replace by a custom error
 	}
 
 	rows, err := db.conn.Query(
@@ -188,11 +193,11 @@ func DumpCreateDBAndACL(out io.Writer, db *DB, dbname string) (int, error) {
 			"WHERE datallowconn AND datname = $1",
 		dbname)
 	if err != nil {
-		l.Errorln(err)
-		return 0, err
+		return "", fmt.Errorf("could not query database information for %s: %s", dbname, err)
 	}
 	defer rows.Close()
 
+	out := new(bytes.Buffer)
 	for rows.Next() {
 		var (
 			owner      string
@@ -206,125 +211,116 @@ func DumpCreateDBAndACL(out io.Writer, db *DB, dbname string) (int, error) {
 		)
 		err := rows.Scan(&owner, &encoding, &collate, &ctype, &istemplate, pq.Array(&acl), &connlimit, &tablespace)
 		if err != nil {
-			l.Errorln(err)
-			return 0, err
+			return "", fmt.Errorf("could not get row: %s", err)
 		}
 
 		if dbname != "template1" && dbname != "postgres" {
-			i, _ = fmt.Fprintf(out, "--\n-- Database creation\n--\n\n")
-			n += i
-			i, _ = fmt.Fprintf(out, "CREATE DATABASE \"%s\" WITH TEMPLATE = template0 OWNER = \"%s\"", dbname, owner)
-			n += i
-			i, _ = fmt.Fprintf(out, " ENCODING = '%s'", sqlEscapeString(encoding))
-			n += i
-			i, _ = fmt.Fprintf(out, " LC_COLLATE = '%s'", sqlEscapeString(collate))
-			n += i
-			i, _ = fmt.Fprintf(out, " LC_CTYPE = '%s'", sqlEscapeString(ctype))
-			n += i
+			s += fmt.Sprintf("--\n-- Database creation\n--\n\n")
+			s += fmt.Sprintf("CREATE DATABASE \"%s\" WITH TEMPLATE = template0 OWNER = \"%s\"", dbname, owner)
+			s += fmt.Sprintf(" ENCODING = %s", sqlQuoteLiteral(encoding))
+			s += fmt.Sprintf(" LC_COLLATE = %s", sqlQuoteLiteral(collate))
+
+			s += fmt.Sprintf(" LC_CTYPE = %s", sqlQuoteLiteral(ctype))
 
 			if tablespace != "pg_default" {
-				i, _ = fmt.Fprintf(out, " TABLESPACE = \"%s\"", tablespace)
-				n += i
+				s += fmt.Sprintf(" TABLESPACE = \"%s\"", tablespace)
 			}
 			if connlimit != -1 {
-				i, _ = fmt.Fprintf(out, " CONNECTION LIMIT = %d", connlimit)
-				n += i
+				s += fmt.Sprintf(" CONNECTION LIMIT = %d", connlimit)
 			}
-			i, _ = fmt.Fprintf(out, ";\n\n")
-			n += i
+			s += fmt.Sprintf(";\n\n")
 
 			if istemplate {
-				i, _ = fmt.Fprintf(out, "UPDATE pg_catalog.pg_database SET datistemplate = 't' WHERE datname = '%s';\n", sqlEscapeString(dbname))
-				n += i
+				s += fmt.Sprintf("UPDATE pg_catalog.pg_database SET datistemplate = 't' WHERE datname = %s;\n", sqlQuoteLiteral(dbname))
 			}
 		}
 		for _, e := range acl {
+			// skip NULL values
 			if !e.Valid {
 				continue
 			}
 
-			// the aclitem format is "grantee=privs/grantor" where privs
-			// is a list of letters, one for each privilege followed by *
-			// when grantee as WITH GRANT OPTION for it
-			s := strings.Split(e.String, "=")
-			grantee := s[0]
-			s = strings.Split(s[1], "/")
-			privs := s[0]
-			grantor := s[1]
-
-			// public role: when the privs differ from the default, issue grants
-			if grantee == "" {
-				grantee = "PUBLIC"
-				if privs != "Tc" {
-					i, _ = fmt.Fprintf(out, "REVOKE ALL ON DATABASE \"%s\" FROM PUBLIC;\n", dbname)
-					n += i
-				} else {
-					continue
-				}
-			}
-			// owner: when other roles have been given privileges, all
-			// privileges are shown for the owner
-			if grantee == owner {
-				if privs != "CTc" {
-					i, _ = fmt.Fprintf(out, "REVOKE ALL ON DATABASE \"%s\" FROM \"%s\";\n", dbname, grantee)
-					n += i
-				} else {
-					continue
-				}
-			}
-
-			if grantor != owner {
-				i, _ = fmt.Fprintf(out, "SET SESSION AUTHORIZATION \"%s\";\n", grantor)
-				n += i
-			}
-			for i, b := range privs {
-				switch b {
-				case 'C':
-					i, _ = fmt.Fprintf(out, "GRANT CREATE ON DATABASE \"%s\" TO \"%s\"", dbname, grantee)
-					n += i
-				case 'T':
-					i, _ = fmt.Fprintf(out, "GRANT TEMPORARY ON DATABASE \"%s\" TO \"%s\"", dbname, grantee)
-					n += i
-				case 'c':
-					i, _ = fmt.Fprintf(out, "GRANT CONNECT ON DATABASE \"%s\" TO \"%s\"", dbname, grantee)
-					n += i
-				}
-
-				if i+1 < len(privs) {
-					if privs[i+1] == '*' {
-						i, _ = fmt.Fprintf(out, " WITH GRANT OPTION;\n")
-						n += i
-					} else {
-						i, _ = fmt.Fprintf(out, ";\n")
-						n += i
-					}
-				} else {
-					i, _ = fmt.Fprintf(out, ";\n")
-					n += i
-				}
-			}
-			if grantor != owner {
-				i, _ = fmt.Fprintf(out, "RESET SESSION AUTHORIZATION;\n")
-				n += i
-			}
-
+			s += makeACLCommands(e.String, dbname, owner)
 		}
-		// do not count this newline, we could have an empty
-		// file with only this newline otherwise
-		fmt.Fprintf(out, "\n")
+		// do not append this newline if we could have an empty
+		// file with only this newline
+		if len(out.String()) > 0 {
+			s += fmt.Sprintf("\n")
+		}
 	}
 	err = rows.Err()
 	if err != nil {
-		l.Errorln(err)
-		return 0, err
+		return s, fmt.Errorf("could not retrive rows: %s", err)
 	}
-	rows.Close()
 
-	// dump config
-	rows, err = db.conn.Query("SELECT unnest(setconfig) FROM pg_db_role_setting WHERE setrole = 0 AND setdatabase = (SELECT oid FROM pg_database WHERE datname = $1)", dbname)
+	return s, nil
+}
+
+func makeACLCommands(aclitem string, dbname string, owner string) string {
+	var s string
+	// the aclitem format is "grantee=privs/grantor" where privs
+	// is a list of letters, one for each privilege followed by *
+	// when grantee as WITH GRANT OPTION for it
+	t := strings.Split(aclitem, "=")
+	grantee := t[0]
+	t = strings.Split(t[1], "/")
+	privs := t[0]
+	grantor := t[1]
+
+	// public role: when the privs differ from the default, issue grants
+	if grantee == "" {
+		grantee = "PUBLIC"
+		if privs != "Tc" {
+			s += fmt.Sprintf("REVOKE ALL ON DATABASE \"%s\" FROM PUBLIC;\n", dbname)
+		} else {
+			return s
+		}
+	}
+	// owner: when other roles have been given privileges, all
+	// privileges are shown for the owner
+	if grantee == owner {
+		if privs != "CTc" {
+			s += fmt.Sprintf("REVOKE ALL ON DATABASE \"%s\" FROM \"%s\";\n", dbname, grantee)
+		} else {
+			return s
+		}
+	}
+
+	if grantor != owner {
+		s += fmt.Sprintf("SET SESSION AUTHORIZATION \"%s\";\n", grantor)
+	}
+	for i, b := range privs {
+		switch b {
+		case 'C':
+			s += fmt.Sprintf("GRANT CREATE ON DATABASE \"%s\" TO \"%s\"", dbname, grantee)
+		case 'T':
+			s += fmt.Sprintf("GRANT TEMPORARY ON DATABASE \"%s\" TO \"%s\"", dbname, grantee)
+		case 'c':
+			s += fmt.Sprintf("GRANT CONNECT ON DATABASE \"%s\" TO \"%s\"", dbname, grantee)
+		}
+
+		if i+1 < len(privs) {
+			if privs[i+1] == '*' {
+				s += fmt.Sprintf(" WITH GRANT OPTION;\n")
+			} else {
+				s += fmt.Sprintf(";\n")
+			}
+		} else {
+			s += fmt.Sprintf(";\n")
+		}
+	}
+	if grantor != owner {
+		s += fmt.Sprintf("RESET SESSION AUTHORIZATION;\n")
+	}
+	return s
+}
+
+func dumpDBConfig(db *pg, dbname string) (string, error) {
+	var s string
+	// dump per database config
+	rows, err := db.conn.Query("SELECT unnest(setconfig) FROM pg_db_role_setting WHERE setrole = 0 AND setdatabase = (SELECT oid FROM pg_database WHERE datname = $1)", dbname)
 	if err != nil {
-		l.Errorln(err)
-		return 0, err
+		return "", fmt.Errorf("could not query database configuration for %s: %s", dbname, err)
 	}
 	defer rows.Close()
 
@@ -333,8 +329,7 @@ func DumpCreateDBAndACL(out io.Writer, db *DB, dbname string) (int, error) {
 
 		err := rows.Scan(&keyVal)
 		if err != nil {
-			l.Errorln(err)
-			return 0, err
+			return "", fmt.Errorf("could not get row: %s", err)
 		}
 
 		// split
@@ -344,27 +339,24 @@ func DumpCreateDBAndACL(out io.Writer, db *DB, dbname string) (int, error) {
 		if tokens[0] != "DateStyle" && tokens[0] != "search_path" {
 			tokens[1] = fmt.Sprintf("'%s'", tokens[1])
 		}
-		i, _ = fmt.Fprintf(out, "ALTER DATABASE \"%s\" SET \"%s\" TO %s;\n", dbname, tokens[0], tokens[1])
-		n += i
+		s += fmt.Sprintf("ALTER DATABASE \"%s\" SET \"%s\" TO %s;\n", dbname, tokens[0], tokens[1])
 	}
 	err = rows.Err()
 	if err != nil {
-		l.Errorln(err)
-		return 0, err
+		return "", fmt.Errorf("could not retrive rows: %s", err)
 	}
 
-	return n, nil
+	return s, nil
 }
 
-func ShowSettings(out io.Writer, db *DB) (int, error) {
-	var n, i int
+func showSettings(db *pg) (string, error) {
+	var s string
 	// get the non default values set in the files and applied,
 	// this avoid duplicates when multiple files define
 	// parameters.
 	rows, err := db.conn.Query("SELECT name, setting FROM pg_show_all_file_settings() WHERE applied ORDER BY name")
 	if err != nil {
-		l.Errorln(err)
-		return 0, err
+		return "", fmt.Errorf("could not query instance configuration: %s", err)
 	}
 	defer rows.Close()
 
@@ -377,35 +369,32 @@ func ShowSettings(out io.Writer, db *DB) (int, error) {
 		err := rows.Scan(&name, &value)
 		if err != nil {
 			l.Errorln(err)
-			return 0, err
+			continue
 		}
 
 		if name != "DateStyle" && name != "search_path" {
 			value = fmt.Sprintf("'%s'", value)
 		}
 
-		i, _ = fmt.Fprintf(out, "%s = %s\n", name, value)
-		n += i
+		s += fmt.Sprintf("%s = %s\n", name, value)
 	}
 
 	err = rows.Err()
 	if err != nil {
-		l.Errorln(err)
-		return 0, err
+		return "", fmt.Errorf("could not retrive rows: %s", err)
 	}
 
-	return n, nil
+	return s, nil
 }
 
-func PauseReplication(db *DB) error {
+func pauseReplication(db *pg) error {
 	// If an AccessExclusiveLock is granted when the replay is
 	// paused, it will remain and pg_dump would be stuck forever
 	rows, err := db.conn.Query(fmt.Sprintf("SELECT pg_%s_replay_pause() "+
 		"WHERE NOT EXISTS (SELECT 1 FROM pg_locks WHERE mode = 'AccessExclusiveLock') "+
 		"AND pg_is_in_recovery();", db.xlogOrWal))
 	if err != nil {
-		l.Errorln(err)
-		return err
+		return fmt.Errorf("could not pause replication: %s", err)
 	}
 	defer rows.Close()
 
@@ -416,23 +405,21 @@ func PauseReplication(db *DB) error {
 	for rows.Next() {
 		err := rows.Scan(&void)
 		if err != nil {
-			l.Errorln(err)
-			return err
+			return fmt.Errorf("could not get row: %s", err)
 		}
 	}
 	if void == "failed" {
-		return fmt.Errorf("Replication not paused because of AccessExclusiveLock")
+		return fmt.Errorf("replication not paused because of AccessExclusiveLock")
 	}
 	return nil
 }
 
-func CanPauseReplication(db *DB) (bool, error) {
+func canPauseReplication(db *pg) (bool, error) {
 
 	rows, err := db.conn.Query(fmt.Sprintf("SELECT 1 FROM pg_proc "+
 		"WHERE proname='pg_%s_replay_pause' AND pg_is_in_recovery()", db.xlogOrWal))
 	if err != nil {
-		l.Errorln(err)
-		return false, err
+		return false, fmt.Errorf("could not check if replication is pausable: %s", err)
 	}
 	defer rows.Close()
 
@@ -441,8 +428,7 @@ func CanPauseReplication(db *DB) (bool, error) {
 	for rows.Next() {
 		err := rows.Scan(&one)
 		if err != nil {
-			l.Errorln(err)
-			return false, err
+			return false, fmt.Errorf("could not get row: %s", err)
 		}
 	}
 	if one == 0 {
@@ -452,9 +438,9 @@ func CanPauseReplication(db *DB) (bool, error) {
 	return true, nil
 }
 
-func PauseReplicationWithTimeout(db *DB, timeOut int) error {
+func pauseReplicationWithTimeout(db *pg, timeOut int) error {
 
-	if ok, err := CanPauseReplication(db); !ok {
+	if ok, err := canPauseReplication(db); !ok {
 		return err
 	}
 
@@ -462,7 +448,7 @@ func PauseReplicationWithTimeout(db *DB, timeOut int) error {
 	done := make(chan bool)
 	stop := make(chan bool)
 
-	l.Infoln("Pausing replication")
+	l.Infoln("pausing replication")
 
 	// We want to retry pausing replication at a defined interval
 	// but not forever. We cannot put the timeout in the same
@@ -471,7 +457,7 @@ func PauseReplicationWithTimeout(db *DB, timeOut int) error {
 		defer ticker.Stop()
 
 		for {
-			if err := PauseReplication(db); err != nil {
+			if err := pauseReplication(db); err != nil {
 				l.Warnln(err)
 			} else {
 				done <- true
@@ -491,25 +477,24 @@ func PauseReplicationWithTimeout(db *DB, timeOut int) error {
 	// goroutine if we hit the timeout
 	select {
 	case <-done:
-		l.Infoln("Replication paused")
+		l.Infoln("replication paused")
 	case <-time.After(time.Duration(timeOut) * time.Second):
 		stop <- true
-		return fmt.Errorf("Replication not paused after %v\n", time.Duration(timeOut)*time.Second)
+		return fmt.Errorf("replication not paused after %v\n", time.Duration(timeOut)*time.Second)
 	}
 
 	return nil
 }
 
-func ResumeReplication(db *DB) error {
-	if ok, err := CanPauseReplication(db); !ok {
+func resumeReplication(db *pg) error {
+	if ok, err := canPauseReplication(db); !ok {
 		return err
 	}
 
-	l.Infoln("Resuming replication")
+	l.Infoln("resuming replication")
 	_, err := db.conn.Exec(fmt.Sprintf("SELECT pg_%s_replay_resume() WHERE pg_is_in_recovery();", db.xlogOrWal))
 	if err != nil {
-		l.Errorln(err)
-		return err
+		return fmt.Errorf("could not resume replication: %s", err)
 	}
 
 	return nil

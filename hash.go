@@ -35,7 +35,7 @@ import (
 	"os"
 )
 
-func ChecksumFile(path string, algo string) error {
+func checksumFile(path string, algo string) error {
 	var h hash.Hash
 
 	switch algo {

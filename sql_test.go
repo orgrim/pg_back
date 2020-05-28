@@ -27,16 +27,24 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"testing"
 )
 
 // TODO use postgres in a docker
 
 func TestDbOpen(t *testing.T) {
-	db, ok := DbOpen("host=/var/run/postgresql/")
-	defer db.Close()
-	if !ok {
-		t.Errorf("expected an ok")
+	var conninfo string
+
+	if os.Getenv("PGHOST") == "" {
+		conninfo = "host=/var/run/postgresql/"
+	}
+
+	db, err := dbOpen(conninfo)
+	if err != nil {
+		t.Errorf("expected an ok, got %s", err)
+	} else {
+		db.Close()
 	}
 }
 
@@ -48,7 +56,7 @@ func TestPrepareConnInfo(t *testing.T) {
 		dbname   string
 		want     string
 	}{
-		{"", 0, "", "", "host=/tmp application_name=pg_goback"},
+		{"/tmp", 0, "", "", "host=/tmp application_name=pg_goback"},
 		{"localhost", 5432, "postgres", "postgres", "host=localhost port=5432 user=postgres dbname=postgres application_name=pg_goback"},
 		{"localhost", 0, "postgres", "postgres", "host=localhost user=postgres dbname=postgres application_name=pg_goback"},
 		{"localhost", 5432, "", "postgres", "host=localhost port=5432 dbname=postgres application_name=pg_goback"},
@@ -58,7 +66,7 @@ func TestPrepareConnInfo(t *testing.T) {
 
 	for i, subt := range tests {
 		t.Run(fmt.Sprintf("%v", i), func(t *testing.T) {
-			res := PrepareConnInfo(subt.host, subt.port, subt.username, subt.dbname)
+			res := prepareConnInfo(subt.host, subt.port, subt.username, subt.dbname)
 			if res != subt.want {
 				t.Errorf("got '%s', want '%s'", res, subt.want)
 			}

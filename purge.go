@@ -31,46 +31,12 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 )
 
-func PurgeValidateKeepValue(k string) int {
-	// returning -1 means keep all dumps
-	if k == "all" {
-		return -1
-	}
-
-	if keep, err := strconv.ParseInt(k, 10, 0); err != nil {
-		// return -1 too when the input is not convertible to an int, this way we avoid any
-		l.Warnln("Invalid input for -K, keeping everything")
-		return -1
-	} else {
-		return int(keep)
-	}
-}
-
-func PurgeValidateTimeLimitValue(l string) (time.Duration, error) {
-
-	if days, err := strconv.ParseInt(l, 10, 0); err != nil {
-		if errors.Is(err, strconv.ErrRange) {
-			// invalid
-			return 0, errors.New("Invalid input for -P, number too big")
-		}
-	} else {
-		return time.Duration(-days*24) * time.Hour, nil
-	}
-
-	if d, err := time.ParseDuration(l); err != nil {
-		return 0, err
-	} else {
-		return -d, nil
-	}
-}
-
-func PurgeDumps(directory string, dbname string, keep int, limit time.Time) error {
-	dirpath := filepath.Dir(FormatDumpPath(directory, "", dbname, time.Time{}))
+func purgeDumps(directory string, dbname string, keep int, limit time.Time) error {
+	dirpath := filepath.Dir(formatDumpPath(directory, "", dbname, time.Time{}))
 	dir, err := os.Open(dirpath)
 	if err != nil {
 		l.Errorln(err)

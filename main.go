@@ -28,6 +28,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"io/ioutil"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -52,6 +53,9 @@ type Dump struct {
 	// Format of the dump
 	Format string
 
+	// Number of parallel jobs for directory format
+	Jobs int
+
 	// Connection parameters
 	Host     string
 	Port     int
@@ -69,20 +73,20 @@ func (d *Dump) Dump() error {
 	dbname := d.Database
 	d.ExitCode = 1
 
-	l.Infoln("Dumping database", dbname)
+	l.Infoln("dumping database", dbname)
 
 	// Try to lock a file named after to database we are going to
 	// dump to prevent stacking pg_back processes if pg_dump last
 	// longer than a schedule of pg_back. If the lock cannot be
 	// acquired, skip the dump and exit with an error.
-	f, locked, lerr := LockPath(FormatDumpPath(d.Directory, "lock", dbname, time.Time{}))
-	if lerr != nil {
-		return lerr
+	lock := formatDumpPath(d.Directory, "lock", dbname, time.Time{})
+	flock, locked, err := lockPath(lock)
+	if err != nil {
+		return fmt.Errorf("unable to lock %s: %s", lock, err)
 	}
 
 	if !locked {
-		l.Errorln("Could not acquire lock for ", dbname)
-		return fmt.Errorf("lock error")
+		return fmt.Errorf("could not acquire lock for %s", dbname)
 	}
 
 	d.When = time.Now()
@@ -99,43 +103,55 @@ func (d *Dump) Dump() error {
 		fileEnd = "d"
 	}
 
-	file := FormatDumpPath(d.Directory, fileEnd, dbname, d.When)
+	file := formatDumpPath(d.Directory, fileEnd, dbname, d.When)
 	formatOpt := fmt.Sprintf("-F%c", []rune(d.Format)[0])
 
 	command := filepath.Join(binDir, "pg_dump")
 	args := []string{formatOpt, "-f", file}
 
-	AppendConnectionOptions(&args, d.Host, d.Port, d.Username)
+	if fileEnd == "d" && d.Jobs > 0 {
+		args = append(args, "-j", fmt.Sprintf("%d", d.Jobs))
+	}
+
+	appendConnectionOptions(&args, d.Host, d.Port, d.Username)
 	args = append(args, dbname)
 
 	pgDumpCmd := exec.Command(command, args...)
 	stdoutStderr, err := pgDumpCmd.CombinedOutput()
 	if err != nil {
-		l.Errorln(string(stdoutStderr))
-		l.Errorln(err)
-		if lerr = UnLockPath(f); lerr != nil {
-			f.Close()
+		for _, line := range strings.Split(string(stdoutStderr), "\n") {
+			if line != "" {
+				l.Errorf("[%s] %s\n", dbname, line)
+			}
+		}
+		if err := unlockPath(flock); err != nil {
+			l.Errorf("could not release lock for %s: %s", dbname, err)
+			flock.Close()
 		}
 		return err
 	}
 	if len(stdoutStderr) > 0 {
-		l.Infof("%s\n", stdoutStderr)
+		for _, line := range strings.Split(string(stdoutStderr), "\n") {
+			if line != "" {
+				l.Infof("[%s] %s\n", dbname, line)
+			}
+		}
 	}
 
-	if lerr = UnLockPath(f); lerr != nil {
-		f.Close()
-		return lerr
+	if err := unlockPath(flock); err != nil {
+		flock.Close()
+		return fmt.Errorf("could not release lock for %s: %s", dbname, err)
 	}
 
 	d.Path = file
 
 	// Compute the checksum tha goes with the dump file right
 	// after the dump, to this is done concurrently too.
-	if d.SumAlgo != "none" {
-		l.Infoln("Computing checksum of", file)
+	if d.SumAlgo != "none" && fileEnd != "d" {
+		l.Infoln("computing checksum of", file)
 
-		if err = ChecksumFile(file, d.SumAlgo); err != nil {
-			return err
+		if err = checksumFile(file, d.SumAlgo); err != nil {
+			return fmt.Errorf("checksum failed: %s", err)
 		}
 	}
 
@@ -147,16 +163,16 @@ func dumper(id int, jobs <-chan *Dump, results chan<- *Dump) {
 	for j := range jobs {
 
 		if err := j.Dump(); err != nil {
-			l.Errorln("Dump of", j.Database, "failed")
+			l.Errorln("dump of", j.Database, "failed:", err)
 			results <- j
 		} else {
-			l.Infoln("Dump of", j.Database, "to", j.Path, "done")
+			l.Infoln("dump of", j.Database, "to", j.Path, "done")
 			results <- j
 		}
 	}
 }
 
-func AppendConnectionOptions(args *[]string, host string, port int, username string) {
+func appendConnectionOptions(args *[]string, host string, port int, username string) {
 	if host != "" {
 		*args = append(*args, "-h", host)
 	}
@@ -168,7 +184,7 @@ func AppendConnectionOptions(args *[]string, host string, port int, username str
 	}
 }
 
-func FormatDumpPath(dir string, suffix string, dbname string, when time.Time) string {
+func formatDumpPath(dir string, suffix string, dbname string, when time.Time) string {
 	var f, s, d string
 
 	d = dir
@@ -194,62 +210,60 @@ func FormatDumpPath(dir string, suffix string, dbname string, when time.Time) st
 	return filepath.Join(d, f)
 }
 
-func DumpGlobals(dir string, host string, port int, username string, connDb string) error {
+func dumpGlobals(dir string, host string, port int, username string, connDb string) error {
 	command := filepath.Join(binDir, "pg_dumpall")
 	args := []string{"-g"}
 
-	AppendConnectionOptions(&args, host, port, username)
+	appendConnectionOptions(&args, host, port, username)
 	if connDb != "" {
 		args = append(args, "-l", connDb)
 	}
 
-	file := FormatDumpPath(dir, "sql", "pg_globals", time.Now())
+	file := formatDumpPath(dir, "sql", "pg_globals", time.Now())
 	args = append(args, "-f", file)
 
 	if err := os.MkdirAll(filepath.Dir(file), 0755); err != nil {
-		l.Errorln(err)
 		return err
 	}
 
 	pgDumpallCmd := exec.Command(command, args...)
 	stdoutStderr, err := pgDumpallCmd.CombinedOutput()
 	if err != nil {
-		l.Errorf("%s\n", stdoutStderr)
-		l.Errorln(err)
+		for _, line := range strings.Split(string(stdoutStderr), "\n") {
+			if line != "" {
+				l.Errorln(line)
+			}
+		}
 		return err
 	}
 	if len(stdoutStderr) > 0 {
-		l.Infof("%s\n", stdoutStderr)
+		for _, line := range strings.Split(string(stdoutStderr), "\n") {
+			if line != "" {
+				l.Infoln(line)
+			}
+		}
 	}
 	return nil
 }
 
-func DumpSettings(dir string, db *DB) error {
+func dumpSettings(dir string, db *pg) error {
 
-	file := FormatDumpPath(dir, "out", "pg_settings", time.Now())
+	file := formatDumpPath(dir, "out", "pg_settings", time.Now())
 
 	if err := os.MkdirAll(filepath.Dir(file), 0755); err != nil {
-		l.Errorln(err)
 		return err
 	}
 
-	f, err := os.Create(file)
+	s, err := showSettings(db)
 	if err != nil {
-		l.Errorln(err)
 		return err
 	}
 
-	n, err := ShowSettings(f, db)
-
-	// Do not leave an empty file
-	f.Close()
-	if err != nil {
-		os.Remove(file)
-		return err
-	}
-
-	if n == 0 {
-		os.Remove(file)
+	// Use a Buffer to avoid creating an empty file
+	if len(s) > 0 {
+		if err := ioutil.WriteFile(file, []byte(s), 0644); err != nil {
+			return err
+		}
 	}
 
 	return nil
@@ -266,25 +280,28 @@ func main() {
 	// Parse commanline arguments first so that we can quit if you
 	// have shown usage or version string and load a non default
 	// configuration file
-	CliOpts, cliOptList, perr := ParseCli()
+	cliOpts, cliOptList, perr := parseCli()
 	var pce *ParseCliError
 	if perr != nil && errors.As(perr, &pce) {
 		os.Exit(0)
 	}
 
-	// Load configuration file and allow the default configuration file to be absent
-	ConfigOpts, err := LoadConfigurationFile(CliOpts.CfgFile)
-	if err != nil && CliOpts.CfgFile != defaultCfgFile {
+	// Load configuration file and allow the default configuration
+	// file to be absent
+	configOpts, err := loadConfigurationFile(cliOpts.CfgFile)
+	if err != nil && cliOpts.CfgFile != defaultCfgFile {
 		l.Fatalln(err)
 		os.Exit(1)
 	}
 
-	Opts := MergeCliAndConfigOptions(CliOpts, ConfigOpts, cliOptList)
+	// override options from the configuration file with ones from
+	// the command line
+	opts := mergeCliAndConfigOptions(cliOpts, configOpts, cliOptList)
 
 	// validate purge options and do the extra parsing
-	keep := PurgeValidateKeepValue(Opts.PurgeKeep)
+	keep := validatePurgeKeepValue(opts.PurgeKeep)
 
-	if interval, err := PurgeValidateTimeLimitValue(Opts.PurgeInterval); err != nil {
+	if interval, err := validatePurgeTimeLimitValue(opts.PurgeInterval); err != nil {
 		l.Fatalln(err)
 		os.Exit(1)
 	} else {
@@ -294,58 +311,58 @@ func main() {
 		limit = time.Now().Add(interval)
 	}
 
-	if Opts.BinDirectory != "" {
-		binDir = Opts.BinDirectory
+	if opts.BinDirectory != "" {
+		binDir = opts.BinDirectory
 	}
 
-	if err := PreBackupHook(Opts.PreHook); err != nil {
-		PostBackupHook(Opts.PostHook)
+	if err := preBackupHook(opts.PreHook); err != nil {
+		postBackupHook(opts.PostHook)
 		os.Exit(1)
 	}
 
-	l.Infoln("Dumping globals")
-	if err := DumpGlobals(Opts.Directory, Opts.Host,
-		Opts.Port, Opts.Username, Opts.ConnDb); err != nil {
-		l.Fatalln("pg_dumpall -g failed")
-		PostBackupHook(Opts.PostHook)
+	l.Infoln("dumping globals")
+	if err := dumpGlobals(opts.Directory, opts.Host,
+		opts.Port, opts.Username, opts.ConnDb); err != nil {
+		l.Fatalln("pg_dumpall -g failed:", err)
+		postBackupHook(opts.PostHook)
 		os.Exit(1)
 	}
 
-	conninfo := PrepareConnInfo(Opts.Host, Opts.Port, Opts.Username, Opts.ConnDb)
+	conninfo := prepareConnInfo(opts.Host, opts.Port, opts.Username, opts.ConnDb)
 
-	db, ok := DbOpen(conninfo)
-	if !ok {
-		PostBackupHook(Opts.PostHook)
+	db, err := dbOpen(conninfo)
+	if err != nil {
+		l.Fatalln("connection to PostgreSQL failed:", err)
+		postBackupHook(opts.PostHook)
 		os.Exit(1)
 	}
 	defer db.Close()
 
-	l.Infoln("Dumping instance configuration")
-	if err := DumpSettings(Opts.Directory, db); err != nil {
+	l.Infoln("dumping instance configuration")
+	if err := dumpSettings(opts.Directory, db); err != nil {
 		db.Close()
-		l.Fatalln("Could not dump configuration parameters")
-		PostBackupHook(Opts.PostHook)
+		l.Fatalln("could not dump configuration parameters:", err)
+		postBackupHook(opts.PostHook)
 		os.Exit(1)
 	}
 
-	if len(Opts.Dbnames) > 0 {
-		databases = Opts.Dbnames
+	if len(opts.Dbnames) > 0 {
+		databases = opts.Dbnames
 	} else {
-		var ok bool
-
-		databases, ok = ListAllDatabases(db, Opts.WithTemplates)
-		if !ok {
+		databases, err = listAllDatabases(db, opts.WithTemplates)
+		if err != nil {
+			l.Fatalln(err)
 			db.Close()
-			PostBackupHook(Opts.PostHook)
+			postBackupHook(opts.PostHook)
 			os.Exit(0)
 		}
 
 		// exclure les bases
-		if len(Opts.ExcludeDbs) > 0 {
+		if len(opts.ExcludeDbs) > 0 {
 			filtered := []string{}
 			for _, d := range databases {
 				found := false
-				for _, e := range Opts.ExcludeDbs {
+				for _, e := range opts.ExcludeDbs {
 					if d == e {
 						found = true
 						break
@@ -359,15 +376,15 @@ func main() {
 		}
 	}
 
-	if err := PauseReplicationWithTimeout(db, Opts.PauseTimeout); err != nil {
+	if err := pauseReplicationWithTimeout(db, opts.PauseTimeout); err != nil {
 		db.Close()
 		l.Fatalln(err)
-		PostBackupHook(Opts.PostHook)
+		postBackupHook(opts.PostHook)
 		os.Exit(1)
 	}
 
 	exitCode := 0
-	maxWorkers := Opts.Jobs
+	maxWorkers := opts.Jobs
 	numJobs := len(databases)
 	jobs := make(chan *Dump, numJobs)
 	results := make(chan *Dump, numJobs)
@@ -381,12 +398,13 @@ func main() {
 	for _, dbname := range databases {
 		d := &Dump{
 			Database:  dbname,
-			Directory: Opts.Directory,
-			Format:    Opts.Format,
-			Host:      Opts.Host,
-			Port:      Opts.Port,
-			Username:  Opts.Username,
-			SumAlgo:   Opts.SumAlgo,
+			Directory: opts.Directory,
+			Format:    opts.Format,
+			Jobs:      opts.DirJobs,
+			Host:      opts.Host,
+			Port:      opts.Port,
+			Username:  opts.Username,
+			SumAlgo:   opts.SumAlgo,
 			ExitCode:  -1,
 		}
 
@@ -398,60 +416,77 @@ func main() {
 		d := <-results
 		if d.ExitCode > 0 {
 			exitCode = 1
-		} else if d.ExitCode == 0 {
-			// When it is ok, dump the creation and ACL commands as SQL commands
-			if db.version >= 110000 || db.version < 90000 {
-				continue
-			}
-			dbname := d.Database
-			aclpath := FormatDumpPath(d.Directory, "sql", dbname, d.When)
+		}
+
+		// XXX use the custom error from dumpCreateDBAndACL()
+		if db.version >= 110000 || db.version < 90000 {
+			continue
+		}
+
+		dbname := d.Database
+
+		l.Infoln("dumping database creation and ACL commands of", dbname)
+		b, err := dumpCreateDBAndACL(db, dbname)
+		if err != nil {
+			l.Errorln(err)
+			exitCode = 1
+		}
+
+		l.Infoln("dumping database configuration commands of", dbname)
+		c, err := dumpDBConfig(db, dbname)
+		if err != nil {
+			l.Errorln(err)
+			exitCode = 1
+		}
+
+		if len(b) > 0 || len(c) > 0 {
+
+			aclpath := formatDumpPath(d.Directory, "sql", dbname, d.When)
 			if err := os.MkdirAll(filepath.Dir(aclpath), 0755); err != nil {
 				l.Errorln(err)
 				exitCode = 1
-			} else {
-				if f, err := os.Create(aclpath); err != nil {
-					l.Errorln(err)
-					exitCode = 1
-				} else {
-					l.Infoln("Dumping database creation and ACL commands of database", dbname)
-
-					n, err := DumpCreateDBAndACL(f, db, dbname)
-					if err != nil {
-						l.Errorln("Dump of ACL failed")
-						exitCode = 1
-					}
-					f.Close()
-					if n == 0 {
-						l.Infoln("No ACL found for", dbname)
-						os.Remove(aclpath)
-					} else {
-						l.Infoln("Dump of ACL of", dbname, "to", aclpath, "done")
-					}
-				}
+				continue
 			}
+
+			f, err := os.Create(aclpath)
+			if err != nil {
+				l.Errorln(err)
+				exitCode = 1
+				continue
+			}
+
+			fmt.Fprintf(f, "%s", b)
+			fmt.Fprintf(f, "%s", c)
+
+			f.Close()
+
+			l.Infoln("dump of ACL of", dbname, "to", aclpath, "done")
+		} else {
+			l.Infoln("no ACL found for", dbname)
 		}
 	}
 
-	if err := ResumeReplication(db); err != nil {
+	if err := resumeReplication(db); err != nil {
 		l.Errorln(err)
 	}
 	db.Close()
 
-	// purge
-	l.Infoln("Purging old dumps")
+	// purge old dumps per database and treat special files
+	// (globals and settings) like databases
+	l.Infoln("purging old dumps")
 
 	for _, dbname := range databases {
-		if err := PurgeDumps(Opts.Directory, dbname, keep, limit); err != nil {
+		if err := purgeDumps(opts.Directory, dbname, keep, limit); err != nil {
 			exitCode = 1
 		}
 	}
 
 	for _, other := range []string{"pg_globals", "pg_settings"} {
-		if err := PurgeDumps(Opts.Directory, other, keep, limit); err != nil {
+		if err := purgeDumps(opts.Directory, other, keep, limit); err != nil {
 			exitCode = 1
 		}
 	}
 
-	PostBackupHook(Opts.PostHook)
+	postBackupHook(opts.PostHook)
 	os.Exit(exitCode)
 }

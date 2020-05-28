@@ -31,15 +31,16 @@ import (
 	"syscall"
 )
 
-func LockPath(path string) (*os.File, bool, error) {
+// lockPath open and try to lock a file with a non-blocking exclusive
+// lock. return the open file, which must be held open to keep the
+// lock, wether it could be locked and a potentiel error.
+func lockPath(path string) (*os.File, bool, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-		l.Errorln(err)
 		return nil, false, err
 	}
 
 	f, err := os.Create(path)
 	if err != nil {
-		l.Errorln(err)
 		return nil, false, err
 	}
 
@@ -48,7 +49,6 @@ func LockPath(path string) (*os.File, bool, error) {
 		case syscall.EWOULDBLOCK:
 			return f, false, nil
 		default:
-			l.Errorln(err)
 			f.Close()
 			return nil, false, err
 		}
@@ -57,13 +57,13 @@ func LockPath(path string) (*os.File, bool, error) {
 	return f, true, nil
 }
 
-func UnLockPath(f *os.File) error {
+// unlockPath releases the lock from the open file and removes the
+// underlying path
+func unlockPath(f *os.File) error {
 	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_UN); err != nil {
-		l.Errorln(err)
 		return err
 	}
 	path := f.Name()
 	f.Close()
-	os.Remove(path)
-	return nil
+	return os.Remove(path)
 }

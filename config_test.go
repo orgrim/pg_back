@@ -41,7 +41,7 @@ func TestValidateDumpFormat(t *testing.T) {
 
 	for i, st := range tests {
 		t.Run(fmt.Sprintf("%v", i), func(t *testing.T) {
-			if err := ValidateDumpFormat(st); err != nil {
+			if err := validateDumpFormat(st); err != nil {
 				t.Errorf("got %q, wnat nil", err)
 			}
 		})
@@ -50,7 +50,7 @@ func TestValidateDumpFormat(t *testing.T) {
 	tests = []string{"bad", "plaino"}
 	for i, st := range tests {
 		t.Run(fmt.Sprintf("%v", i), func(t *testing.T) {
-			if err := ValidateDumpFormat(st); err == nil {
+			if err := validateDumpFormat(st); err == nil {
 				t.Errorf("got nil, wnat an error")
 			}
 		})
@@ -59,7 +59,7 @@ func TestValidateDumpFormat(t *testing.T) {
 }
 
 func TestDefaultOptions(t *testing.T) {
-	var want = Options{
+	var want = options{
 		Directory:     "/var/backups/postgresql",
 		Format:        "custom",
 		DirJobs:       1,
@@ -71,7 +71,7 @@ func TestDefaultOptions(t *testing.T) {
 		CfgFile:       "/etc/pg_goback/pg_goback.conf",
 	}
 
-	got := DefaultOptions()
+	got := defaultOptions()
 
 	if diff := cmp.Diff(want, got, cmpopts.EquateEmpty()); diff != "" {
 		t.Errorf("DefaultOptions() mismatch (-want +got):\n%s", diff)
@@ -80,15 +80,15 @@ func TestDefaultOptions(t *testing.T) {
 
 func TestParseCli(t *testing.T) {
 	var (
-		defaults = DefaultOptions()
+		defaults = defaultOptions()
 		tests    = []struct {
 			args    []string
-			want    Options
+			want    options
 			help    bool
 			version bool
 		}{
-			{[]string{"-b", "test", "a", "b"}, Options{Directory: "test", Dbnames: []string{"a", "b"}, Format: "custom", DirJobs: 1, Jobs: 1, PauseTimeout: 3600, PurgeInterval: "30", PurgeKeep: "0", SumAlgo: "none", CfgFile: "/etc/pg_goback/pg_goback.conf"}, false, false},
-			{[]string{"-t", "--without-templates"}, Options{Directory: "/var/backups/postgresql", WithTemplates: false, Format: "custom", DirJobs: 1, Jobs: 1, PauseTimeout: 3600, PurgeInterval: "30", PurgeKeep: "0", SumAlgo: "none", CfgFile: "/etc/pg_goback/pg_goback.conf"}, false, false},
+			{[]string{"-b", "test", "a", "b"}, options{Directory: "test", Dbnames: []string{"a", "b"}, Format: "custom", DirJobs: 1, Jobs: 1, PauseTimeout: 3600, PurgeInterval: "30", PurgeKeep: "0", SumAlgo: "none", CfgFile: "/etc/pg_goback/pg_goback.conf"}, false, false},
+			{[]string{"-t", "--without-templates"}, options{Directory: "/var/backups/postgresql", WithTemplates: false, Format: "custom", DirJobs: 1, Jobs: 1, PauseTimeout: 3600, PurgeInterval: "30", PurgeKeep: "0", SumAlgo: "none", CfgFile: "/etc/pg_goback/pg_goback.conf"}, false, false},
 			{[]string{"--help"}, defaults, true, false},
 			{[]string{"--version"}, defaults, false, true},
 		}
@@ -102,7 +102,7 @@ func TestParseCli(t *testing.T) {
 			configParseCliInput = st.args
 
 			var (
-				opts Options
+				opts options
 				err  error
 			)
 			// when testing for help or version the usage is output to stderr, discard it with a pipe
@@ -112,11 +112,11 @@ func TestParseCli(t *testing.T) {
 				_, w, _ := os.Pipe()
 				os.Stderr = w
 				os.Stdout = w
-				opts, _, err = ParseCli()
+				opts, _, err = parseCli()
 				os.Stderr = oldStderr
 				os.Stdout = oldStdout
 			} else {
-				opts, _, err = ParseCli()
+				opts, _, err = parseCli()
 			}
 
 			var errVal *ParseCliError
@@ -141,11 +141,11 @@ func TestLoadConfigurationFile(t *testing.T) {
 	var tests = []struct {
 		params []string
 		fail   bool
-		want   Options
+		want   options
 	}{
-		{[]string{"backup_directory = test", "port = 5433"}, false, Options{Directory: "test", Port: 5433, Format: "custom", DirJobs: 1, Jobs: 1, PauseTimeout: 3600, PurgeInterval: "30", PurgeKeep: "0", SumAlgo: "none", CfgFile: "/etc/pg_goback/pg_goback.conf"}},
-		{[]string{"backup_directory = test", "include_dbs = a, b, postgres"}, false, Options{Directory: "test", Dbnames: []string{"a", "b", "postgres"}, Format: "custom", DirJobs: 1, Jobs: 1, PauseTimeout: 3600, PurgeInterval: "30", PurgeKeep: "0", SumAlgo: "none", CfgFile: "/etc/pg_goback/pg_goback.conf"}}, // ensure comma separated lists work
-		{[]string{}, true, DefaultOptions()}, // with an error output is the default
+		{[]string{"backup_directory = test", "port = 5433"}, false, options{Directory: "test", Port: 5433, Format: "custom", DirJobs: 1, Jobs: 1, PauseTimeout: 3600, PurgeInterval: "30", PurgeKeep: "0", SumAlgo: "none", CfgFile: "/etc/pg_goback/pg_goback.conf"}},
+		{[]string{"backup_directory = test", "include_dbs = a, b, postgres"}, false, options{Directory: "test", Dbnames: []string{"a", "b", "postgres"}, Format: "custom", DirJobs: 1, Jobs: 1, PauseTimeout: 3600, PurgeInterval: "30", PurgeKeep: "0", SumAlgo: "none", CfgFile: "/etc/pg_goback/pg_goback.conf"}}, // ensure comma separated lists work
+		{[]string{}, true, defaultOptions()}, // with an error output is the default
 	}
 
 	for i, st := range tests {
@@ -167,20 +167,20 @@ func TestLoadConfigurationFile(t *testing.T) {
 				defer os.Remove(f.Name())
 			}
 
-			var got Options
-			got, err = LoadConfigurationFile(f.Name())
+			var got options
+			got, err = loadConfigurationFile(f.Name())
 			if err != nil && !st.fail {
 				t.Errorf("expected an error")
 			}
 			if diff := cmp.Diff(st.want, got, cmpopts.EquateEmpty()); diff != "" {
-				t.Errorf("LoadConfigurationFile() mismatch (-want +got):\n%s", diff)
+				t.Errorf("loadConfigurationFile() mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}
 }
 
-func TestMergeCliAndConfigOptions(t *testing.T) {
-	want := Options{
+func TestMergeCliAndConfigoptions(t *testing.T) {
+	want := options{
 		BinDirectory:  "/bin",
 		Directory:     "test",
 		Host:          "localhost",
@@ -223,8 +223,8 @@ func TestMergeCliAndConfigOptions(t *testing.T) {
 		"dbname",
 	}
 
-	got := MergeCliAndConfigOptions(want, DefaultOptions(), cliOptList)
+	got := mergeCliAndConfigOptions(want, defaultOptions(), cliOptList)
 	if diff := cmp.Diff(want, got, cmpopts.EquateEmpty()); diff != "" {
-		t.Errorf("MergeCliAndConfigOptions() mismatch (-want +got):\n%s", diff)
+		t.Errorf("mergeCliAndConfigOptions() mismatch (-want +got):\n%s", diff)
 	}
 }
