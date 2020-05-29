@@ -26,7 +26,6 @@
 package main
 
 import (
-	"bytes"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -185,10 +184,14 @@ func dumpCreateDBAndACL(db *pg, dbname string) (string, error) {
 		return "", &pgVersionError{s: "cluster version is older than 9.0, not dumping ACL"}
 	}
 
-	// this is no longer necessary after 11
-	if db.version >= 110000 {
+	// this is no longer necessary after 11. Dumping ACL is the
+	// job of pg_dump so we have to check its version, not the
+	// server
+	if pgDumpVersion() >= 110000 {
 		return "", nil
 	}
+
+	l.Infoln("dumping database creation and ACL commands of", dbname)
 
 	rows, err := db.conn.Query(
 		"SELECT coalesce(rolname, (select rolname from pg_authid where oid=(select datdba from pg_database where datname='template0'))), "+
@@ -205,7 +208,6 @@ func dumpCreateDBAndACL(db *pg, dbname string) (string, error) {
 	}
 	defer rows.Close()
 
-	out := new(bytes.Buffer)
 	for rows.Next() {
 		var (
 			owner      string
@@ -249,11 +251,6 @@ func dumpCreateDBAndACL(db *pg, dbname string) (string, error) {
 			}
 
 			s += makeACLCommands(e.String, dbname, owner)
-		}
-		// do not append this newline if we could have an empty
-		// file with only this newline
-		if len(out.String()) > 0 {
-			s += fmt.Sprintf("\n")
 		}
 	}
 	err = rows.Err()
@@ -325,6 +322,24 @@ func makeACLCommands(aclitem string, dbname string, owner string) string {
 
 func dumpDBConfig(db *pg, dbname string) (string, error) {
 	var s string
+
+	if dbname == "" {
+		return "", fmt.Errorf("empty input dbname")
+	}
+
+	// this query only work from 9.0, where pg_db_role_setting was introduced
+	if db.version < 90000 {
+		return "", &pgVersionError{s: "cluster version is older than 9.0, not dumping configuration"}
+	}
+
+	// this is no longer necessary after 11. Dumping ACL is the
+	// job of pg_dump so we have to check its version, not the
+	// server
+	if pgDumpVersion() >= 110000 {
+		return "", nil
+	}
+
+	l.Infoln("dumping database configuration commands of", dbname)
 	// dump per database config
 	rows, err := db.conn.Query("SELECT unnest(setconfig) FROM pg_db_role_setting WHERE setrole = 0 AND setdatabase = (SELECT oid FROM pg_database WHERE datname = $1)", dbname)
 	if err != nil {

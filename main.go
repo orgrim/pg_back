@@ -210,6 +210,19 @@ func formatDumpPath(dir string, suffix string, dbname string, when time.Time) st
 	return filepath.Join(d, f)
 }
 
+func pgDumpVersion() int {
+	vs, err := exec.Command(filepath.Join(binDir, "pg_dump"), "-V").Output()
+	if err != nil {
+		l.Warnln("failed to retrieve version of pg_dump:", err)
+		return 0
+	}
+
+	var maj, min, rev int
+	fmt.Sscanf(string(vs), "pg_dump (PostgreSQL) %d.%d.%d", &maj, &min, &rev)
+
+	return (maj*100+min)*100 + rev
+}
+
 func dumpGlobals(dir string, host string, port int, username string, connDb string) error {
 	command := filepath.Join(binDir, "pg_dumpall")
 	args := []string{"-g"}
@@ -416,39 +429,48 @@ func main() {
 		jobs <- d
 	}
 
+	canDumpACL := true
+	canDumpConfig := true
 	// collect the result of the jobs
 	for j := 0; j < numJobs; j++ {
+		var b, c string
+		var err error
+
 		d := <-results
 		if d.ExitCode > 0 {
 			exitCode = 1
 		}
 
-		// XXX use the custom error from dumpCreateDBAndACL()
-		if db.version >= 110000 || db.version < 90000 {
-			continue
-		}
-
 		dbname := d.Database
 
-		l.Infoln("dumping database creation and ACL commands of", dbname)
-		b, err := dumpCreateDBAndACL(db, dbname)
-		var verr *pgVersionError
-		if err != nil {
-			if !errors.As(err, &verr) {
-				l.Errorln(err)
-				exitCode = 1
-			} else {
-				l.Warnln(err)
+		if canDumpACL {
+			b, err = dumpCreateDBAndACL(db, dbname)
+			var verr *pgVersionError
+			if err != nil {
+				if !errors.As(err, &verr) {
+					l.Errorln(err)
+					exitCode = 1
+				} else {
+					l.Warnln(err)
+					canDumpACL = false
+				}
 			}
 		}
 
-		l.Infoln("dumping database configuration commands of", dbname)
-		c, err := dumpDBConfig(db, dbname)
-		if err != nil {
-			l.Errorln(err)
-			exitCode = 1
+		if canDumpConfig {
+			c, err = dumpDBConfig(db, dbname)
+			if err != nil {
+				if !errors.As(err, &verr) {
+					l.Errorln(err)
+					exitCode = 1
+				} else {
+					l.Warnln(err)
+					canDumpConfig = false
+				}
+			}
 		}
 
+		// Once
 		if len(b) > 0 || len(c) > 0 {
 
 			aclpath := formatDumpPath(d.Directory, "sql", dbname, d.When)
@@ -470,9 +492,7 @@ func main() {
 
 			f.Close()
 
-			l.Infoln("dump of ACL of", dbname, "to", aclpath, "done")
-		} else {
-			l.Infoln("no ACL found for", dbname)
+			l.Infoln("dump of ACL and configuration of", dbname, "to", aclpath, "done")
 		}
 	}
 
