@@ -339,11 +339,16 @@ func main() {
 	defer db.Close()
 
 	l.Infoln("dumping instance configuration")
+	var verr *pgVersionError
 	if err := dumpSettings(opts.Directory, db); err != nil {
-		db.Close()
-		l.Fatalln("could not dump configuration parameters:", err)
-		postBackupHook(opts.PostHook)
-		os.Exit(1)
+		if errors.As(err, &verr) {
+			l.Warnln(err)
+		} else {
+			db.Close()
+			l.Fatalln("could not dump configuration parameters:", err)
+			postBackupHook(opts.PostHook)
+			os.Exit(1)
+		}
 	}
 
 	if len(opts.Dbnames) > 0 {
@@ -427,9 +432,14 @@ func main() {
 
 		l.Infoln("dumping database creation and ACL commands of", dbname)
 		b, err := dumpCreateDBAndACL(db, dbname)
+		var verr *pgVersionError
 		if err != nil {
-			l.Errorln(err)
-			exitCode = 1
+			if !errors.As(err, &verr) {
+				l.Errorln(err)
+				exitCode = 1
+			} else {
+				l.Warnln(err)
+			}
 		}
 
 		l.Infoln("dumping database configuration commands of", dbname)

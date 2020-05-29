@@ -28,6 +28,7 @@ package main
 import (
 	"bytes"
 	"database/sql"
+	"errors"
 	"fmt"
 	"github.com/lib/pq"
 	"os"
@@ -163,6 +164,14 @@ func listAllDatabases(db *pg, withTemplates bool) ([]string, error) {
 	return dbs, nil
 }
 
+type pgVersionError struct {
+	s string
+}
+
+func (e *pgVersionError) Error() string {
+	return e.s
+}
+
 // pg_dumpacl stuff
 func dumpCreateDBAndACL(db *pg, dbname string) (string, error) {
 	var s string
@@ -173,13 +182,12 @@ func dumpCreateDBAndACL(db *pg, dbname string) (string, error) {
 
 	// this query only work from 9.0, where datcollate and datctype were added to pg_database
 	if db.version < 90000 {
-		l.Warnln("cluster version is older than 9.0, not dumping ACL")
-		return "", nil // XXX replace by a custom error
+		return "", &pgVersionError{s: "cluster version is older than 9.0, not dumping ACL"}
 	}
 
 	// this is no longer necessary after 11
 	if db.version >= 110000 {
-		return "", nil // XXX replace by a custom error
+		return "", nil
 	}
 
 	rows, err := db.conn.Query(
@@ -351,6 +359,11 @@ func dumpDBConfig(db *pg, dbname string) (string, error) {
 
 func showSettings(db *pg) (string, error) {
 	var s string
+
+	if db.version < 90500 {
+		return "", &pgVersionError{s: "cluster version is older than 9.5, not dumping configuration"}
+	}
+
 	// get the non default values set in the files and applied,
 	// this avoid duplicates when multiple files define
 	// parameters.
@@ -387,6 +400,12 @@ func showSettings(db *pg) (string, error) {
 	return s, nil
 }
 
+type pgReplicaHasLocks struct{}
+
+func (*pgReplicaHasLocks) Error() string {
+	return "replication not paused because of AccessExclusiveLock"
+}
+
 func pauseReplication(db *pg) error {
 	// If an AccessExclusiveLock is granted when the replay is
 	// paused, it will remain and pg_dump would be stuck forever
@@ -409,12 +428,16 @@ func pauseReplication(db *pg) error {
 		}
 	}
 	if void == "failed" {
-		return fmt.Errorf("replication not paused because of AccessExclusiveLock")
+		return &pgReplicaHasLocks{}
 	}
 	return nil
 }
 
 func canPauseReplication(db *pg) (bool, error) {
+	// hot standby exists from 9.0
+	if db.version < 90000 {
+		return false, nil
+	}
 
 	rows, err := db.conn.Query(fmt.Sprintf("SELECT 1 FROM pg_proc "+
 		"WHERE proname='pg_%s_replay_pause' AND pg_is_in_recovery()", db.xlogOrWal))
@@ -447,6 +470,7 @@ func pauseReplicationWithTimeout(db *pg, timeOut int) error {
 	ticker := time.NewTicker(time.Duration(10) * time.Second)
 	done := make(chan bool)
 	stop := make(chan bool)
+	fail := make(chan error)
 
 	l.Infoln("pausing replication")
 
@@ -454,11 +478,17 @@ func pauseReplicationWithTimeout(db *pg, timeOut int) error {
 	// but not forever. We cannot put the timeout in the same
 	// select as the ticker since the ticker would always win
 	go func() {
+		var rerr *pgReplicaHasLocks
 		defer ticker.Stop()
 
 		for {
 			if err := pauseReplication(db); err != nil {
-				l.Warnln(err)
+				if errors.As(err, &rerr) {
+					l.Warnln(err)
+				} else {
+					fail <- err
+					return
+				}
 			} else {
 				done <- true
 				return
@@ -481,6 +511,8 @@ func pauseReplicationWithTimeout(db *pg, timeOut int) error {
 	case <-time.After(time.Duration(timeOut) * time.Second):
 		stop <- true
 		return fmt.Errorf("replication not paused after %v", time.Duration(timeOut)*time.Second)
+	case err := <-fail:
+		return fmt.Errorf("%s", err)
 	}
 
 	return nil

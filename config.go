@@ -78,7 +78,7 @@ type parseCliResult struct {
 }
 
 func (*parseCliResult) Error() string {
-	return fmt.Sprintf("parsing of command line args failed")
+	return "parsing of command line args failed"
 }
 
 func validateDumpFormat(s string) error {
