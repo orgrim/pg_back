@@ -72,12 +72,12 @@ func defaultOptions() options {
 	}
 }
 
-type ParseCliError struct {
+type parseCliResult struct {
 	ShowHelp    bool
 	ShowVersion bool
 }
 
-func (*ParseCliError) Error() string {
+func (*parseCliResult) Error() string {
 	return fmt.Sprintf("parsing of command line args failed")
 }
 
@@ -96,13 +96,13 @@ func validatePurgeKeepValue(k string) int {
 		return -1
 	}
 
-	if keep, err := strconv.ParseInt(k, 10, 0); err != nil {
+	keep, err := strconv.ParseInt(k, 10, 0)
+	if err != nil {
 		// return -1 too when the input is not convertible to an int, this way we avoid any
 		l.Warnln("Invalid input for -K, keeping everything")
 		return -1
-	} else {
-		return int(keep)
 	}
+	return int(keep)
 }
 
 func validatePurgeTimeLimitValue(l string) (time.Duration, error) {
@@ -114,11 +114,12 @@ func validatePurgeTimeLimitValue(l string) (time.Duration, error) {
 		return time.Duration(-days*24) * time.Hour, nil
 	}
 
-	if d, err := time.ParseDuration(l); err != nil {
+	d, err := time.ParseDuration(l)
+	if err != nil {
 		return 0, err
-	} else {
-		return -d, nil
 	}
+	return -d, nil
+
 }
 
 var defaultCfgFile = "/etc/pg_goback/pg_goback.conf"
@@ -184,12 +185,12 @@ func parseCli() (options, []string, error) {
 	// through the error
 	if *helpF {
 		pflag.Usage()
-		return opts, changed, &ParseCliError{true, false}
+		return opts, changed, &parseCliResult{true, false}
 	}
 
 	if *versionF {
 		fmt.Printf("pg_goback version %v\n", version)
-		return opts, changed, &ParseCliError{false, true}
+		return opts, changed, &parseCliResult{false, true}
 	}
 
 	opts.Dbnames = pflag.Args()
@@ -211,7 +212,7 @@ func loadConfigurationFile(path string) (options, error) {
 		return opts, fmt.Errorf("Could load configuration file: %v", err)
 	}
 
-	s, err := cfg.GetSection(ini.DEFAULT_SECTION)
+	s, _ := cfg.GetSection(ini.DEFAULT_SECTION)
 
 	// Read all configuration parameters ensuring the destination
 	// struct member has the same default value as the commandline

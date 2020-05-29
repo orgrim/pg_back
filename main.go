@@ -38,7 +38,7 @@ import (
 
 var version = "0.0.1"
 
-type Dump struct {
+type dump struct {
 	// Database is ne name of the database to dump
 	Database string
 
@@ -69,7 +69,7 @@ type Dump struct {
 	ExitCode int
 }
 
-func (d *Dump) Dump() error {
+func (d *dump) dump() error {
 	dbname := d.Database
 	d.ExitCode = 1
 
@@ -159,10 +159,10 @@ func (d *Dump) Dump() error {
 	return nil
 }
 
-func dumper(id int, jobs <-chan *Dump, results chan<- *Dump) {
+func dumper(id int, jobs <-chan *dump, results chan<- *dump) {
 	for j := range jobs {
 
-		if err := j.Dump(); err != nil {
+		if err := j.dump(); err != nil {
 			l.Errorln("dump of", j.Database, "failed:", err)
 			results <- j
 		} else {
@@ -281,7 +281,7 @@ func main() {
 	// have shown usage or version string and load a non default
 	// configuration file
 	cliOpts, cliOptList, perr := parseCli()
-	var pce *ParseCliError
+	var pce *parseCliResult
 	if perr != nil && errors.As(perr, &pce) {
 		os.Exit(0)
 	}
@@ -386,8 +386,8 @@ func main() {
 	exitCode := 0
 	maxWorkers := opts.Jobs
 	numJobs := len(databases)
-	jobs := make(chan *Dump, numJobs)
-	results := make(chan *Dump, numJobs)
+	jobs := make(chan *dump, numJobs)
+	results := make(chan *dump, numJobs)
 
 	// start workers - thanks gobyexample.com
 	for w := 0; w < maxWorkers; w++ {
@@ -396,7 +396,7 @@ func main() {
 
 	// feed the database
 	for _, dbname := range databases {
-		d := &Dump{
+		d := &dump{
 			Database:  dbname,
 			Directory: opts.Directory,
 			Format:    opts.Format,

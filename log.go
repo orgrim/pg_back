@@ -30,6 +30,8 @@ import (
 	"os"
 )
 
+// LevelLog custom type to allow a verbose mode and handling of levels
+// with a prefix
 type LevelLog struct {
 	logger  *log.Logger
 	verbose bool
@@ -37,6 +39,7 @@ type LevelLog struct {
 
 var l = NewLevelLog()
 
+// NewLevelLog setups a logger with the proper configuration for the underlying log
 func NewLevelLog() *LevelLog {
 	return &LevelLog{
 		logger:  log.New(os.Stderr, "", log.LstdFlags|log.Lmsgprefix),
@@ -44,11 +47,12 @@ func NewLevelLog() *LevelLog {
 	}
 }
 
-// Verbose
+// SetVerbose toggles verbose mode
 func (l *LevelLog) SetVerbose(verbose bool) {
 	l.verbose = verbose
 }
 
+// Verbosef prints with log.Printf a message with DEBUG: prefix using log.Printf, only when verbose mode is true
 func (l *LevelLog) Verbosef(format string, v ...interface{}) {
 	if l.verbose {
 		l.logger.SetPrefix("DEBUG: ")
@@ -56,6 +60,7 @@ func (l *LevelLog) Verbosef(format string, v ...interface{}) {
 	}
 }
 
+// Verboseln prints a message with DEBUG: prefix using log.Println, only when verbose mode is true
 func (l *LevelLog) Verboseln(v ...interface{}) {
 	if l.verbose {
 		l.logger.SetPrefix("DEBUG: ")
@@ -63,45 +68,49 @@ func (l *LevelLog) Verboseln(v ...interface{}) {
 	}
 }
 
-// Info
+// Infof prints a message with INFO: prefix using log.Printf
 func (l *LevelLog) Infof(format string, v ...interface{}) {
 	l.logger.SetPrefix("INFO: ")
 	l.logger.Printf(format, v...)
 }
 
+// Infoln prints a message with INFO: prefix using log.Println
 func (l *LevelLog) Infoln(v ...interface{}) {
 	l.logger.SetPrefix("INFO: ")
 	l.logger.Println(v...)
 }
 
-// Warn
+// Warnf prints a message with WARN: prefix using log.Printf
 func (l *LevelLog) Warnf(format string, v ...interface{}) {
 	l.logger.SetPrefix("WARN: ")
 	l.logger.Printf(format, v...)
 }
 
+// Warnln prints a message with WARN: prefix using log.Println
 func (l *LevelLog) Warnln(v ...interface{}) {
 	l.logger.SetPrefix("WARN: ")
 	l.logger.Println(v...)
 }
 
-// Error
+// Errorf prints a message with ERROR: prefix using log.Printf
 func (l *LevelLog) Errorf(format string, v ...interface{}) {
 	l.logger.SetPrefix("ERROR: ")
 	l.logger.Printf(format, v...)
 }
 
+// Errorln prints a message with ERROR: prefix using log.Println
 func (l *LevelLog) Errorln(v ...interface{}) {
 	l.logger.SetPrefix("ERROR: ")
 	l.logger.Println(v...)
 }
 
-// Fatal
+// Fatalf prints a message with FATAL: prefix using log.Printf
 func (l *LevelLog) Fatalf(format string, v ...interface{}) {
 	l.logger.SetPrefix("FATAL: ")
 	l.logger.Printf(format, v...)
 }
 
+// Fatalln prints a message with FATAL: prefix using log.Println
 func (l *LevelLog) Fatalln(v ...interface{}) {
 	l.logger.SetPrefix("FATAL: ")
 	l.logger.Println(v...)

@@ -480,7 +480,7 @@ func pauseReplicationWithTimeout(db *pg, timeOut int) error {
 		l.Infoln("replication paused")
 	case <-time.After(time.Duration(timeOut) * time.Second):
 		stop <- true
-		return fmt.Errorf("replication not paused after %v\n", time.Duration(timeOut)*time.Second)
+		return fmt.Errorf("replication not paused after %v", time.Duration(timeOut)*time.Second)
 	}
 
 	return nil
