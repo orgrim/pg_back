@@ -131,6 +131,11 @@ func sqlQuoteLiteral(s string) string {
 	return o
 }
 
+func sqlQuoteIdent(s string) string {
+	// just double the quote quotes, there are no escape for identifiers
+	return strings.ReplaceAll(s, "\"", "\"\"")
+}
+
 func listAllDatabases(db *pg, withTemplates bool) ([]string, error) {
 	var (
 		query  string
@@ -226,14 +231,14 @@ func dumpCreateDBAndACL(db *pg, dbname string) (string, error) {
 
 		if dbname != "template1" && dbname != "postgres" {
 			s += fmt.Sprintf("--\n-- Database creation\n--\n\n")
-			s += fmt.Sprintf("CREATE DATABASE \"%s\" WITH TEMPLATE = template0 OWNER = \"%s\"", dbname, owner)
+			s += fmt.Sprintf("CREATE DATABASE \"%s\" WITH TEMPLATE = template0 OWNER = \"%s\"", sqlQuoteIdent(dbname), sqlQuoteIdent(owner))
 			s += fmt.Sprintf(" ENCODING = %s", sqlQuoteLiteral(encoding))
 			s += fmt.Sprintf(" LC_COLLATE = %s", sqlQuoteLiteral(collate))
 
 			s += fmt.Sprintf(" LC_CTYPE = %s", sqlQuoteLiteral(ctype))
 
 			if tablespace != "pg_default" {
-				s += fmt.Sprintf(" TABLESPACE = \"%s\"", tablespace)
+				s += fmt.Sprintf(" TABLESPACE = \"%s\"", sqlQuoteIdent(tablespace))
 			}
 			if connlimit != -1 {
 				s += fmt.Sprintf(" CONNECTION LIMIT = %d", connlimit)
@@ -276,7 +281,7 @@ func makeACLCommands(aclitem string, dbname string, owner string) string {
 	if grantee == "" {
 		grantee = "PUBLIC"
 		if privs != "Tc" {
-			s += fmt.Sprintf("REVOKE ALL ON DATABASE \"%s\" FROM PUBLIC;\n", dbname)
+			s += fmt.Sprintf("REVOKE ALL ON DATABASE \"%s\" FROM PUBLIC;\n", sqlQuoteIdent(dbname))
 		} else {
 			return s
 		}
@@ -285,23 +290,23 @@ func makeACLCommands(aclitem string, dbname string, owner string) string {
 	// privileges are shown for the owner
 	if grantee == owner {
 		if privs != "CTc" {
-			s += fmt.Sprintf("REVOKE ALL ON DATABASE \"%s\" FROM \"%s\";\n", dbname, grantee)
+			s += fmt.Sprintf("REVOKE ALL ON DATABASE \"%s\" FROM \"%s\";\n", sqlQuoteIdent(dbname), sqlQuoteIdent(grantee))
 		} else {
 			return s
 		}
 	}
 
 	if grantor != owner {
-		s += fmt.Sprintf("SET SESSION AUTHORIZATION \"%s\";\n", grantor)
+		s += fmt.Sprintf("SET SESSION AUTHORIZATION \"%s\";\n", sqlQuoteIdent(grantor))
 	}
 	for i, b := range privs {
 		switch b {
 		case 'C':
-			s += fmt.Sprintf("GRANT CREATE ON DATABASE \"%s\" TO \"%s\"", dbname, grantee)
+			s += fmt.Sprintf("GRANT CREATE ON DATABASE \"%s\" TO \"%s\"", sqlQuoteIdent(dbname), sqlQuoteIdent(grantee))
 		case 'T':
-			s += fmt.Sprintf("GRANT TEMPORARY ON DATABASE \"%s\" TO \"%s\"", dbname, grantee)
+			s += fmt.Sprintf("GRANT TEMPORARY ON DATABASE \"%s\" TO \"%s\"", sqlQuoteIdent(dbname), sqlQuoteIdent(grantee))
 		case 'c':
-			s += fmt.Sprintf("GRANT CONNECT ON DATABASE \"%s\" TO \"%s\"", dbname, grantee)
+			s += fmt.Sprintf("GRANT CONNECT ON DATABASE \"%s\" TO \"%s\"", sqlQuoteIdent(dbname), sqlQuoteIdent(grantee))
 		}
 
 		if i+1 < len(privs) {
