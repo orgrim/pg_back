@@ -90,19 +90,23 @@ func validateDumpFormat(s string) error {
 	return fmt.Errorf("invalid dump format %q", s)
 }
 
-func validatePurgeKeepValue(k string) int {
+func validatePurgeKeepValue(k string) (int, error) {
 	// returning -1 means keep all dumps
 	if k == "all" {
-		return -1
+		return -1, nil
 	}
 
 	keep, err := strconv.ParseInt(k, 10, 0)
 	if err != nil {
-		// return -1 too when the input is not convertible to an int, this way we avoid any
-		l.Warnln("Invalid input for -K, keeping everything")
-		return -1
+		// return -1 too when the input is not convertible to an int
+		return -1, fmt.Errorf("Invalid input for keep: %s", err)
 	}
-	return int(keep)
+
+	if keep < 0 {
+		return -1, fmt.Errorf("Invalid input for keep: negative value: %d", keep)
+	}
+
+	return int(keep), nil
 }
 
 func validatePurgeTimeLimitValue(l string) (time.Duration, error) {

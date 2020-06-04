@@ -312,7 +312,11 @@ func main() {
 	opts := mergeCliAndConfigOptions(cliOpts, configOpts, cliOptList)
 
 	// validate purge options and do the extra parsing
-	keep := validatePurgeKeepValue(opts.PurgeKeep)
+	keep, err := validatePurgeKeepValue(opts.PurgeKeep)
+	if err != nil {
+		l.Fatalln(err)
+		os.Exit(1)
+	}
 
 	if interval, err := validatePurgeTimeLimitValue(opts.PurgeInterval); err != nil {
 		l.Fatalln(err)

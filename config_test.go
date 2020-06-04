@@ -34,6 +34,7 @@ import (
 	"io/ioutil"
 	"os"
 	"testing"
+	"time"
 )
 
 func TestValidateDumpFormat(t *testing.T) {
@@ -56,6 +57,63 @@ func TestValidateDumpFormat(t *testing.T) {
 		})
 	}
 
+}
+
+func TestValidatePurgeKeepValue(t *testing.T) {
+	var tests = []struct {
+		give      string
+		want      int
+		wantError bool
+	}{
+		{"all", -1, false},
+		{"18446744073709551615000", -1, true},
+		{"50", 50, false},
+		{"-10", -1, true},
+	}
+
+	l.logger.SetOutput(ioutil.Discard)
+	for i, st := range tests {
+		t.Run(fmt.Sprintf("%v", i), func(t *testing.T) {
+			got, err := validatePurgeKeepValue(st.give)
+			if err == nil && st.wantError {
+				t.Errorf("excepted an error got nil")
+			} else if err != nil && !st.wantError {
+				t.Errorf("did not want an error, got %s", err)
+			}
+			if got != st.want {
+				t.Errorf("got %q, want %q", got, st.want)
+			}
+		})
+	}
+}
+
+func TestValidatePurgeTimeLimitValue(t *testing.T) {
+	var tests = []struct {
+		give      string
+		want      time.Duration
+		wantError bool
+	}{
+		{"0", 0, false},
+		{"5", -432000000000000, false}, // a literal number is time.Duration in ns
+		{"18446744073709551615000", 0, true},
+		{"-1h", 3600000000000, false},
+		{"", 0, true},
+		{"-1", 86400000000000, false}, // no unit means days, negative intervals are allowed
+	}
+
+	for i, st := range tests {
+		t.Run(fmt.Sprintf("%v", i), func(t *testing.T) {
+			got, err := validatePurgeTimeLimitValue(st.give)
+			if err == nil && st.wantError {
+				t.Errorf("excepted an error got nil")
+			} else if err != nil && !st.wantError {
+				t.Errorf("did not want an error, got %s", err)
+			}
+			if got != st.want {
+				t.Errorf("got %q, want %q", got, st.want)
+			}
+		})
+	}
 }
 
 func TestDefaultOptions(t *testing.T) {
@@ -119,7 +177,7 @@ func TestParseCli(t *testing.T) {
 				opts, _, err = parseCli()
 			}
 
-			var errVal *ParseCliError
+			var errVal *parseCliResult
 
 			if err != nil && errors.As(err, &errVal) {
 				if errVal.ShowHelp != st.help {
@@ -226,5 +284,14 @@ func TestMergeCliAndConfigoptions(t *testing.T) {
 	got := mergeCliAndConfigOptions(want, defaultOptions(), cliOptList)
 	if diff := cmp.Diff(want, got, cmpopts.EquateEmpty()); diff != "" {
 		t.Errorf("mergeCliAndConfigOptions() mismatch (-want +got):\n%s", diff)
+	}
+}
+
+func TestError(t *testing.T) {
+	err := &parseCliResult{}
+
+	s := fmt.Sprintf("%s", err)
+	if s != "parsing of command line args failed" {
+		t.Errorf("func (*parseCliResult) Error() failed")
 	}
 }
