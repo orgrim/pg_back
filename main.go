@@ -147,7 +147,7 @@ func (d *dump) dump() error {
 
 	// Compute the checksum tha goes with the dump file right
 	// after the dump, to this is done concurrently too.
-	if d.SumAlgo != "none" && fileEnd != "d" {
+	if d.SumAlgo != "none" {
 		l.Infoln("computing checksum of", file)
 
 		if err = checksumFile(file, d.SumAlgo); err != nil {

@@ -31,6 +31,7 @@ import (
 	"io/ioutil"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"testing"
 )
 
@@ -83,8 +84,9 @@ func TestChecksumFile(t *testing.T) {
 		t.Errorf("expected err, got <nil>\n")
 	}
 
+	// test each algo with the file
 	for i, st := range tests {
-		t.Run(fmt.Sprintf("%v", i), func(t *testing.T) {
+		t.Run(fmt.Sprintf("f%v", i), func(t *testing.T) {
 			if err := checksumFile("test", st.algo); err != nil {
 				t.Errorf("checksumFile returned: %v", err)
 			}
@@ -112,4 +114,35 @@ func TestChecksumFile(t *testing.T) {
 		t.Errorf("expected an *os.PathError, got %q\n", err)
 	}
 	os.Chmod("test.sha1", 0644)
+
+	// create a directory and some files
+	if err := os.Mkdir("test.d", 0755); err != nil {
+		t.Fatal("could not create test dir")
+	}
+	for i := 0; i < 3; i++ {
+		f, err := os.Create(filepath.Join("test.d", fmt.Sprintf("test%d", i)))
+		if err != nil {
+			t.Fatal("could not create test file")
+		}
+		fmt.Fprintf(f, "abdc%d\n", i)
+		f.Close()
+	}
+
+	// test each algo with the directory
+	for i, st := range tests {
+		t.Run(fmt.Sprintf("d%v", i), func(t *testing.T) {
+			if err := checksumFile("test.d", st.algo); err != nil {
+				t.Errorf("checksumFile returned: %v", err)
+			}
+
+			c := exec.Command(st.tool, "-c", fmt.Sprintf("test.d.%s", st.algo))
+			out, err := c.CombinedOutput()
+			if err != nil {
+				t.Errorf("check command failed: %s\n", out)
+			}
+			if string(out) != "test.d/test0: OK\ntest.d/test1: OK\ntest.d/test2: OK\n" {
+				t.Errorf("expected OK, got %q\n", out)
+			}
+		})
+	}
 }

@@ -33,7 +33,23 @@ import (
 	"hash"
 	"io"
 	"os"
+	"path/filepath"
 )
+
+func computeChecksum(path string, h hash.Hash) (string, error) {
+	h.Reset()
+
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	return string(h.Sum(nil)), nil
+}
 
 func checksumFile(path string, algo string) error {
 	var h hash.Hash
@@ -52,30 +68,46 @@ func checksumFile(path string, algo string) error {
 	case "sha512":
 		h = sha512.New()
 	default:
-		return fmt.Errorf("Unsupported hash algorithm: %s", algo)
+		return fmt.Errorf("unsupported hash algorithm: %s", algo)
 	}
 
-	// Open the file and use io.Copy to feed the data to the hash,
-	// like in the example of the doc, then write the result to a
-	// file that the standard shaXXXsum tools can understand
-	f, err := os.Open(path)
+	i, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+
+	o, err := os.Create(fmt.Sprintf("%s.%s", path, algo))
 	if err != nil {
 		l.Errorln(err)
 		return err
 	}
-	defer f.Close()
-
-	if _, err := io.Copy(h, f); err != nil {
-		l.Errorln(err)
-	}
-
-	o, oerr := os.Create(fmt.Sprintf("%s.%s", path, algo))
-	if oerr != nil {
-		l.Errorln(oerr)
-		return oerr
-	}
 	defer o.Close()
 
-	fmt.Fprintf(o, "%x  %s\n", h.Sum(nil), path)
+	if i.IsDir() {
+		err = filepath.Walk(path, func(path string, info os.FileInfo, err error) error {
+			if err != nil {
+				return err
+			}
+			if info.Mode().IsRegular() {
+				r, cerr := computeChecksum(path, h)
+				if cerr != nil {
+					return fmt.Errorf("could not checksum %s: %s", path, err)
+				}
+				fmt.Fprintf(o, "%x *%s\n", r, path)
+			}
+			return nil
+		})
+
+		if err != nil {
+			return fmt.Errorf("error walking the path %q: %v\n", path, err)
+		}
+	} else {
+
+		// Open the file and use io.Copy to feed the data to the hash,
+		// like in the example of the doc, then write the result to a
+		// file that the standard shaXXXsum tools can understand
+		r, _ := computeChecksum(path, h)
+		fmt.Fprintf(o, "%x  %s\n", r, path)
+	}
 	return nil
 }
