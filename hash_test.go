@@ -114,6 +114,7 @@ func TestChecksumFile(t *testing.T) {
 		t.Errorf("expected an *os.PathError, got %q\n", err)
 	}
 	os.Chmod("test.sha1", 0644)
+	l.logger.SetOutput(os.Stderr)
 
 	// create a directory and some files
 	if err := os.Mkdir("test.d", 0755); err != nil {
