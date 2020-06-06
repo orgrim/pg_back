@@ -27,6 +27,7 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -39,8 +40,7 @@ func purgeDumps(directory string, dbname string, keep int, limit time.Time) erro
 	dirpath := filepath.Dir(formatDumpPath(directory, "", dbname, time.Time{}))
 	dir, err := os.Open(dirpath)
 	if err != nil {
-		l.Errorln(err)
-		return err
+		return fmt.Errorf("could not purge %s: %s", dirpath, err)
 	}
 	defer dir.Close()
 	dirContents := make([]os.FileInfo, 0)
@@ -52,8 +52,7 @@ func purgeDumps(directory string, dbname string, keep int, limit time.Time) erro
 			err = nil
 			break
 		} else if err != nil {
-			l.Errorln(err)
-			return err
+			return fmt.Errorf("could not purge %s: %s", dirpath, err)
 		}
 
 		if strings.HasPrefix(f[0].Name(), dbname+"_") &&
@@ -85,5 +84,8 @@ func purgeDumps(directory string, dbname string, keep int, limit time.Time) erro
 			}
 		}
 	}
-	return err
+	if err != nil {
+		return fmt.Errorf("could not purge %s: %s", dirpath, err)
+	}
+	return nil
 }
