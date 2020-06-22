@@ -273,8 +273,14 @@ func makeACLCommands(aclitem string, dbname string, owner string) string {
 	// when grantee as WITH GRANT OPTION for it
 	t := strings.Split(aclitem, "=")
 	grantee := t[0]
+	if len(t) != 2 {
+		return ""
+	}
 	t = strings.Split(t[1], "/")
 	privs := t[0]
+	if len(t) != 2 {
+		return ""
+	}
 	grantor := t[1]
 
 	// public role: when the privs differ from the default, issue grants
@@ -312,10 +318,10 @@ func makeACLCommands(aclitem string, dbname string, owner string) string {
 		if i+1 < len(privs) {
 			if privs[i+1] == '*' {
 				s += fmt.Sprintf(" WITH GRANT OPTION;\n")
-			} else {
+			} else if privs[i] != '*' {
 				s += fmt.Sprintf(";\n")
 			}
-		} else {
+		} else if privs[i] != '*' {
 			s += fmt.Sprintf(";\n")
 		}
 	}

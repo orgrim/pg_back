@@ -1,10 +1,11 @@
+
 all: pg_goback
 
 pg_goback: *.go
 	go build -ldflags="-s -w" .
 
 test:
-	go test -coverprofile=cover.out
+	go test -coverprofile=cover.out -v
 
 coverage: test
 	go tool cover -func=cover.out

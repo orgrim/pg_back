@@ -41,7 +41,7 @@ func TestPurgeDumps(t *testing.T) {
 	if err != nil {
 		t.Fatal("could not create tempdir:", err)
 	}
-	//defer os.RemoveAll(dir)
+	defer os.RemoveAll(dir)
 
 	// empty path
 	wd := filepath.Join(dir, "real", "bad")
