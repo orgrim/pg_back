@@ -1,3 +1,9 @@
+pg_back 1.9
+===========
+
+* Fix dumping settings not using connection parameters 
+
+
 pg_back 1.8
 ===========
 

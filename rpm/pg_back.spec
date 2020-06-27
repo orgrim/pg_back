@@ -1,5 +1,5 @@
 Name:           pg_back
-Version:        2.0
+Version:        1.9
 Release:        1
 License:        BSD
 Summary:        Simple backup script for PostgreSQL
@@ -53,7 +53,7 @@ install -D -p -m 0644 CHANGELOG %{buildroot}/usr/share/doc/pg_back-%{version}/RE
 %{_bindir}/pg_back
 
 %changelog
-* Mon May 11 2020 Aurelien Tisne <aurelien.tisne@c-s.fr> - 2.0-1
+* Mon May 11 2020 Aurelien Tisne <aurelien.tisne@c-s.fr> - 1.9-1
 - Set default config location to /etc/pg_back
 
 * Fri Mar 27 2020 Nicolas Thauvin <nico@orgrim.net> - 1.8-1
