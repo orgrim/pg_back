@@ -1,3 +1,5 @@
 CREATE ROLE u1 LOGIN PASSWORD 'u1';
 CREATE DATABASE b1 OWNER u1;
-
+ALTER ROLE u1 IN DATABASE b1 SET work_mem TO '1MB';
+ALTER ROLE u1 SET temp_buffers TO '32MB';
+ALTER DATABASE b1 SET log_min_duration_statement TO '10s';

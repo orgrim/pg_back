@@ -352,16 +352,19 @@ func dumpDBConfig(db *pg, dbname string) (string, error) {
 
 	l.Infoln("dumping database configuration commands of", dbname)
 	// dump per database config
-	rows, err := db.conn.Query("SELECT unnest(setconfig) FROM pg_db_role_setting WHERE setrole = 0 AND setdatabase = (SELECT oid FROM pg_database WHERE datname = $1)", dbname)
+	rows, err := db.conn.Query("SELECT CASE setrole WHEN 0 THEN NULL ELSE pg_get_userbyid(setrole) END, unnest(setconfig) FROM pg_db_role_setting WHERE setdatabase = (SELECT oid FROM pg_database WHERE datname = $1)", dbname)
 	if err != nil {
 		return "", fmt.Errorf("could not query database configuration for %s: %s", dbname, err)
 	}
 	defer rows.Close()
 
 	for rows.Next() {
-		var keyVal string
+		var (
+			role   sql.NullString
+			keyVal string
+		)
 
-		err := rows.Scan(&keyVal)
+		err := rows.Scan(&role, &keyVal)
 		if err != nil {
 			return "", fmt.Errorf("could not get row: %s", err)
 		}
@@ -373,7 +376,12 @@ func dumpDBConfig(db *pg, dbname string) (string, error) {
 		if tokens[0] != "DateStyle" && tokens[0] != "search_path" {
 			tokens[1] = fmt.Sprintf("'%s'", tokens[1])
 		}
-		s += fmt.Sprintf("ALTER DATABASE \"%s\" SET \"%s\" TO %s;\n", dbname, tokens[0], tokens[1])
+
+		if role.Valid {
+			s += fmt.Sprintf("ALTER ROLE \"%s\" IN DATABASE \"%s\" SET \"%s\" TO %s;\n", role.String, dbname, tokens[0], tokens[1])
+		} else {
+			s += fmt.Sprintf("ALTER DATABASE \"%s\" SET \"%s\" TO %s;\n", dbname, tokens[0], tokens[1])
+		}
 	}
 	err = rows.Err()
 	if err != nil {

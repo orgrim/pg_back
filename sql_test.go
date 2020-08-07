@@ -26,77 +26,16 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
-	"io/ioutil"
-	"log"
-	"math/rand"
 	"os"
-	"os/exec"
-	"path/filepath"
 	"testing"
 )
 
 var (
-	pgdata string
-	pgport int
-	pgup   bool
 	testdb *pg
 )
-
-// TODO use postgres in a docker or set it up with those two functions
-func setupPostgres(t *testing.T) {
-	if os.Getenv("PGBK_TEST_PG") != "1" {
-		t.Skip("testing with PostgreSQL disabled")
-	}
-
-	dir, err := ioutil.TempDir("", "test_sql")
-	if err != nil {
-		t.Fatal("could not prepare tempdir:", err)
-	}
-
-	pgdata = filepath.Join(dir, "pgdata")
-	pgport = rand.Intn(10000) + 30000
-	pglog := filepath.Join(dir, "log")
-
-	initdb := exec.Command("initdb", pgdata)
-	err = initdb.Run()
-	var rc *exec.ExitError
-	if err != nil {
-		if errors.As(err, &rc) {
-			t.Fatal("initdb exited with code", rc.ExitCode(), "stderr\n", rc.Stderr)
-		}
-		t.Fatal("initdb failed:", err)
-	}
-
-	pgctl := exec.Command("pg_ctl", "-D", pgdata, "-o", fmt.Sprintf("-p %d", pgport), "-l", pglog, "start")
-	err = pgctl.Run()
-	if err != nil {
-		if errors.As(err, &rc) {
-			t.Fatal("pg_ctl exited with code", rc.ExitCode(), "stderr\n", rc.Stderr)
-		}
-		t.Fatal("pg_ctl failed:", err)
-	}
-	pgup = true
-	t.Cleanup(teardownPostgres)
-	fmt.Println("setup postgres done")
-}
-
-func teardownPostgres() {
-	pgctl := exec.Command("pg_ctl", "-D", pgdata, "stop", "-m", "immediate")
-	var rc *exec.ExitError
-	err := pgctl.Run()
-	if err != nil {
-		if errors.As(err, &rc) {
-			log.Fatalln("pg_ctl exited with code", rc.ExitCode(), "stderr\n", rc.Stderr)
-		}
-		log.Fatalln("pg_ctl failed:", err)
-	}
-	os.RemoveAll(filepath.Dir(pgdata))
-	fmt.Println("teardown postgres done")
-}
 
 func TestPrepareConnInfo(t *testing.T) {
 	var tests = []struct {
@@ -252,12 +191,35 @@ func TestListAllDatabases(t *testing.T) {
 	}
 }
 
-/*
-dumpCreateDBAndACL
-dumpDBConfig
-showSettings
-pauseReplication
-canPauseReplication
-pauseReplicationWithTimeout
-resumeReplication
-*/
+func TestDumpDBConfig(t *testing.T) {
+	if os.Getenv("PGBK_TEST_CONNINFO") == "" {
+		t.Skip("testing with PostgreSQL disabled")
+	}
+
+	if testdb == nil {
+		var err error
+		testdb, err = dbOpen(os.Getenv("PGBK_TEST_CONNINFO"))
+		if err != nil {
+			t.Fatalf("expected an ok on dbOpen(), got %s", err)
+		}
+	}
+
+	var tests = []struct {
+		want string
+	}{
+		{"ALTER DATABASE \"b1\" SET \"work_mem\" TO '5MB';\nALTER DATABASE \"b1\" SET \"log_min_duration_statement\" TO '10s';\nALTER ROLE \"u1\" IN DATABASE \"b1\" SET \"work_mem\" TO '1MB';\n"},
+	}
+
+	for i, st := range tests {
+		t.Run(fmt.Sprintf("%v", i), func(t *testing.T) {
+			got, err := dumpDBConfig(testdb, "b1")
+			if err != nil {
+				t.Errorf("expected non nil error, got %q", err)
+			}
+
+			if diff := cmp.Diff(st.want, got, cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("dumpDBConfig() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
