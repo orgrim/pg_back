@@ -30,12 +30,28 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"os"
+	"regexp"
+	"strings"
 	"testing"
 )
 
 var (
 	testdb *pg
 )
+
+func checkIfWeTest(t *testing.T) {
+	if os.Getenv("PGBK_TEST_CONNINFO") == "" {
+		t.Skip("testing with PostgreSQL disabled")
+	}
+
+	if testdb == nil {
+		var err error
+		testdb, err = dbOpen(os.Getenv("PGBK_TEST_CONNINFO"))
+		if err != nil {
+			t.Fatalf("expected an ok on dbOpen(), got %s", err)
+		}
+	}
+}
 
 func TestPrepareConnInfo(t *testing.T) {
 	var tests = []struct {
@@ -156,18 +172,6 @@ func TestDbOpen(t *testing.T) {
 }
 
 func TestListAllDatabases(t *testing.T) {
-	if os.Getenv("PGBK_TEST_CONNINFO") == "" {
-		t.Skip("testing with PostgreSQL disabled")
-	}
-
-	if testdb == nil {
-		var err error
-		testdb, err = dbOpen(os.Getenv("PGBK_TEST_CONNINFO"))
-		if err != nil {
-			t.Fatalf("expected an ok on dbOpen(), got %s", err)
-		}
-	}
-
 	var tests = []struct {
 		templates bool
 		want      []string
@@ -175,6 +179,8 @@ func TestListAllDatabases(t *testing.T) {
 		{false, []string{"b1", "postgres"}},
 		{true, []string{"b1", "postgres", "template1"}},
 	}
+
+	checkIfWeTest(t)
 
 	for i, st := range tests {
 		t.Run(fmt.Sprintf("%v", i), func(t *testing.T) {
@@ -192,23 +198,13 @@ func TestListAllDatabases(t *testing.T) {
 }
 
 func TestDumpDBConfig(t *testing.T) {
-	if os.Getenv("PGBK_TEST_CONNINFO") == "" {
-		t.Skip("testing with PostgreSQL disabled")
-	}
-
-	if testdb == nil {
-		var err error
-		testdb, err = dbOpen(os.Getenv("PGBK_TEST_CONNINFO"))
-		if err != nil {
-			t.Fatalf("expected an ok on dbOpen(), got %s", err)
-		}
-	}
-
 	var tests = []struct {
 		want string
 	}{
 		{"ALTER DATABASE \"b1\" SET \"work_mem\" TO '5MB';\nALTER DATABASE \"b1\" SET \"log_min_duration_statement\" TO '10s';\nALTER ROLE \"u1\" IN DATABASE \"b1\" SET \"work_mem\" TO '1MB';\n"},
 	}
+
+	checkIfWeTest(t)
 
 	for i, st := range tests {
 		t.Run(fmt.Sprintf("%v", i), func(t *testing.T) {
@@ -223,3 +219,32 @@ func TestDumpDBConfig(t *testing.T) {
 		})
 	}
 }
+
+func TestShowSettings(t *testing.T) {
+	checkIfWeTest(t)
+
+	got, err := showSettings(testdb)
+	if err != nil {
+		t.Errorf("expected non nil error, got %q", err)
+	}
+	// we cannot exactly test the content, it depends on the version of PostgreSQL
+	if got == "" {
+		t.Errorf("expected some data, got nothing")
+	} else {
+		p := strings.Split(got, "\n")
+		re := regexp.MustCompile(`^(\w+) = '(.+)'$`)
+		for _, v := range p {
+			if v == "" {
+				continue
+			}
+			if !re.MatchString(v) {
+				if !strings.HasPrefix(v, "DateStyle") && !strings.HasPrefix(v, "search_path") {
+					t.Errorf("got misformed parameter: %s", v)
+				}
+			}
+		}
+	}
+}
+
+// Testing replication management fonctions needs a more complex setup
+// so we skip it.
