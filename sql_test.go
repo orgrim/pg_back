@@ -176,8 +176,8 @@ func TestListAllDatabases(t *testing.T) {
 		templates bool
 		want      []string
 	}{
-		{false, []string{"b1", "postgres"}},
-		{true, []string{"b1", "postgres", "template1"}},
+		{false, []string{"b1", "b2", "postgres"}},
+		{true, []string{"b1", "b2", "postgres", "template1"}},
 	}
 
 	checkIfWeTest(t)
@@ -201,7 +201,7 @@ func TestDumpDBConfig(t *testing.T) {
 	var tests = []struct {
 		want string
 	}{
-		{"ALTER DATABASE \"b1\" SET \"work_mem\" TO '5MB';\nALTER DATABASE \"b1\" SET \"log_min_duration_statement\" TO '10s';\nALTER ROLE \"u1\" IN DATABASE \"b1\" SET \"work_mem\" TO '1MB';\n"},
+		{"ALTER ROLE \"u1\" IN DATABASE \"b1\" SET \"work_mem\" TO '1MB';\nALTER DATABASE \"b1\" SET \"log_min_duration_statement\" TO '10s';\nALTER DATABASE \"b1\" SET \"work_mem\" TO '5MB';\n"},
 	}
 
 	checkIfWeTest(t)
@@ -243,6 +243,31 @@ func TestShowSettings(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+func TestDumpCreateDBAndACL(t *testing.T) {
+	checkIfWeTest(t)
+
+	var tests = []struct {
+		db   string
+		want string
+	}{
+		{"b1", "--\n-- Database creation\n--\n\nCREATE DATABASE \"b1\" WITH TEMPLATE = template0 OWNER = \"u1\" ENCODING = 'UTF8' LC_COLLATE = 'en_US.UTF-8' LC_CTYPE = 'en_US.UTF-8';\n\n"},
+		{"b2", "--\n-- Database creation\n--\n\nCREATE DATABASE \"b2\" WITH TEMPLATE = template0 OWNER = \"u1\" ENCODING = 'UTF8' LC_COLLATE = 'en_US.UTF-8' LC_CTYPE = 'en_US.UTF-8';\n\n--\n-- Database privileges \n--\n\nREVOKE CONNECT, TEMPORARY ON DATABASE \"b2\" FROM PUBLIC;\nGRANT CONNECT ON DATABASE \"b2\" TO \"u2\";\n"},
+	}
+
+	for _, st := range tests {
+		t.Run(fmt.Sprintf("%s", st.db), func(t *testing.T) {
+			got, err := dumpCreateDBAndACL(testdb, st.db)
+			if err != nil {
+				t.Errorf("expected non nil error, got %q", err)
+			}
+
+			if diff := cmp.Diff(st.want, got, cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("dumpCreateDBAndACL() mismatch (-want +got):\n%s", diff)
+			}
+		})
 	}
 }
 

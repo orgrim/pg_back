@@ -249,13 +249,37 @@ func dumpCreateDBAndACL(db *pg, dbname string) (string, error) {
 				s += fmt.Sprintf("UPDATE pg_catalog.pg_database SET datistemplate = 't' WHERE datname = %s;\n", sqlQuoteLiteral(dbname))
 			}
 		}
-		for _, e := range acl {
-			// skip NULL values
-			if !e.Valid {
-				continue
+
+		// When all privileges are revoked from public, there
+		// isn't any acl entry in the list showing this. So
+		// when the list is not empty and no acl are granted
+		// to public, we have to output a revoke statement for
+		// public, before any grant.
+		if len(acl) > 0 {
+			var (
+				t         string
+				revokeAll bool = true
+			)
+
+			s += fmt.Sprintf("--\n-- Database privileges \n--\n\n")
+
+			for _, e := range acl {
+				// skip NULL values
+				if !e.Valid {
+					continue
+				}
+
+				if strings.HasPrefix(e.String, "=") {
+					revokeAll = false
+				}
+
+				t += makeACLCommands(e.String, dbname, owner)
 			}
 
-			s += makeACLCommands(e.String, dbname, owner)
+			if revokeAll {
+				s += fmt.Sprintf("REVOKE CONNECT, TEMPORARY ON DATABASE \"%s\" FROM PUBLIC;\n", sqlQuoteIdent(dbname))
+			}
+			s += t
 		}
 	}
 	err = rows.Err()
@@ -352,7 +376,7 @@ func dumpDBConfig(db *pg, dbname string) (string, error) {
 
 	l.Infoln("dumping database configuration commands of", dbname)
 	// dump per database config
-	rows, err := db.conn.Query("SELECT CASE setrole WHEN 0 THEN NULL ELSE pg_get_userbyid(setrole) END, unnest(setconfig) FROM pg_db_role_setting WHERE setdatabase = (SELECT oid FROM pg_database WHERE datname = $1)", dbname)
+	rows, err := db.conn.Query("SELECT CASE setrole WHEN 0 THEN NULL ELSE pg_get_userbyid(setrole) END, unnest(setconfig) FROM pg_db_role_setting WHERE setdatabase = (SELECT oid FROM pg_database WHERE datname = $1) ORDER BY 1, 2", dbname)
 	if err != nil {
 		return "", fmt.Errorf("could not query database configuration for %s: %s", dbname, err)
 	}

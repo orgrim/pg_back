@@ -1,7 +1,5 @@
 # pg_goback dumps databases from PostgreSQL
 
-
-
 ## Install
 
 ```
@@ -19,7 +17,11 @@ To run SQL tests requiring a PostgreSQL instance:
 1. run `initdb` in some directory
 2. start `postgres`
 3. load `testdata/fixture.sql` with `psql`
-4. got `go test` or `make test` with the `PGBK_TEST_CONNINFO` environment variable set to a libpq connection string pointing to the instance
+4. use `go test` or `make test` with the `PGBK_TEST_CONNINFO` environment variable set to a libpq connection string pointing to the instance. For example :
+
+```
+PGBK_TEST_CONNINFO="host=/tmp port=14651" make test
+```
 
 ## License
 
