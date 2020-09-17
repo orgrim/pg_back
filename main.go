@@ -113,6 +113,10 @@ func (d *dump) dump() error {
 		args = append(args, "-j", fmt.Sprintf("%d", d.Jobs))
 	}
 
+	if pgDumpVersion() >= 110000 && fileEnd == "sql" {
+		args = append(args, "--create")
+	}
+
 	appendConnectionOptions(&args, d.Host, d.Port, d.Username)
 	args = append(args, dbname)
 
