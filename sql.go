@@ -416,16 +416,23 @@ func dumpDBConfig(db *pg, dbname string) (string, error) {
 }
 
 func showSettings(db *pg) (string, error) {
-	var s string
+	var s, query string
 
-	if db.version < 90500 {
-		return "", &pgVersionError{s: "cluster version is older than 9.5, not dumping configuration"}
+	if db.version < 80400 {
+		return "", &pgVersionError{s: "cluster version is older than 8.4, not dumping configuration"}
 	}
 
-	// get the non default values set in the files and applied,
-	// this avoid duplicates when multiple files define
-	// parameters.
-	rows, err := db.conn.Query("SELECT name, setting FROM pg_show_all_file_settings() WHERE applied ORDER BY name")
+	if db.version >= 90500 {
+		// use pg_show_all_file_settings() from 9.5+ to get
+		// the non default values set in the files and
+		// applied, this avoid duplicates when multiple files
+		// define parameters.
+		query = "SELECT name, setting FROM pg_show_all_file_settings() WHERE applied ORDER BY name"
+	} else {
+		query = "SELECT name, setting FROM pg_settings WHERE sourcefile IS NOT NULL"
+	}
+
+	rows, err := db.conn.Query(query)
 	if err != nil {
 		return "", fmt.Errorf("could not query instance configuration: %s", err)
 	}
@@ -455,7 +462,14 @@ func showSettings(db *pg) (string, error) {
 		return "", fmt.Errorf("could not retrive rows: %s", err)
 	}
 
-	return s, nil
+	if db.version >= 90500 {
+		return s, nil
+	} else {
+		// when dumping settings from pg_settings, some
+		// settings may not be found because their value can
+		// set a higher levels than configuration files
+		return s, &pgVersionError{s: "cluster version is older than 9.5, settings from configuration files could be missing if the SET command was used"}
+	}
 }
 
 type pgReplicaHasLocks struct{}
