@@ -386,8 +386,22 @@ do
     fi
 
     if [ -n "${SIGNATURE_ALGO}" -a "${SIGNATURE_ALGO}" != "none" ]; then
-        info "creating signature file for $(basename ${dump}) into $(basename ${dump}).${SIGNATURE_ALGO}"
-        ${SIGNATURE_ALGO}sum ${dump} > ${dump}.${SIGNATURE_ALGO}
+        # If $dump is a directory, we can deduce that it was generated
+        # via directory-format of pg_dump (-Fd), in that case we need
+        # to create a signature for each files generated in this format.
+        # In the other format, only one backup file is created by database.
+        if [ -d "${dump}" ]; then
+            dump_sublevel='/*'
+            info "creating signature file for all files in $(basename ${dump}) into $(basename ${dump}).${SIGNATURE_ALGO}"
+        else
+            dump_sublevel=''
+            info "creating signature file for $(basename ${dump}) into $(basename ${dump}).${SIGNATURE_ALGO}"
+        fi
+        if ! ${SIGNATURE_ALGO}sum ${dump}${dump_sublevel} > ${dump}.${SIGNATURE_ALGO}; then
+            unset dump_sublevel
+            die_and_hook "can't create signature file"
+        fi
+        unset dump_sublevel
     fi
 done
 
