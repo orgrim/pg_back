@@ -364,7 +364,7 @@ func dumpDBConfig(db *pg, dbname string) (string, error) {
 
 	// this query only work from 9.0, where pg_db_role_setting was introduced
 	if db.version < 90000 {
-		return "", &pgVersionError{s: "cluster version is older than 9.0, not dumping configuration"}
+		return "", &pgVersionError{s: "cluster version is older than 9.0, not dumping database configuration"}
 	}
 
 	// this is no longer necessary after 11. Dumping ACL is the
