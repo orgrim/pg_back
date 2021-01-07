@@ -1,3 +1,11 @@
+pg_back 1.10
+============
+
+* Add signature in Directory format
+
+* Allow negative integer for PGBK_PURGE
+
+
 pg_back 1.9
 ===========
 
