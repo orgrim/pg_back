@@ -192,7 +192,7 @@ fi
 info "preparing to dump"
 
 # Check if some options are integers
-[[ $PGBK_PURGE =~ ^[[:digit:]]+$ ]] || die "PGBK_PURGE (-P) '$PGBK_PURGE' is not an integer"
+[[ $PGBK_PURGE =~ ^-?[[:digit:]]+$ ]] || die "PGBK_PURGE (-P) '$PGBK_PURGE' is not an integer"
 if [[ $PGBK_PURGE_MIN_KEEP != "all" ]]; then
     [[ $PGBK_PURGE_MIN_KEEP =~ ^[[:digit:]]+$ ]] || die "PGBK_PURGE_MIN_KEEP (-K) '$PGBK_PURGE_MIN_KEEP' is not an integer"
 fi
