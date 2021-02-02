@@ -39,8 +39,11 @@ import (
 var version = "0.0.1"
 
 type dump struct {
-	// Database is ne name of the database to dump
+	// Name of the database to dump
 	Database string
+
+	// Per database pg_dump options to filter schema, tables, etc.
+	Options *dbOpts
 
 	// Path is the output file or directory of the dump
 	// a directory is output with the directory format of pg_dump
@@ -50,23 +53,41 @@ type dump struct {
 	// Directory is the target directory where to create the dump
 	Directory string
 
-	// Format of the dump
-	Format string
-
-	// Number of parallel jobs for directory format
-	Jobs int
-
 	// Connection parameters
 	Host     string
 	Port     int
 	Username string
 
-	// Checksum
-	SumAlgo string
-
 	// Result
 	When     time.Time
 	ExitCode int
+}
+
+type dbOpts struct {
+	// Format of the dump
+	Format string
+
+	// Algorithm of the checksum of the file, "none" is used to
+	// disable checksuming
+	SumAlgo string
+
+	// Number of parallel jobs for directory format
+	Jobs int
+
+	// Purge configuration
+	PurgeInterval time.Duration
+	PurgeKeep     int
+
+	// Limit schemas
+	Schemas         []string
+	ExcludedSchemas []string
+
+	// Limit dumped tables
+	Tables         []string
+	ExcludedTables []string
+
+	// Other pg_dump options to use
+	PgDumpOpts []string
 }
 
 func (d *dump) dump() error {
@@ -92,7 +113,7 @@ func (d *dump) dump() error {
 	d.When = time.Now()
 
 	var fileEnd string
-	switch string([]rune(d.Format)[0]) {
+	switch string([]rune(d.Options.Format)[0]) {
 	case "p":
 		fileEnd = "sql"
 	case "c":
@@ -104,20 +125,43 @@ func (d *dump) dump() error {
 	}
 
 	file := formatDumpPath(d.Directory, fileEnd, dbname, d.When)
-	formatOpt := fmt.Sprintf("-F%c", []rune(d.Format)[0])
+	formatOpt := fmt.Sprintf("-F%c", []rune(d.Options.Format)[0])
 
 	command := filepath.Join(binDir, "pg_dump")
 	args := []string{formatOpt, "-f", file}
 
-	if fileEnd == "d" && d.Jobs > 0 {
-		args = append(args, "-j", fmt.Sprintf("%d", d.Jobs))
+	if fileEnd == "d" && d.Options.Jobs > 1 {
+		args = append(args, "-j", fmt.Sprintf("%d", d.Options.Jobs))
 	}
 
+	// It is recommended to use --create with the plain format
+	// from PostgreSQL 11 to get the ACL and configuration of the
+	// database
 	if pgDumpVersion() >= 110000 && fileEnd == "sql" {
 		args = append(args, "--create")
 	}
 
 	appendConnectionOptions(&args, d.Host, d.Port, d.Username)
+
+	// Included and excluded schemas and table
+	for _, obj := range d.Options.Schemas {
+		args = append(args, "-n", obj)
+	}
+	for _, obj := range d.Options.ExcludedSchemas {
+		args = append(args, "-N", obj)
+	}
+	for _, obj := range d.Options.Tables {
+		args = append(args, "-t", obj)
+	}
+	for _, obj := range d.Options.ExcludedTables {
+		args = append(args, "-T", obj)
+	}
+
+	if len(d.Options.PgDumpOpts) > 0 {
+		args = append(args, d.Options.PgDumpOpts...)
+	}
+
+	// Finally the name of the database
 	args = append(args, dbname)
 
 	pgDumpCmd := exec.Command(command, args...)
@@ -151,10 +195,10 @@ func (d *dump) dump() error {
 
 	// Compute the checksum tha goes with the dump file right
 	// after the dump, to this is done concurrently too.
-	if d.SumAlgo != "none" {
+	if d.Options.SumAlgo != "none" {
 		l.Infoln("computing checksum of", file)
 
-		if err = checksumFile(file, d.SumAlgo); err != nil {
+		if err = checksumFile(file, d.Options.SumAlgo); err != nil {
 			return fmt.Errorf("checksum failed: %s", err)
 		}
 	}
@@ -286,21 +330,34 @@ func dumpSettings(dir string, db *pg) error {
 	return nil
 }
 
+func defaultDbOpts(opts options) *dbOpts {
+	dbo := dbOpts{
+		Format:        opts.Format,
+		Jobs:          opts.DirJobs,
+		SumAlgo:       opts.SumAlgo,
+		PurgeInterval: opts.PurgeInterval,
+		PurgeKeep:     opts.PurgeKeep,
+	}
+	return &dbo
+}
+
 var binDir string
 
 func main() {
-	var (
-		databases []string
-		limit     time.Time
-	)
+	var databases []string
 
-	// Parse commanline arguments first so that we can quit if you
-	// have shown usage or version string and load a non default
-	// configuration file
+	// Parse commanline arguments first so that we can quit if we
+	// have shown usage or version string. We may have to load a
+	// non default configuration file
 	cliOpts, cliOptList, perr := parseCli()
 	var pce *parseCliResult
-	if perr != nil && errors.As(perr, &pce) {
-		os.Exit(0)
+	if perr != nil {
+		if errors.As(perr, &pce) {
+			os.Exit(0)
+		} else {
+			l.Fatalln(perr)
+			os.Exit(1)
+		}
 	}
 
 	// Load configuration file and allow the default configuration
@@ -315,22 +372,9 @@ func main() {
 	// the command line
 	opts := mergeCliAndConfigOptions(cliOpts, configOpts, cliOptList)
 
-	// validate purge options and do the extra parsing
-	keep, err := validatePurgeKeepValue(opts.PurgeKeep)
-	if err != nil {
-		l.Fatalln(err)
-		os.Exit(1)
-	}
-
-	if interval, err := validatePurgeTimeLimitValue(opts.PurgeInterval); err != nil {
-		l.Fatalln(err)
-		os.Exit(1)
-	} else {
-		// computing the limit before taking the dumps ensure
-		// a purge interval of 0s won't remove the dumps we
-		// are taking
-		limit = time.Now().Add(interval)
-	}
+	// Remember when we start so that a purge interval of 0s won't remove the dumps we
+	// are taking
+	now := time.Now()
 
 	if opts.BinDirectory != "" {
 		binDir = opts.BinDirectory
@@ -380,10 +424,10 @@ func main() {
 			l.Fatalln(err)
 			db.Close()
 			postBackupHook(opts.PostHook)
-			os.Exit(0)
+			os.Exit(1)
 		}
 
-		// exclure les bases
+		// exclude databases
 		if len(opts.ExcludeDbs) > 0 {
 			filtered := []string{}
 			for _, d := range databases {
@@ -420,17 +464,20 @@ func main() {
 		go dumper(w, jobs, results)
 	}
 
+	defDbOpts := defaultDbOpts(opts)
 	// feed the database
 	for _, dbname := range databases {
+		o, found := opts.PerDbOpts[dbname]
+		if !found {
+			o = defDbOpts
+		}
 		d := &dump{
 			Database:  dbname,
+			Options:   o,
 			Directory: opts.Directory,
-			Format:    opts.Format,
-			Jobs:      opts.DirJobs,
 			Host:      opts.Host,
 			Port:      opts.Port,
 			Username:  opts.Username,
-			SumAlgo:   opts.SumAlgo,
 			ExitCode:  -1,
 		}
 
@@ -451,6 +498,9 @@ func main() {
 
 		dbname := d.Database
 
+		// Dump the ACL and Configuration of the
+		// database. Since the information is in the catalog,
+		// if it fails once it fails all the time.
 		if canDumpACL {
 			b, err = dumpCreateDBAndACL(db, dbname)
 			var verr *pgVersionError
@@ -478,10 +528,10 @@ func main() {
 			}
 		}
 
-		// Once
+		// Write ACL and configuration to an SQL file
 		if len(b) > 0 || len(c) > 0 {
 
-			aclpath := formatDumpPath(d.Directory, "sql", dbname, d.When)
+			aclpath := formatDumpPath(d.Directory, "createdb.sql", dbname, d.When)
 			if err := os.MkdirAll(filepath.Dir(aclpath), 0755); err != nil {
 				l.Errorln(err)
 				exitCode = 1
@@ -514,13 +564,20 @@ func main() {
 	l.Infoln("purging old dumps")
 
 	for _, dbname := range databases {
-		if err := purgeDumps(opts.Directory, dbname, keep, limit); err != nil {
+		o, found := opts.PerDbOpts[dbname]
+		if !found {
+			o = defDbOpts
+		}
+		limit := now.Add(o.PurgeInterval)
+
+		if err := purgeDumps(opts.Directory, dbname, o.PurgeKeep, limit); err != nil {
 			exitCode = 1
 		}
 	}
 
 	for _, other := range []string{"pg_globals", "pg_settings"} {
-		if err := purgeDumps(opts.Directory, other, keep, limit); err != nil {
+		limit := now.Add(defDbOpts.PurgeInterval)
+		if err := purgeDumps(opts.Directory, other, defDbOpts.PurgeKeep, limit); err != nil {
 			exitCode = 1
 		}
 	}

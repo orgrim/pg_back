@@ -28,6 +28,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"github.com/anmitsu/go-shlex"
 	"github.com/spf13/pflag"
 	"gopkg.in/ini.v1"
 	"os"
@@ -50,11 +51,13 @@ type options struct {
 	DirJobs       int
 	Jobs          int
 	PauseTimeout  int
-	PurgeInterval string
-	PurgeKeep     string
+	PurgeInterval time.Duration
+	PurgeKeep     int
 	SumAlgo       string
 	PreHook       string
 	PostHook      string
+	PgDumpOpts    []string
+	PerDbOpts     map[string]*dbOpts
 	CfgFile       string
 }
 
@@ -65,8 +68,8 @@ func defaultOptions() options {
 		DirJobs:       1,
 		Jobs:          1,
 		PauseTimeout:  3600,
-		PurgeInterval: "30",
-		PurgeKeep:     "0",
+		PurgeInterval: -30 * 24 * time.Hour,
+		PurgeKeep:     0,
 		SumAlgo:       "none",
 		CfgFile:       defaultCfgFile,
 	}
@@ -99,7 +102,7 @@ func validatePurgeKeepValue(k string) (int, error) {
 	keep, err := strconv.ParseInt(k, 10, 0)
 	if err != nil {
 		// return -1 too when the input is not convertible to an int
-		return -1, fmt.Errorf("Invalid input for keep: %s", err)
+		return -1, fmt.Errorf("Invalid input for keep: %w", err)
 	}
 
 	if keep < 0 {
@@ -109,16 +112,16 @@ func validatePurgeKeepValue(k string) (int, error) {
 	return int(keep), nil
 }
 
-func validatePurgeTimeLimitValue(l string) (time.Duration, error) {
-	if days, err := strconv.ParseInt(l, 10, 0); err != nil {
+func validatePurgeTimeLimitValue(i string) (time.Duration, error) {
+	if days, err := strconv.ParseInt(i, 10, 0); err != nil {
 		if errors.Is(err, strconv.ErrRange) {
-			return 0, errors.New("Invalid input for -P, number too big")
+			return 0, errors.New("Invalid input for purge interval, number too big")
 		}
 	} else {
 		return time.Duration(-days*24) * time.Hour, nil
 	}
 
-	d, err := time.ParseDuration(l)
+	d, err := time.ParseDuration(i)
 	if err != nil {
 		return 0, err
 	}
@@ -130,6 +133,8 @@ var defaultCfgFile = "/etc/pg_goback/pg_goback.conf"
 var configParseCliInput = os.Args[1:]
 
 func parseCli() (options, []string, error) {
+	var purgeKeep, purgeInterval string
+
 	opts := defaultOptions()
 
 	pflag.Usage = func() {
@@ -152,14 +157,14 @@ func parseCli() (options, []string, error) {
 	pflag.StringVarP(&opts.Format, "format", "F", "custom", "database dump format: plain, custom, tar or directory")
 	pflag.IntVarP(&opts.DirJobs, "parallel-backup-jobs", "J", 1, "number of parallel jobs to dumps when using directory format")
 	pflag.StringVarP(&opts.SumAlgo, "checksum-algo", "S", "none", "signature algorithm: none sha1 sha224 sha256 sha384 sha512")
-	pflag.StringVarP(&opts.PurgeInterval, "purge-older-than", "P", "30", "purge backups older than this duration in days\nuse an interval with units \"s\" (seconds), \"m\" (minutes) or \"h\" (hours)\nfor less than a day.")
-	pflag.StringVarP(&opts.PurgeKeep, "purge-min-keep", "K", "0", "minimum number of dumps to keep when purging or 'all' to keep everything\n")
+	pflag.StringVarP(&purgeInterval, "purge-older-than", "P", "30", "purge backups older than this duration in days\nuse an interval with units \"s\" (seconds), \"m\" (minutes) or \"h\" (hours)\nfor less than a day.")
+	pflag.StringVarP(&purgeKeep, "purge-min-keep", "K", "0", "minimum number of dumps to keep when purging or 'all' to keep everything\n")
 	pflag.StringVar(&opts.PreHook, "pre-backup-hook", "", "command to run before taking dumps")
 	pflag.StringVar(&opts.PostHook, "post-backup-hook", "", "command to run after taking dumps")
 	pflag.StringVarP(&opts.Host, "host", "h", "", "database server host or socket directory")
 	pflag.IntVarP(&opts.Port, "port", "p", 0, "database server port number")
 	pflag.StringVarP(&opts.Username, "username", "U", "", "connect as specified database user")
-	pflag.StringVarP(&opts.ConnDb, "dbname", "d", "", "connect to database name")
+	pflag.StringVarP(&opts.ConnDb, "dbname", "d", "", "connect to database name\n")
 
 	helpF := pflag.BoolP("help", "?", false, "print usage")
 	versionF := pflag.BoolP("version", "V", false, "print version")
@@ -205,10 +210,26 @@ func parseCli() (options, []string, error) {
 	if len(opts.Dbnames) > 0 {
 		changed = append(changed, "include-dbs")
 	}
+
+	// Validate purge keep and time limit
+	keep, err := validatePurgeKeepValue(purgeKeep)
+	if err != nil {
+		return opts, changed, err
+	}
+	opts.PurgeKeep = keep
+
+	interval, err := validatePurgeTimeLimitValue(purgeInterval)
+	if err != nil {
+		return opts, changed, err
+	}
+	opts.PurgeInterval = interval
+
 	return opts, changed, nil
 }
 
 func loadConfigurationFile(path string) (options, error) {
+	var purgeKeep, purgeInterval string
+
 	opts := defaultOptions()
 
 	cfg, err := ini.Load(path)
@@ -216,7 +237,7 @@ func loadConfigurationFile(path string) (options, error) {
 		return opts, fmt.Errorf("Could load configuration file: %v", err)
 	}
 
-	s, _ := cfg.GetSection(ini.DEFAULT_SECTION)
+	s, _ := cfg.GetSection(ini.DefaultSection)
 
 	// Read all configuration parameters ensuring the destination
 	// struct member has the same default value as the commandline
@@ -234,18 +255,100 @@ func loadConfigurationFile(path string) (options, error) {
 	opts.DirJobs = s.Key("parallel_backup_jobs").MustInt(1)
 	opts.Jobs = s.Key("jobs").MustInt(1)
 	opts.PauseTimeout = s.Key("pause_timeout").MustInt(3600)
-	opts.PurgeInterval = s.Key("purge_older_than").MustString("30")
-	opts.PurgeKeep = s.Key("purge_min_keep").MustString("0")
+	purgeInterval = s.Key("purge_older_than").MustString("30")
+	purgeKeep = s.Key("purge_min_keep").MustString("0")
 	opts.SumAlgo = s.Key("checksum_algorithm").MustString("none")
 	opts.PreHook = s.Key("pre_backup_hook").MustString("")
 	opts.PostHook = s.Key("post_backup_hook").MustString("")
 
+	// Validate purge keep and time limit
+	keep, err := validatePurgeKeepValue(purgeKeep)
+	if err != nil {
+		return opts, err
+	}
+	opts.PurgeKeep = keep
+
+	interval, err := validatePurgeTimeLimitValue(purgeInterval)
+	if err != nil {
+		return opts, err
+	}
+	opts.PurgeInterval = interval
+
+	// Parse the pg_dump options as a list of args
+	words, err := shlex.Split(s.Key("pg_dump_options").String(), true)
+	if err != nil {
+		return opts, fmt.Errorf("unable to parse pg_dump_options: %w", err)
+	}
+	opts.PgDumpOpts = words
+
+	// Process all sections with database specific configuration,
+	// fallback on the values of the global section
+	subs := cfg.Sections()
+	opts.PerDbOpts = make(map[string]*dbOpts, len(subs))
+
+	for _, s := range subs {
+		if s.Name() == ini.DefaultSection {
+			continue
+		}
+
+		var dbPurgeInterval, dbPurgeKeep string
+
+		o := dbOpts{}
+		o.Format = s.Key("format").MustString(opts.Format)
+		o.Jobs = s.Key("parallel_backup_jobs").MustInt(opts.DirJobs)
+		o.SumAlgo = s.Key("checksum_algorithm").MustString(opts.SumAlgo)
+		dbPurgeInterval = s.Key("purge_older_than").MustString(purgeInterval)
+		dbPurgeKeep = s.Key("purge_min_keep").MustString(purgeKeep)
+
+		// Validate purge keep and time limit
+		keep, err := validatePurgeKeepValue(dbPurgeKeep)
+		if err != nil {
+			return opts, err
+		}
+		o.PurgeKeep = keep
+
+		interval, err := validatePurgeTimeLimitValue(dbPurgeInterval)
+		if err != nil {
+			return opts, err
+		}
+		o.PurgeInterval = interval
+
+		o.Schemas = parseIdentifierList(s.Key("schemas").String())
+		o.ExcludedSchemas = parseIdentifierList(s.Key("exclude_schemas").String())
+		o.Tables = parseIdentifierList(s.Key("tables").String())
+		o.ExcludedTables = parseIdentifierList(s.Key("exclude_tables").String())
+
+		if s.HasKey("pg_dump_options") {
+			words, err := shlex.Split(s.Key("pg_dump_options").String(), true)
+			if err != nil {
+				return opts, fmt.Errorf("unable to parse pg_dump_options for %s: %w", s.Name(), err)
+			}
+			o.PgDumpOpts = words
+		} else {
+			o.PgDumpOpts = opts.PgDumpOpts
+		}
+
+		opts.PerDbOpts[s.Name()] = &o
+	}
+
 	return opts, nil
+}
+
+func parseIdentifierList(rawList string) []string {
+	ids := make([]string, 0)
+	if len(strings.TrimSpace(rawList)) > 0 {
+		for _, t := range strings.Split(rawList, ";") {
+			ids = append(ids, strings.TrimSpace(t))
+		}
+	}
+	return ids
 }
 
 func mergeCliAndConfigOptions(cliOpts options, configOpts options, onCli []string) options {
 	opts := configOpts
 
+	// Command line values take precedence on everything, including per
+	// database options
 	for _, o := range onCli {
 		switch o {
 		case "bin-directory":
@@ -264,14 +367,29 @@ func mergeCliAndConfigOptions(cliOpts options, configOpts options, onCli []strin
 			opts.Jobs = cliOpts.Jobs
 		case "format":
 			opts.Format = cliOpts.Format
+			for _, dbo := range opts.PerDbOpts {
+				dbo.Format = cliOpts.Format
+			}
 		case "parallel-backup-jobs":
 			opts.DirJobs = cliOpts.DirJobs
+			for _, dbo := range opts.PerDbOpts {
+				dbo.Jobs = cliOpts.DirJobs
+			}
 		case "checksum-algo":
 			opts.SumAlgo = cliOpts.SumAlgo
+			for _, dbo := range opts.PerDbOpts {
+				dbo.SumAlgo = cliOpts.SumAlgo
+			}
 		case "purge-older-than":
 			opts.PurgeInterval = cliOpts.PurgeInterval
+			for _, dbo := range opts.PerDbOpts {
+				dbo.PurgeInterval = cliOpts.PurgeInterval
+			}
 		case "purge-min-keep":
 			opts.PurgeKeep = cliOpts.PurgeKeep
+			for _, dbo := range opts.PerDbOpts {
+				dbo.PurgeKeep = cliOpts.PurgeKeep
+			}
 		case "pre-backup-hook":
 			opts.PreHook = cliOpts.PreHook
 		case "post-backup-hook":

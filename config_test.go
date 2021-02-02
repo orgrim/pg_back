@@ -123,8 +123,8 @@ func TestDefaultOptions(t *testing.T) {
 		DirJobs:       1,
 		Jobs:          1,
 		PauseTimeout:  3600,
-		PurgeInterval: "30",
-		PurgeKeep:     "0",
+		PurgeInterval: -30 * 24 * time.Hour,
+		PurgeKeep:     0,
 		SumAlgo:       "none",
 		CfgFile:       "/etc/pg_goback/pg_goback.conf",
 	}
@@ -145,10 +145,52 @@ func TestParseCli(t *testing.T) {
 			help    bool
 			version bool
 		}{
-			{[]string{"-b", "test", "a", "b"}, options{Directory: "test", Dbnames: []string{"a", "b"}, Format: "custom", DirJobs: 1, Jobs: 1, PauseTimeout: 3600, PurgeInterval: "30", PurgeKeep: "0", SumAlgo: "none", CfgFile: "/etc/pg_goback/pg_goback.conf"}, false, false},
-			{[]string{"-t", "--without-templates"}, options{Directory: "/var/backups/postgresql", WithTemplates: false, Format: "custom", DirJobs: 1, Jobs: 1, PauseTimeout: 3600, PurgeInterval: "30", PurgeKeep: "0", SumAlgo: "none", CfgFile: "/etc/pg_goback/pg_goback.conf"}, false, false},
-			{[]string{"--help"}, defaults, true, false},
-			{[]string{"--version"}, defaults, false, true},
+			{
+				[]string{"-b", "test", "a", "b"},
+				options{
+					Directory:     "test",
+					Dbnames:       []string{"a", "b"},
+					Format:        "custom",
+					DirJobs:       1,
+					Jobs:          1,
+					PauseTimeout:  3600,
+					PurgeInterval: -30 * 24 * time.Hour,
+					PurgeKeep:     0,
+					SumAlgo:       "none",
+					CfgFile:       "/etc/pg_goback/pg_goback.conf",
+				},
+				false,
+				false,
+			},
+			{
+				[]string{"-t", "--without-templates"},
+				options{
+					Directory:     "/var/backups/postgresql",
+					WithTemplates: false,
+					Format:        "custom",
+					DirJobs:       1,
+					Jobs:          1,
+					PauseTimeout:  3600,
+					PurgeInterval: -30 * 24 * time.Hour,
+					PurgeKeep:     0,
+					SumAlgo:       "none",
+					CfgFile:       "/etc/pg_goback/pg_goback.conf",
+				},
+				false,
+				false,
+			},
+			{
+				[]string{"--help"},
+				defaults,
+				true,
+				false,
+			},
+			{
+				[]string{"--version"},
+				defaults,
+				false,
+				true,
+			},
 		}
 	)
 
@@ -201,9 +243,104 @@ func TestLoadConfigurationFile(t *testing.T) {
 		fail   bool
 		want   options
 	}{
-		{[]string{"backup_directory = test", "port = 5433"}, false, options{Directory: "test", Port: 5433, Format: "custom", DirJobs: 1, Jobs: 1, PauseTimeout: 3600, PurgeInterval: "30", PurgeKeep: "0", SumAlgo: "none", CfgFile: "/etc/pg_goback/pg_goback.conf"}},
-		{[]string{"backup_directory = test", "include_dbs = a, b, postgres"}, false, options{Directory: "test", Dbnames: []string{"a", "b", "postgres"}, Format: "custom", DirJobs: 1, Jobs: 1, PauseTimeout: 3600, PurgeInterval: "30", PurgeKeep: "0", SumAlgo: "none", CfgFile: "/etc/pg_goback/pg_goback.conf"}}, // ensure comma separated lists work
-		{[]string{}, true, defaultOptions()}, // with an error output is the default
+		{
+			[]string{"backup_directory = test", "port = 5433"},
+			false,
+			options{
+				Directory:     "test",
+				Port:          5433,
+				Format:        "custom",
+				DirJobs:       1,
+				Jobs:          1,
+				PauseTimeout:  3600,
+				PurgeInterval: -30 * 24 * time.Hour,
+				PurgeKeep:     0,
+				SumAlgo:       "none",
+				CfgFile:       "/etc/pg_goback/pg_goback.conf",
+			},
+		},
+		{ // ensure comma separated lists work
+			[]string{"backup_directory = test", "include_dbs = a, b, postgres"},
+			false,
+			options{
+				Directory:     "test",
+				Dbnames:       []string{"a", "b", "postgres"},
+				Format:        "custom",
+				DirJobs:       1,
+				Jobs:          1,
+				PauseTimeout:  3600,
+				PurgeInterval: -30 * 24 * time.Hour,
+				PurgeKeep:     0,
+				SumAlgo:       "none",
+				CfgFile:       "/etc/pg_goback/pg_goback.conf",
+			},
+		},
+		{ // with an error output is the default
+			[]string{},
+			true,
+			defaultOptions(),
+		},
+		{
+			[]string{
+				"backup_directory = test",
+				"pg_dump_options = -O -x",
+				"[db]",
+				"purge_older_than = 15",
+				"parallel_backup_jobs = 2",
+			},
+			false,
+			options{
+				Directory:     "test",
+				Format:        "custom",
+				DirJobs:       1,
+				Jobs:          1,
+				PauseTimeout:  3600,
+				PurgeInterval: -30 * 24 * time.Hour,
+				PurgeKeep:     0,
+				SumAlgo:       "none",
+				CfgFile:       "/etc/pg_goback/pg_goback.conf",
+				PgDumpOpts:    []string{"-O", "-x"},
+				PerDbOpts: map[string]*dbOpts{"db": &dbOpts{
+					Format:        "custom",
+					SumAlgo:       "none",
+					Jobs:          2,
+					PurgeInterval: -15 * 24 * time.Hour,
+					PurgeKeep:     0,
+					PgDumpOpts:    []string{"-O", "-x"},
+				}},
+			},
+		},
+		{
+			[]string{
+				"backup_directory = test",
+				"pg_dump_options = -O -x",
+				"[db]",
+				"purge_older_than = 15",
+				"parallel_backup_jobs = 2",
+				"pg_dump_options =",
+			},
+			false,
+			options{
+				Directory:     "test",
+				Format:        "custom",
+				DirJobs:       1,
+				Jobs:          1,
+				PauseTimeout:  3600,
+				PurgeInterval: -30 * 24 * time.Hour,
+				PurgeKeep:     0,
+				SumAlgo:       "none",
+				CfgFile:       "/etc/pg_goback/pg_goback.conf",
+				PgDumpOpts:    []string{"-O", "-x"},
+				PerDbOpts: map[string]*dbOpts{"db": &dbOpts{
+					Format:        "custom",
+					SumAlgo:       "none",
+					Jobs:          2,
+					PurgeInterval: -15 * 24 * time.Hour,
+					PurgeKeep:     0,
+					PgDumpOpts:    []string{},
+				}},
+			},
+		},
 	}
 
 	for i, st := range tests {
@@ -252,8 +389,8 @@ func TestMergeCliAndConfigoptions(t *testing.T) {
 		DirJobs:       2,
 		Jobs:          4,
 		PauseTimeout:  60,
-		PurgeInterval: "7",
-		PurgeKeep:     "5",
+		PurgeInterval: -7 * 24 * time.Hour,
+		PurgeKeep:     5,
 		SumAlgo:       "sha256",
 		PreHook:       "touch /tmp/pre-hook",
 		PostHook:      "touch /tmp/post-hook",
