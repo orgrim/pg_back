@@ -168,6 +168,58 @@ func listAllDatabases(db *pg, withTemplates bool) ([]string, error) {
 	return dbs, nil
 }
 
+func listDatabases(db *pg, withTemplates bool, excludedDbs []string, includedDbs []string) ([]string, error) {
+	var (
+		databases []string
+		err       error
+	)
+
+	// When an explicit list of database is given, allow to select
+	// templates
+	if len(includedDbs) > 0 {
+		databases, err = listAllDatabases(db, true)
+		if err != nil {
+			return databases, err
+		}
+		realDbs := make([]string, 0, len(includedDbs))
+
+	nextidb:
+		for _, d := range includedDbs {
+
+			for _, e := range databases {
+				if d == e {
+					realDbs = append(realDbs, d)
+					continue nextidb
+				}
+			}
+			l.Warnf("database \"%s\" does not exists, excluded", d)
+		}
+		databases = realDbs
+	} else {
+		databases, err = listAllDatabases(db, withTemplates)
+		if err != nil {
+			return databases, err
+		}
+	}
+
+	// Exclude databases even if they are explicitly included
+	if len(excludedDbs) > 0 {
+		filtered := make([]string, 0, len(databases))
+
+	nextfdb:
+		for _, d := range databases {
+			for _, e := range excludedDbs {
+				if d == e {
+					continue nextfdb
+				}
+			}
+			filtered = append(filtered, d)
+		}
+		databases = filtered
+	}
+	return databases, nil
+}
+
 type pgVersionError struct {
 	s string
 }

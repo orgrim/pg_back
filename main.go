@@ -344,8 +344,6 @@ func defaultDbOpts(opts options) *dbOpts {
 var binDir string
 
 func main() {
-	var databases []string
-
 	// Parse commanline arguments first so that we can quit if we
 	// have shown usage or version string. We may have to load a
 	// non default configuration file
@@ -416,34 +414,12 @@ func main() {
 		}
 	}
 
-	if len(opts.Dbnames) > 0 {
-		databases = opts.Dbnames
-	} else {
-		databases, err = listAllDatabases(db, opts.WithTemplates)
-		if err != nil {
-			l.Fatalln(err)
-			db.Close()
-			postBackupHook(opts.PostHook)
-			os.Exit(1)
-		}
-
-		// exclude databases
-		if len(opts.ExcludeDbs) > 0 {
-			filtered := []string{}
-			for _, d := range databases {
-				found := false
-				for _, e := range opts.ExcludeDbs {
-					if d == e {
-						found = true
-						break
-					}
-				}
-				if !found {
-					filtered = append(filtered, d)
-				}
-			}
-			databases = filtered
-		}
+	databases, err := listDatabases(db, opts.WithTemplates, opts.ExcludeDbs, opts.Dbnames)
+	if err != nil {
+		l.Fatalln(err)
+		db.Close()
+		postBackupHook(opts.PostHook)
+		os.Exit(1)
 	}
 
 	if err := pauseReplicationWithTimeout(db, opts.PauseTimeout); err != nil {

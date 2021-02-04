@@ -197,6 +197,39 @@ func TestListAllDatabases(t *testing.T) {
 	}
 }
 
+func TestListDatabases(t *testing.T) {
+	var tests = []struct {
+		withTemplates bool
+		excludedDbs   []string
+		includedDbs   []string
+		want          []string
+	}{
+		{false, []string{}, []string{}, []string{"b1", "b2", "postgres"}},
+		{true, []string{}, []string{}, []string{"b1", "b2", "postgres", "template1"}},
+		{true, []string{}, []string{"b1", "postgres"}, []string{"b1", "postgres"}},
+		{false, []string{}, []string{"b2", "template1"}, []string{"b2", "template1"}},
+		{false, []string{}, []string{"b2", "b3"}, []string{"b2"}},
+		{true, []string{"b1", "b3"}, []string{}, []string{"b2", "postgres", "template1"}},
+		{false, []string{"b1", "b3"}, []string{}, []string{"b2", "postgres"}},
+		{false, []string{"b1", "b3"}, []string{"b1", "b2", "template1"}, []string{"b2", "template1"}},
+	}
+
+	checkIfWeTest(t)
+
+	for i, st := range tests {
+		t.Run(fmt.Sprintf("%v", i), func(t *testing.T) {
+			got, err := listDatabases(testdb, st.withTemplates, st.excludedDbs, st.includedDbs)
+			if err != nil {
+				t.Errorf("expected non nil error, got %q", err)
+			}
+
+			if diff := cmp.Diff(st.want, got, cmpopts.EquateEmpty(), cmpopts.SortSlices(func(x, y string) bool { return x < y })); diff != "" {
+				t.Errorf("listDatabases() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
 func TestDumpDBConfig(t *testing.T) {
 	var tests = []struct {
 		want string
