@@ -39,7 +39,7 @@ var (
 	testdb *pg
 )
 
-func checkIfWeTest(t *testing.T) {
+func needPgConn(t *testing.T) {
 	if os.Getenv("PGBK_TEST_CONNINFO") == "" {
 		t.Skip("testing with PostgreSQL disabled")
 	}
@@ -50,6 +50,12 @@ func checkIfWeTest(t *testing.T) {
 		if err != nil {
 			t.Fatalf("expected an ok on dbOpen(), got %s", err)
 		}
+	}
+}
+
+func needPgDump(t *testing.T) {
+	if pgDumpVersion() >= 110000 {
+		t.Skip("testing with a pg_dump version > 11")
 	}
 }
 
@@ -180,7 +186,7 @@ func TestListAllDatabases(t *testing.T) {
 		{true, []string{"b1", "b2", "postgres", "template1"}},
 	}
 
-	checkIfWeTest(t)
+	needPgConn(t)
 
 	for i, st := range tests {
 		t.Run(fmt.Sprintf("%v", i), func(t *testing.T) {
@@ -214,7 +220,7 @@ func TestListDatabases(t *testing.T) {
 		{false, []string{"b1", "b3"}, []string{"b1", "b2", "template1"}, []string{"b2", "template1"}},
 	}
 
-	checkIfWeTest(t)
+	needPgConn(t)
 
 	for i, st := range tests {
 		t.Run(fmt.Sprintf("%v", i), func(t *testing.T) {
@@ -237,7 +243,8 @@ func TestDumpDBConfig(t *testing.T) {
 		{"ALTER ROLE \"u1\" IN DATABASE \"b1\" SET \"work_mem\" TO '1MB';\nALTER DATABASE \"b1\" SET \"log_min_duration_statement\" TO '10s';\nALTER DATABASE \"b1\" SET \"work_mem\" TO '5MB';\n"},
 	}
 
-	checkIfWeTest(t)
+	needPgConn(t)
+	needPgDump(t)
 
 	for i, st := range tests {
 		t.Run(fmt.Sprintf("%v", i), func(t *testing.T) {
@@ -254,7 +261,7 @@ func TestDumpDBConfig(t *testing.T) {
 }
 
 func TestShowSettings(t *testing.T) {
-	checkIfWeTest(t)
+	needPgConn(t)
 
 	got, err := showSettings(testdb)
 	if err != nil {
@@ -280,7 +287,8 @@ func TestShowSettings(t *testing.T) {
 }
 
 func TestDumpCreateDBAndACL(t *testing.T) {
-	checkIfWeTest(t)
+	needPgConn(t)
+	needPgDump(t)
 
 	var tests = []struct {
 		db   string
