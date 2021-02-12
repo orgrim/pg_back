@@ -37,7 +37,7 @@ import (
 )
 
 func purgeDumps(directory string, dbname string, keep int, limit time.Time) error {
-	dirpath := filepath.Dir(formatDumpPath(directory, "", dbname, time.Time{}))
+	dirpath := filepath.Dir(formatDumpPath(directory, "", "", dbname, time.Time{}))
 	dir, err := os.Open(dirpath)
 	if err != nil {
 		return fmt.Errorf("could not purge %s: %s", dirpath, err)

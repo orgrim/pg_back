@@ -127,6 +127,7 @@ func TestDefaultOptions(t *testing.T) {
 		PurgeKeep:     0,
 		SumAlgo:       "none",
 		CfgFile:       "/etc/pg_goback/pg_goback.conf",
+		TimeFormat:    time.RFC3339,
 	}
 
 	got := defaultOptions()
@@ -158,6 +159,7 @@ func TestParseCli(t *testing.T) {
 					PurgeKeep:     0,
 					SumAlgo:       "none",
 					CfgFile:       "/etc/pg_goback/pg_goback.conf",
+					TimeFormat:    time.RFC3339,
 				},
 				false,
 				false,
@@ -175,6 +177,7 @@ func TestParseCli(t *testing.T) {
 					PurgeKeep:     0,
 					SumAlgo:       "none",
 					CfgFile:       "/etc/pg_goback/pg_goback.conf",
+					TimeFormat:    time.RFC3339,
 				},
 				false,
 				false,
@@ -257,6 +260,7 @@ func TestLoadConfigurationFile(t *testing.T) {
 				PurgeKeep:     0,
 				SumAlgo:       "none",
 				CfgFile:       "/etc/pg_goback/pg_goback.conf",
+				TimeFormat:    time.RFC3339,
 			},
 		},
 		{ // ensure comma separated lists work
@@ -273,7 +277,45 @@ func TestLoadConfigurationFile(t *testing.T) {
 				PurgeKeep:     0,
 				SumAlgo:       "none",
 				CfgFile:       "/etc/pg_goback/pg_goback.conf",
+				TimeFormat:    time.RFC3339,
 			},
+		},
+		{
+			[]string{"timestamp_format = rfc3339"},
+			false,
+			options{
+				Directory:     "/var/backups/postgresql",
+				Format:        "custom",
+				DirJobs:       1,
+				Jobs:          1,
+				PauseTimeout:  3600,
+				PurgeInterval: -30 * 24 * time.Hour,
+				PurgeKeep:     0,
+				SumAlgo:       "none",
+				CfgFile:       "/etc/pg_goback/pg_goback.conf",
+				TimeFormat:    time.RFC3339,
+			},
+		},
+		{
+			[]string{"timestamp_format = legacy"},
+			false,
+			options{
+				Directory:     "/var/backups/postgresql",
+				Format:        "custom",
+				DirJobs:       1,
+				Jobs:          1,
+				PauseTimeout:  3600,
+				PurgeInterval: -30 * 24 * time.Hour,
+				PurgeKeep:     0,
+				SumAlgo:       "none",
+				CfgFile:       "/etc/pg_goback/pg_goback.conf",
+				TimeFormat:    "2006-01-02_15-04-05",
+			},
+		},
+		{
+			[]string{"timestamp_format = wrong"},
+			true,
+			defaultOptions(),
 		},
 		{ // with an error output is the default
 			[]string{},
@@ -299,6 +341,7 @@ func TestLoadConfigurationFile(t *testing.T) {
 				PurgeKeep:     0,
 				SumAlgo:       "none",
 				CfgFile:       "/etc/pg_goback/pg_goback.conf",
+				TimeFormat:    time.RFC3339,
 				PgDumpOpts:    []string{"-O", "-x"},
 				PerDbOpts: map[string]*dbOpts{"db": &dbOpts{
 					Format:        "custom",
@@ -330,6 +373,7 @@ func TestLoadConfigurationFile(t *testing.T) {
 				PurgeKeep:     0,
 				SumAlgo:       "none",
 				CfgFile:       "/etc/pg_goback/pg_goback.conf",
+				TimeFormat:    time.RFC3339,
 				PgDumpOpts:    []string{"-O", "-x"},
 				PerDbOpts: map[string]*dbOpts{"db": &dbOpts{
 					Format:        "custom",
@@ -395,6 +439,7 @@ func TestMergeCliAndConfigoptions(t *testing.T) {
 		PreHook:       "touch /tmp/pre-hook",
 		PostHook:      "touch /tmp/post-hook",
 		CfgFile:       "/etc/pg_goback/pg_goback.conf",
+		TimeFormat:    time.RFC3339,
 	}
 
 	cliOptList := []string{

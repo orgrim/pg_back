@@ -56,7 +56,7 @@ func TestPurgeDumps(t *testing.T) {
 	os.Chmod(filepath.Dir(wd), 0755)
 
 	// empty dbname
-	tf := formatDumpPath(wd, "dump", "", time.Now().Add(-time.Hour))
+	tf := formatDumpPath(wd, time.RFC3339, "dump", "", time.Now().Add(-time.Hour))
 	err = purgeDumps(wd, "", 0, time.Now())
 	if err != nil {
 		t.Errorf("empty dbname gave error %s", err)
@@ -66,7 +66,7 @@ func TestPurgeDumps(t *testing.T) {
 	}
 
 	// file without write perms
-	tf = formatDumpPath(wd, "dump", "db", time.Now().Add(-time.Hour))
+	tf = formatDumpPath(wd, time.RFC3339, "dump", "db", time.Now().Add(-time.Hour))
 	ioutil.WriteFile(tf, []byte("truc\n"), 0644)
 	os.Chmod(filepath.Dir(tf), 0555)
 
@@ -77,7 +77,7 @@ func TestPurgeDumps(t *testing.T) {
 	os.Chmod(filepath.Dir(tf), 0755)
 
 	// dir without write perms
-	tf = formatDumpPath(wd, "d", "db", time.Now().Add(-time.Hour))
+	tf = formatDumpPath(wd, time.RFC3339, "d", "db", time.Now().Add(-time.Hour))
 	os.MkdirAll(tf, 0755)
 	os.Chmod(filepath.Dir(tf), 0555)
 
@@ -111,7 +111,7 @@ func TestPurgeDumps(t *testing.T) {
 			}
 			for i := 1; i <= 3; i++ {
 				when := time.Now().Add(-time.Hour * time.Duration(i))
-				tf = formatDumpPath(wd, "dump", "db", when)
+				tf = formatDumpPath(wd, time.RFC3339, "dump", "db", when)
 				ioutil.WriteFile(tf, []byte("truc\n"), 0644)
 				os.Chtimes(tf, when, when)
 			}

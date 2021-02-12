@@ -59,6 +59,7 @@ type options struct {
 	PgDumpOpts    []string
 	PerDbOpts     map[string]*dbOpts
 	CfgFile       string
+	TimeFormat    string
 }
 
 func defaultOptions() options {
@@ -72,6 +73,7 @@ func defaultOptions() options {
 		PurgeKeep:     0,
 		SumAlgo:       "none",
 		CfgFile:       defaultCfgFile,
+		TimeFormat:    time.RFC3339,
 	}
 }
 
@@ -244,6 +246,7 @@ func loadConfigurationFile(path string) (options, error) {
 	// flags
 	opts.BinDirectory = s.Key("bin_directory").MustString("")
 	opts.Directory = s.Key("backup_directory").MustString("/var/backups/postgresql")
+	timeFormat := s.Key("timestamp_format").MustString("rfc3339")
 	opts.Host = s.Key("host").MustString("")
 	opts.Port = s.Key("port").MustInt(0)
 	opts.Username = s.Key("user").MustString("")
@@ -273,6 +276,15 @@ func loadConfigurationFile(path string) (options, error) {
 		return opts, err
 	}
 	opts.PurgeInterval = interval
+
+	// Validate the value of the timestamp format
+	switch timeFormat {
+	case "legacy":
+		opts.TimeFormat = "2006-01-02_15-04-05"
+	case "rfc3339":
+	default:
+		return opts, fmt.Errorf("unknown timestamp format: %s", timeFormat)
+	}
 
 	// Parse the pg_dump options as a list of args
 	words, err := shlex.Split(s.Key("pg_dump_options").String(), true)

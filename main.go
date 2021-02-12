@@ -53,6 +53,9 @@ type dump struct {
 	// Directory is the target directory where to create the dump
 	Directory string
 
+	// Time format for the filename
+	TimeFormat string
+
 	// Connection parameters
 	Host     string
 	Port     int
@@ -100,7 +103,7 @@ func (d *dump) dump() error {
 	// dump to prevent stacking pg_back processes if pg_dump last
 	// longer than a schedule of pg_back. If the lock cannot be
 	// acquired, skip the dump and exit with an error.
-	lock := formatDumpPath(d.Directory, "lock", dbname, time.Time{})
+	lock := formatDumpPath(d.Directory, d.TimeFormat, "lock", dbname, time.Time{})
 	flock, locked, err := lockPath(lock)
 	if err != nil {
 		return fmt.Errorf("unable to lock %s: %s", lock, err)
@@ -124,7 +127,7 @@ func (d *dump) dump() error {
 		fileEnd = "d"
 	}
 
-	file := formatDumpPath(d.Directory, fileEnd, dbname, d.When)
+	file := formatDumpPath(d.Directory, d.TimeFormat, fileEnd, dbname, d.When)
 	formatOpt := fmt.Sprintf("-F%c", []rune(d.Options.Format)[0])
 
 	command := filepath.Join(binDir, "pg_dump")
@@ -232,7 +235,7 @@ func appendConnectionOptions(args *[]string, host string, port int, username str
 	}
 }
 
-func formatDumpPath(dir string, suffix string, dbname string, when time.Time) string {
+func formatDumpPath(dir string, timeFormat string, suffix string, dbname string, when time.Time) string {
 	var f, s, d string
 
 	d = dir
@@ -252,7 +255,7 @@ func formatDumpPath(dir string, suffix string, dbname string, when time.Time) st
 	if when.IsZero() {
 		f = fmt.Sprintf("%s.%s", dbname, s)
 	} else {
-		f = fmt.Sprintf("%s_%s.%s", dbname, when.Format("2006-01-02_15-04-05"), s)
+		f = fmt.Sprintf("%s_%s.%s", dbname, when.Format(timeFormat), s)
 	}
 
 	return filepath.Join(d, f)
@@ -271,7 +274,7 @@ func pgDumpVersion() int {
 	return (maj*100+min)*100 + rev
 }
 
-func dumpGlobals(dir string, host string, port int, username string, connDb string) error {
+func dumpGlobals(dir string, timeFormat string, host string, port int, username string, connDb string) error {
 	command := filepath.Join(binDir, "pg_dumpall")
 	args := []string{"-g"}
 
@@ -280,7 +283,7 @@ func dumpGlobals(dir string, host string, port int, username string, connDb stri
 		args = append(args, "-l", connDb)
 	}
 
-	file := formatDumpPath(dir, "sql", "pg_globals", time.Now())
+	file := formatDumpPath(dir, timeFormat, "sql", "pg_globals", time.Now())
 	args = append(args, "-f", file)
 
 	if err := os.MkdirAll(filepath.Dir(file), 0755); err != nil {
@@ -307,9 +310,9 @@ func dumpGlobals(dir string, host string, port int, username string, connDb stri
 	return nil
 }
 
-func dumpSettings(dir string, db *pg) error {
+func dumpSettings(dir string, timeFormat string, db *pg) error {
 
-	file := formatDumpPath(dir, "out", "pg_settings", time.Now())
+	file := formatDumpPath(dir, timeFormat, "out", "pg_settings", time.Now())
 
 	if err := os.MkdirAll(filepath.Dir(file), 0755); err != nil {
 		return err
@@ -384,7 +387,7 @@ func main() {
 	}
 
 	l.Infoln("dumping globals")
-	if err := dumpGlobals(opts.Directory, opts.Host,
+	if err := dumpGlobals(opts.Directory, opts.TimeFormat, opts.Host,
 		opts.Port, opts.Username, opts.ConnDb); err != nil {
 		l.Fatalln("pg_dumpall -g failed:", err)
 		postBackupHook(opts.PostHook)
@@ -403,7 +406,7 @@ func main() {
 
 	l.Infoln("dumping instance configuration")
 	var verr *pgVersionError
-	if err := dumpSettings(opts.Directory, db); err != nil {
+	if err := dumpSettings(opts.Directory, opts.TimeFormat, db); err != nil {
 		if errors.As(err, &verr) {
 			l.Warnln(err)
 		} else {
@@ -448,13 +451,14 @@ func main() {
 			o = defDbOpts
 		}
 		d := &dump{
-			Database:  dbname,
-			Options:   o,
-			Directory: opts.Directory,
-			Host:      opts.Host,
-			Port:      opts.Port,
-			Username:  opts.Username,
-			ExitCode:  -1,
+			Database:   dbname,
+			Options:    o,
+			Directory:  opts.Directory,
+			TimeFormat: opts.TimeFormat,
+			Host:       opts.Host,
+			Port:       opts.Port,
+			Username:   opts.Username,
+			ExitCode:   -1,
 		}
 
 		jobs <- d
@@ -507,7 +511,7 @@ func main() {
 		// Write ACL and configuration to an SQL file
 		if len(b) > 0 || len(c) > 0 {
 
-			aclpath := formatDumpPath(d.Directory, "createdb.sql", dbname, d.When)
+			aclpath := formatDumpPath(d.Directory, d.TimeFormat, "createdb.sql", dbname, d.When)
 			if err := os.MkdirAll(filepath.Dir(aclpath), 0755); err != nil {
 				l.Errorln(err)
 				exitCode = 1
