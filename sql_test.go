@@ -59,32 +59,6 @@ func needPgDump(t *testing.T) {
 	}
 }
 
-func TestPrepareConnInfo(t *testing.T) {
-	var tests = []struct {
-		host     string
-		port     int
-		username string
-		dbname   string
-		want     string
-	}{
-		{"/tmp", 0, "", "", "host=/tmp application_name=pg_goback"},
-		{"localhost", 5432, "postgres", "postgres", "host=localhost port=5432 user=postgres dbname=postgres application_name=pg_goback"},
-		{"localhost", 0, "postgres", "postgres", "host=localhost user=postgres dbname=postgres application_name=pg_goback"},
-		{"localhost", 5432, "", "postgres", "host=localhost port=5432 dbname=postgres application_name=pg_goback"},
-		{"localhost", 5432, "postgres", "", "host=localhost port=5432 user=postgres application_name=pg_goback"},
-		{"localhost", 0, "postgres", "", "host=localhost user=postgres application_name=pg_goback"},
-	}
-
-	for i, subt := range tests {
-		t.Run(fmt.Sprintf("%v", i), func(t *testing.T) {
-			res := prepareConnInfo(subt.host, subt.port, subt.username, subt.dbname)
-			if res != subt.want {
-				t.Errorf("got '%s', want '%s'", res, subt.want)
-			}
-		})
-	}
-}
-
 func TestSqlQuoteLiteral(t *testing.T) {
 	var tests = []struct {
 		input string

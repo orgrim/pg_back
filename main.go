@@ -57,9 +57,10 @@ type dump struct {
 	TimeFormat string
 
 	// Connection parameters
-	Host     string
-	Port     int
-	Username string
+	Host       string
+	Port       int
+	Username   string
+	ConnString string
 
 	// Result
 	When     time.Time
@@ -144,8 +145,6 @@ func (d *dump) dump() error {
 		args = append(args, "--create")
 	}
 
-	appendConnectionOptions(&args, d.Host, d.Port, d.Username)
-
 	// Included and excluded schemas and table
 	for _, obj := range d.Options.Schemas {
 		args = append(args, "-n", obj)
@@ -164,8 +163,19 @@ func (d *dump) dump() error {
 		args = append(args, d.Options.PgDumpOpts...)
 	}
 
-	// Finally the name of the database
-	args = append(args, dbname)
+	// Connection option a passed in as options or a connstring
+	if len(d.ConnString) > 0 {
+		if infos, err := parseConnInfo(d.ConnString); err != nil {
+			return fmt.Errorf("cannot parse connstring: %w", err)
+		} else {
+			infos["dbname"] = dbname
+			args = append(args, "-d", makeConnInfo(infos))
+		}
+	} else {
+		appendConnectionOptions(&args, d.Host, d.Port, d.Username)
+		// Finally the name of the database
+		args = append(args, dbname)
+	}
 
 	pgDumpCmd := exec.Command(command, args...)
 	stdoutStderr, err := pgDumpCmd.CombinedOutput()
@@ -278,9 +288,25 @@ func dumpGlobals(dir string, timeFormat string, host string, port int, username 
 	command := filepath.Join(binDir, "pg_dumpall")
 	args := []string{"-g"}
 
-	appendConnectionOptions(&args, host, port, username)
-	if connDb != "" {
-		args = append(args, "-l", connDb)
+	// When connDb is a connstring use it instead of other
+	// options. pg_dumpall does the same
+	if strings.Contains(connDb, "=") {
+		args = append(args, "-d", connDb)
+
+		// pg_dumpall only connects to another database if it is given
+		// with the -l option
+		infos, err := parseConnInfo(connDb)
+		if err != nil {
+			return err
+		}
+		if dbname, ok := infos["dbname"]; ok {
+			args = append(args, "-l", dbname)
+		}
+	} else {
+		appendConnectionOptions(&args, host, port, username)
+		if connDb != "" {
+			args = append(args, "-l", connDb)
+		}
 	}
 
 	file := formatDumpPath(dir, timeFormat, "sql", "pg_globals", time.Now())
@@ -461,6 +487,9 @@ func main() {
 			ExitCode:   -1,
 		}
 
+		if strings.Contains(opts.ConnDb, "=") {
+			d.ConnString = opts.ConnDb
+		}
 		jobs <- d
 	}
 

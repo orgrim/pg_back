@@ -30,7 +30,6 @@ import (
 	"errors"
 	"fmt"
 	"github.com/lib/pq"
-	"os"
 	"strings"
 	"time"
 )
@@ -84,33 +83,6 @@ func dbOpen(conninfo string) (*pg, error) {
 
 func (db *pg) Close() error {
 	return db.conn.Close()
-}
-
-func prepareConnInfo(host string, port int, username string, dbname string) string {
-	var conninfo string
-
-	if host != "" {
-		conninfo += fmt.Sprintf("host=%v ", host)
-	} else {
-		// driver lib/pq defaults to localhost for the host, so
-		// we have to check PGHOST and fallback to the unix
-		// socket directory to avoid overriding PGHOST
-		if _, ok := os.LookupEnv("PGHOST"); !ok {
-			conninfo += "host=/tmp "
-		}
-	}
-	if port != 0 {
-		conninfo += fmt.Sprintf("port=%v ", port)
-	}
-	if username != "" {
-		conninfo += fmt.Sprintf("user=%v ", username)
-	}
-	if dbname != "" {
-		conninfo += fmt.Sprintf("dbname=%v ", dbname)
-	}
-	conninfo += "application_name=pg_goback"
-
-	return conninfo
 }
 
 func sqlQuoteLiteral(s string) string {
