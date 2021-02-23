@@ -329,6 +329,7 @@ func TestLoadConfigurationFile(t *testing.T) {
 				"[db]",
 				"purge_older_than = 15",
 				"parallel_backup_jobs = 2",
+				"with_blobs = true",
 			},
 			false,
 			options{
@@ -350,6 +351,7 @@ func TestLoadConfigurationFile(t *testing.T) {
 					PurgeInterval: -15 * 24 * time.Hour,
 					PurgeKeep:     0,
 					PgDumpOpts:    []string{"-O", "-x"},
+					WithBlobs:     1,
 				}},
 			},
 		},
@@ -361,6 +363,7 @@ func TestLoadConfigurationFile(t *testing.T) {
 				"purge_older_than = 15",
 				"parallel_backup_jobs = 2",
 				"pg_dump_options =",
+				"with_blobs = false",
 			},
 			false,
 			options{
@@ -382,6 +385,7 @@ func TestLoadConfigurationFile(t *testing.T) {
 					PurgeInterval: -15 * 24 * time.Hour,
 					PurgeKeep:     0,
 					PgDumpOpts:    []string{},
+					WithBlobs:     2,
 				}},
 			},
 		},

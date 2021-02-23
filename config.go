@@ -340,6 +340,16 @@ func loadConfigurationFile(path string) (options, error) {
 			o.PgDumpOpts = opts.PgDumpOpts
 		}
 
+		if s.HasKey("with_blobs") {
+			if wb, err := s.Key("with_blobs").Bool(); err != nil {
+				return opts, fmt.Errorf("unable to parse with_blobs for %s: %w", s.Name(), err)
+			} else if wb {
+				o.WithBlobs = 1
+			} else {
+				o.WithBlobs = 2
+			}
+		}
+
 		opts.PerDbOpts[s.Name()] = &o
 	}
 

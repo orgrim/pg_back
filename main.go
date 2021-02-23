@@ -92,6 +92,11 @@ type dbOpts struct {
 
 	// Other pg_dump options to use
 	PgDumpOpts []string
+
+	// Whether to force the dump of large objects or not with pg_dump -b or
+	// -B, or let pg_dump use its default. 0 means default, 1 include
+	// blobs, 2 exclude blobs.
+	WithBlobs int
 }
 
 func (d *dump) dump() error {
@@ -157,6 +162,13 @@ func (d *dump) dump() error {
 	}
 	for _, obj := range d.Options.ExcludedTables {
 		args = append(args, "-T", obj)
+	}
+
+	switch d.Options.WithBlobs {
+	case 1: // with blobs
+		args = append(args, "-b")
+	case 2: // without blobs
+		args = append(args, "-B")
 	}
 
 	if len(d.Options.PgDumpOpts) > 0 {
