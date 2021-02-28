@@ -60,6 +60,7 @@ type options struct {
 	PerDbOpts     map[string]*dbOpts
 	CfgFile       string
 	TimeFormat    string
+	Verbose       bool
 }
 
 func defaultOptions() options {
@@ -162,12 +163,12 @@ func parseCli() (options, []string, error) {
 	pflag.StringVarP(&purgeInterval, "purge-older-than", "P", "30", "purge backups older than this duration in days\nuse an interval with units \"s\" (seconds), \"m\" (minutes) or \"h\" (hours)\nfor less than a day.")
 	pflag.StringVarP(&purgeKeep, "purge-min-keep", "K", "0", "minimum number of dumps to keep when purging or 'all' to keep everything\n")
 	pflag.StringVar(&opts.PreHook, "pre-backup-hook", "", "command to run before taking dumps")
-	pflag.StringVar(&opts.PostHook, "post-backup-hook", "", "command to run after taking dumps")
+	pflag.StringVar(&opts.PostHook, "post-backup-hook", "", "command to run after taking dumps\n")
 	pflag.StringVarP(&opts.Host, "host", "h", "", "database server host or socket directory")
 	pflag.IntVarP(&opts.Port, "port", "p", 0, "database server port number")
 	pflag.StringVarP(&opts.Username, "username", "U", "", "connect as specified database user")
 	pflag.StringVarP(&opts.ConnDb, "dbname", "d", "", "connect to database name\n")
-
+	pflag.BoolVarP(&opts.Verbose, "verbose", "v", false, "verbose mode\n")
 	helpF := pflag.BoolP("help", "?", false, "print usage")
 	versionF := pflag.BoolP("version", "V", false, "print version")
 

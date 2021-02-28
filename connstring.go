@@ -37,16 +37,20 @@ import (
 // PostgreSQL into a map
 func parseConnInfo(connstring string) (map[string]string, error) {
 
+	// Structure to hold the state of the parsing
 	s := struct {
-		expKey   bool
-		expSep   bool
-		expVal   bool
-		inKey    bool
-		inVal    bool
-		inEscape bool
-		isQuoted bool
-	}{expKey: true}
+		expKey   bool // expect the next token is a keyword
+		expSep   bool // expect the next token is the = keyword/value separator
+		expVal   bool // expect the next token is a value
+		inKey    bool // we are inside a keyword
+		inVal    bool // we are inside a value
+		inEscape bool // we have found a backslash next rune is escaped
+		isQuoted bool // we are in a quoted value the end of token rune is different
+	}{expKey: true} // we start by expecting a keyword
 
+	// We store our key/value pais in a map. When a keyword is given
+	// multiple times, only the value closest to the right is
+	// kept. PostgreSQL behaves the same.
 	pairs := make(map[string]string)
 	keyword := ""
 	value := ""
@@ -64,6 +68,8 @@ func parseConnInfo(connstring string) (map[string]string, error) {
 				continue
 			}
 
+			// Here are more strict than PostgreSQL by allowing
+			// keyword to start only with lowercase ascii letters
 			return pairs, fmt.Errorf("illegal keyword character")
 		}
 
@@ -170,8 +176,8 @@ func parseConnInfo(connstring string) (map[string]string, error) {
 func makeConnInfo(infos map[string]string) string {
 	conninfo := ""
 
-	// Map keys are rnadomized, sort them so that so output is always the
-	// same for a given input
+	// Map keys are randomized, sort them so that the output is always the
+	// same for a given input, useful for unit tests.
 	keywords := make([]string, 0, len(infos))
 	for k := range infos {
 		keywords = append(keywords, k)
@@ -200,7 +206,10 @@ func makeConnInfo(infos map[string]string) string {
 func prepareConnInfo(host string, port int, username string, dbname string) string {
 	var conninfo string
 
-	// dbname may be a connstring
+	// dbname may be a connstring. The database name option, usually -d for
+	// PostgreSQL binaires accept a connection string. We do a simple check
+	// for a = sign. If someone has a database name containing a space, one
+	// can still dump it by giving us connstring.
 	if strings.Contains(dbname, "=") {
 		conninfo = fmt.Sprintf("%v ", dbname)
 	} else {
@@ -227,6 +236,7 @@ func prepareConnInfo(host string, port int, username string, dbname string) stri
 	}
 
 	if !strings.Contains(conninfo, "application_name") {
+		l.Verboseln("using pg_goback as application_name")
 		conninfo += "application_name=pg_goback"
 	}
 

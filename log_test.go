@@ -53,8 +53,8 @@ func TestLevelLogVerbose(t *testing.T) {
 		re      string
 		fOrln   bool
 	}{
-		{true, "test", `^\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} DEBUG: test$`, true},
-		{true, "test", `^\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} DEBUG: test$`, false},
+		{true, "test", `^\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2}.\d{6} DEBUG: test$`, true},
+		{true, "test", `^\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2}.\d{6} DEBUG: test$`, false},
 		{false, "test", `^$`, true},
 		{false, "test", `^$`, false},
 	}

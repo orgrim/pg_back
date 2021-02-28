@@ -69,8 +69,8 @@ func purgeDumps(directory string, dbname string, keep int, limit time.Time) erro
 
 	if keep < len(dirContents) && keep >= 0 {
 		for _, f := range dirContents[keep:] {
+			file := filepath.Join(dirpath, f.Name())
 			if f.ModTime().Before(limit) {
-				file := filepath.Join(dirpath, f.Name())
 				l.Infoln("removing", file)
 				if f.IsDir() {
 					if err = os.RemoveAll(file); err != nil {
@@ -81,6 +81,8 @@ func purgeDumps(directory string, dbname string, keep int, limit time.Time) erro
 						l.Errorln(err)
 					}
 				}
+			} else {
+				l.Verboseln("keeping", file)
 			}
 		}
 	}

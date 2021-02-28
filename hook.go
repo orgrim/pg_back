@@ -38,6 +38,7 @@ func hookCommand(cmd string, logPrefix string) error {
 		return fmt.Errorf("unable to run an empty command")
 	}
 
+	l.Verboseln("parsing hook command")
 	words, err := shlex.Split(cmd, true)
 	if err != nil {
 		return fmt.Errorf("unable to parse hook command: %s", err)
@@ -46,6 +47,7 @@ func hookCommand(cmd string, logPrefix string) error {
 	prog := words[0]
 	args := words[1:]
 
+	l.Verboseln("running:", prog, args)
 	c := exec.Command(prog, args...)
 	stdoutStderr, err := c.CombinedOutput()
 	if err != nil {

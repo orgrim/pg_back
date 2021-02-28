@@ -44,6 +44,7 @@ func lockPath(path string) (*os.File, bool, error) {
 		return nil, false, err
 	}
 
+	l.Verboseln("locking", path, "with flock()")
 	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
 		switch err {
 		case syscall.EWOULDBLOCK:
@@ -60,10 +61,12 @@ func lockPath(path string) (*os.File, bool, error) {
 // unlockPath releases the lock from the open file and removes the
 // underlying path
 func unlockPath(f *os.File) error {
+	path := f.Name()
+	l.Verboseln("unlocking", path, "with flock()")
 	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_UN); err != nil {
 		return err
 	}
-	path := f.Name()
+
 	f.Close()
 	return os.Remove(path)
 }

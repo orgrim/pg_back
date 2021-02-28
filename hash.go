@@ -76,6 +76,7 @@ func checksumFile(path string, algo string) error {
 		return err
 	}
 
+	l.Verbosef("create checksum file: %s.%s", path, algo)
 	o, err := os.Create(fmt.Sprintf("%s.%s", path, algo))
 	if err != nil {
 		l.Errorln(err)
@@ -84,11 +85,13 @@ func checksumFile(path string, algo string) error {
 	defer o.Close()
 
 	if i.IsDir() {
+		l.Verboseln("dump is a directory, checksumming all file inside")
 		err = filepath.Walk(path, func(path string, info os.FileInfo, err error) error {
 			if err != nil {
 				return err
 			}
 			if info.Mode().IsRegular() {
+				l.Verboseln("computing checksum of:", path)
 				r, cerr := computeChecksum(path, h)
 				if cerr != nil {
 					return fmt.Errorf("could not checksum %s: %s", path, err)
@@ -106,6 +109,7 @@ func checksumFile(path string, algo string) error {
 		// Open the file and use io.Copy to feed the data to the hash,
 		// like in the example of the doc, then write the result to a
 		// file that the standard shaXXXsum tools can understand
+		l.Verboseln("computing checksum of:", path)
 		r, _ := computeChecksum(path, h)
 		fmt.Fprintf(o, "%x  %s\n", r, path)
 	}

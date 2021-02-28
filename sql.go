@@ -43,7 +43,9 @@ type pg struct {
 func pgGetVersionNum(db *sql.DB) (int, error) {
 	var version int
 
-	err := db.QueryRow("select setting from pg_settings where name = 'server_version_num'").Scan(&version)
+	query := "select setting from pg_settings where name = 'server_version_num'"
+	l.Verboseln("executing SQL query:", query)
+	err := db.QueryRow(query).Scan(&version)
 	if err != nil {
 		return 0, fmt.Errorf("could not get PostgreSQL server version: %s", err)
 	}
@@ -53,6 +55,7 @@ func pgGetVersionNum(db *sql.DB) (int, error) {
 
 func dbOpen(conninfo string) (*pg, error) {
 
+	l.Verboseln("connecting to PostgreSQL with: \"", conninfo, "\"")
 	db, err := sql.Open("postgres", conninfo)
 	if err != nil {
 		return nil, fmt.Errorf("could not open database: %s", err)
@@ -71,6 +74,7 @@ func dbOpen(conninfo string) (*pg, error) {
 		return nil, err
 	}
 
+	l.Verboseln("server num version is:", newDB.version)
 	// Keyword xlog has been replaced by wal as of PostgreSQL 10
 	if newDB.version >= 100000 {
 		newDB.xlogOrWal = "wal"
@@ -82,6 +86,7 @@ func dbOpen(conninfo string) (*pg, error) {
 }
 
 func (db *pg) Close() error {
+	l.Verboseln("closing connection to PostgreSQL")
 	return db.conn.Close()
 }
 
@@ -121,6 +126,7 @@ func listAllDatabases(db *pg, withTemplates bool) ([]string, error) {
 	}
 
 	dbs := make([]string, 0)
+	l.Verboseln("executing SQL query:", query)
 	rows, err := db.conn.Query(query)
 	if err != nil {
 		return dbs, fmt.Errorf("could not list databases: %s", err)
@@ -217,21 +223,21 @@ func dumpCreateDBAndACL(db *pg, dbname string) (string, error) {
 	// job of pg_dump so we have to check its version, not the
 	// server
 	if pgDumpVersion() >= 110000 {
+		l.Verboseln("no need to dump create database query and database ACL with pg_dump from >=11")
 		return "", nil
 	}
 
 	l.Infoln("dumping database creation and ACL commands of", dbname)
 
-	rows, err := db.conn.Query(
-		"SELECT coalesce(rolname, (select rolname from pg_authid where oid=(select datdba from pg_database where datname='template0'))), "+
-			"  pg_encoding_to_char(d.encoding), "+
-			"  datcollate, datctype, "+
-			"  datistemplate, datacl, datconnlimit, "+
-			"  (SELECT spcname FROM pg_tablespace t WHERE t.oid = d.dattablespace) AS dattablespace "+
-			"FROM pg_database d"+
-			"  LEFT JOIN pg_authid u ON (datdba = u.oid) "+
-			"WHERE datallowconn AND datname = $1",
-		dbname)
+	query := "SELECT coalesce(rolname, (select rolname from pg_authid where oid=(select datdba from pg_database where datname='template0'))), " +
+		"  pg_encoding_to_char(d.encoding), " +
+		"  datcollate, datctype, datistemplate, datacl, datconnlimit, " +
+		"  (SELECT spcname FROM pg_tablespace t WHERE t.oid = d.dattablespace) AS dattablespace " +
+		"FROM pg_database d" +
+		"  LEFT JOIN pg_authid u ON (datdba = u.oid) " +
+		"WHERE datallowconn AND datname = $1"
+	l.Verboseln("executing SQL query:", query)
+	rows, err := db.conn.Query(query, dbname)
 	if err != nil {
 		return "", fmt.Errorf("could not query database information for %s: %s", dbname, err)
 	}
@@ -395,12 +401,15 @@ func dumpDBConfig(db *pg, dbname string) (string, error) {
 	// job of pg_dump so we have to check its version, not the
 	// server
 	if pgDumpVersion() >= 110000 {
+		l.Verboseln("no need to dump database configuration with pg_dump from >=11")
 		return "", nil
 	}
 
 	l.Infoln("dumping database configuration commands of", dbname)
 	// dump per database config
-	rows, err := db.conn.Query("SELECT CASE setrole WHEN 0 THEN NULL ELSE pg_get_userbyid(setrole) END, unnest(setconfig) FROM pg_db_role_setting WHERE setdatabase = (SELECT oid FROM pg_database WHERE datname = $1) ORDER BY 1, 2", dbname)
+	query := "SELECT CASE setrole WHEN 0 THEN NULL ELSE pg_get_userbyid(setrole) END, unnest(setconfig) FROM pg_db_role_setting WHERE setdatabase = (SELECT oid FROM pg_database WHERE datname = $1) ORDER BY 1, 2"
+	l.Verboseln("executing SQL query:", query)
+	rows, err := db.conn.Query(query, dbname)
 	if err != nil {
 		return "", fmt.Errorf("could not query database configuration for %s: %s", dbname, err)
 	}
@@ -456,6 +465,7 @@ func showSettings(db *pg) (string, error) {
 		query = "SELECT name, setting FROM pg_settings WHERE sourcefile IS NOT NULL"
 	}
 
+	l.Verboseln("executing SQL query:", query)
 	rows, err := db.conn.Query(query)
 	if err != nil {
 		return "", fmt.Errorf("could not query instance configuration: %s", err)
@@ -505,9 +515,11 @@ func (*pgReplicaHasLocks) Error() string {
 func pauseReplication(db *pg) error {
 	// If an AccessExclusiveLock is granted when the replay is
 	// paused, it will remain and pg_dump would be stuck forever
-	rows, err := db.conn.Query(fmt.Sprintf("SELECT pg_%s_replay_pause() "+
+	query := fmt.Sprintf("SELECT pg_%s_replay_pause() "+
 		"WHERE NOT EXISTS (SELECT 1 FROM pg_locks WHERE mode = 'AccessExclusiveLock') "+
-		"AND pg_is_in_recovery();", db.xlogOrWal))
+		"AND pg_is_in_recovery();", db.xlogOrWal)
+	l.Verboseln("executing SQL query:", query)
+	rows, err := db.conn.Query(query)
 	if err != nil {
 		return fmt.Errorf("could not pause replication: %s", err)
 	}
@@ -535,8 +547,10 @@ func canPauseReplication(db *pg) (bool, error) {
 		return false, nil
 	}
 
-	rows, err := db.conn.Query(fmt.Sprintf("SELECT 1 FROM pg_proc "+
-		"WHERE proname='pg_%s_replay_pause' AND pg_is_in_recovery()", db.xlogOrWal))
+	query := fmt.Sprintf("SELECT 1 FROM pg_proc "+
+		"WHERE proname='pg_%s_replay_pause' AND pg_is_in_recovery()", db.xlogOrWal)
+	l.Verboseln("executing SQL query:", query)
+	rows, err := db.conn.Query(query)
 	if err != nil {
 		return false, fmt.Errorf("could not check if replication is pausable: %s", err)
 	}
@@ -620,7 +634,9 @@ func resumeReplication(db *pg) error {
 	}
 
 	l.Infoln("resuming replication")
-	_, err := db.conn.Exec(fmt.Sprintf("SELECT pg_%s_replay_resume() WHERE pg_is_in_recovery();", db.xlogOrWal))
+	query := fmt.Sprintf("SELECT pg_%s_replay_resume() WHERE pg_is_in_recovery();", db.xlogOrWal)
+	l.Verboseln("executing SQL query:", query)
+	_, err := db.conn.Exec(query)
 	if err != nil {
 		return fmt.Errorf("could not resume replication: %s", err)
 	}

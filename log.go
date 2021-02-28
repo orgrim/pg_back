@@ -50,6 +50,9 @@ func NewLevelLog() *LevelLog {
 // SetVerbose toggles verbose mode
 func (l *LevelLog) SetVerbose(verbose bool) {
 	l.verbose = verbose
+	if verbose {
+		l.logger.SetFlags(log.LstdFlags | log.Lmsgprefix | log.Lmicroseconds)
+	}
 }
 
 // Verbosef prints with log.Printf a message with DEBUG: prefix using log.Printf, only when verbose mode is true

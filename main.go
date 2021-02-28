@@ -190,6 +190,7 @@ func (d *dump) dump() error {
 	}
 
 	pgDumpCmd := exec.Command(command, args...)
+	l.Verboseln("running:", pgDumpCmd)
 	stdoutStderr, err := pgDumpCmd.CombinedOutput()
 	if err != nil {
 		for _, line := range strings.Split(string(stdoutStderr), "\n") {
@@ -329,6 +330,7 @@ func dumpGlobals(dir string, timeFormat string, host string, port int, username 
 	}
 
 	pgDumpallCmd := exec.Command(command, args...)
+	l.Verboseln("running:", pgDumpallCmd)
 	stdoutStderr, err := pgDumpallCmd.CombinedOutput()
 	if err != nil {
 		for _, line := range strings.Split(string(stdoutStderr), "\n") {
@@ -363,6 +365,7 @@ func dumpSettings(dir string, timeFormat string, db *pg) error {
 
 	// Use a Buffer to avoid creating an empty file
 	if len(s) > 0 {
+		l.Verboseln("writing settings to:", file)
 		if err := ioutil.WriteFile(file, []byte(s), 0644); err != nil {
 			return err
 		}
@@ -398,6 +401,9 @@ func main() {
 			os.Exit(1)
 		}
 	}
+
+	// Enable verbose mode as soon as possible
+	l.SetVerbose(cliOpts.Verbose)
 
 	// Load configuration file and allow the default configuration
 	// file to be absent
@@ -462,6 +468,7 @@ func main() {
 		postBackupHook(opts.PostHook)
 		os.Exit(1)
 	}
+	l.Verboseln("databases to dump:", databases)
 
 	if err := pauseReplicationWithTimeout(db, opts.PauseTimeout); err != nil {
 		db.Close()
@@ -477,6 +484,7 @@ func main() {
 	results := make(chan *dump, numJobs)
 
 	// start workers - thanks gobyexample.com
+	l.Verbosef("launching %d workers", maxWorkers)
 	for w := 0; w < maxWorkers; w++ {
 		go dumper(w, jobs, results)
 	}
@@ -502,6 +510,7 @@ func main() {
 		if strings.Contains(opts.ConnDb, "=") {
 			d.ConnString = opts.ConnDb
 		}
+		l.Verbosef("sending dump job for database %s to worker pool", dbname)
 		jobs <- d
 	}
 
@@ -512,17 +521,19 @@ func main() {
 		var b, c string
 		var err error
 
+		l.Verboseln("waiting for worker to send job back")
 		d := <-results
+		dbname := d.Database
+		l.Verboseln("received job result of", dbname)
 		if d.ExitCode > 0 {
 			exitCode = 1
 		}
-
-		dbname := d.Database
 
 		// Dump the ACL and Configuration of the
 		// database. Since the information is in the catalog,
 		// if it fails once it fails all the time.
 		if canDumpACL {
+			l.Verboseln("dumping create database query and ACL of", dbname)
 			b, err = dumpCreateDBAndACL(db, dbname)
 			var verr *pgVersionError
 			if err != nil {
@@ -537,6 +548,7 @@ func main() {
 		}
 
 		if canDumpConfig {
+			l.Verboseln("dumping configuration of", dbname)
 			c, err = dumpDBConfig(db, dbname)
 			if err != nil {
 				if !errors.As(err, &verr) {
