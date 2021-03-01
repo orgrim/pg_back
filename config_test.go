@@ -211,15 +211,14 @@ func TestParseCli(t *testing.T) {
 
 	for i, st := range tests {
 		t.Run(fmt.Sprintf("%v", i), func(t *testing.T) {
-			// reset pflag default flagset between each sub test
-			pflag.CommandLine = pflag.NewFlagSet(os.Args[0], pflag.ContinueOnError)
-			// set our test command line arguments
-			configParseCliInput = st.args
-
 			var (
 				opts options
 				err  error
 			)
+
+			// reset pflag default flagset between each sub test
+			pflag.CommandLine = pflag.NewFlagSet(os.Args[0], pflag.ContinueOnError)
+
 			// when testing for help or version the usage is output to stderr, discard it with a pipe
 			if st.help || st.version {
 				oldStdout := os.Stdout
@@ -227,11 +226,11 @@ func TestParseCli(t *testing.T) {
 				_, w, _ := os.Pipe()
 				os.Stderr = w
 				os.Stdout = w
-				opts, _, err = parseCli()
+				opts, _, err = parseCli(st.args)
 				os.Stderr = oldStderr
 				os.Stdout = oldStdout
 			} else {
-				opts, _, err = parseCli()
+				opts, _, err = parseCli(st.args)
 			}
 
 			var errVal *parseCliResult

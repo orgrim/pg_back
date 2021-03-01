@@ -37,6 +37,9 @@ import (
 	"time"
 )
 
+var defaultCfgFile = "/etc/pg_goback/pg_goback.conf"
+
+// options struct holds command line and configuration file options
 type options struct {
 	BinDirectory  string
 	Directory     string
@@ -78,6 +81,8 @@ func defaultOptions() options {
 	}
 }
 
+// parseCliResult is use to handle utility flags like help, version, that make
+// the program end early
 type parseCliResult struct {
 	ShowHelp     bool
 	ShowVersion  bool
@@ -133,10 +138,7 @@ func validatePurgeTimeLimitValue(i string) (time.Duration, error) {
 
 }
 
-var defaultCfgFile = "/etc/pg_goback/pg_goback.conf"
-var configParseCliInput = os.Args[1:]
-
-func parseCli() (options, []string, error) {
+func parseCli(args []string) (options, []string, error) {
 	var purgeKeep, purgeInterval string
 
 	opts := defaultOptions()
@@ -177,7 +179,7 @@ func parseCli() (options, []string, error) {
 	// Do not use the default pflag.Parse() that use os.Args[1:],
 	// but pass it explicitly so that unit-tests can feed any set
 	// of flags
-	pflag.CommandLine.Parse(configParseCliInput)
+	pflag.CommandLine.Parse(args)
 
 	// Record the list of flags set on the command line to allow
 	// overriding the configuration later, if an alternate
