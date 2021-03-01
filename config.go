@@ -79,8 +79,9 @@ func defaultOptions() options {
 }
 
 type parseCliResult struct {
-	ShowHelp    bool
-	ShowVersion bool
+	ShowHelp     bool
+	ShowVersion  bool
+	LegacyConfig string
 }
 
 func (*parseCliResult) Error() string {
@@ -168,6 +169,7 @@ func parseCli() (options, []string, error) {
 	pflag.IntVarP(&opts.Port, "port", "p", 0, "database server port number")
 	pflag.StringVarP(&opts.Username, "username", "U", "", "connect as specified database user")
 	pflag.StringVarP(&opts.ConnDb, "dbname", "d", "", "connect to database name\n")
+	convertConfF := pflag.String("convert-legacy-config", "", "convert a pg_back v1 configuration file\n")
 	pflag.BoolVarP(&opts.Verbose, "verbose", "v", false, "verbose mode\n")
 	helpF := pflag.BoolP("help", "?", false, "print usage")
 	versionF := pflag.BoolP("version", "V", false, "print version")
@@ -197,12 +199,16 @@ func parseCli() (options, []string, error) {
 	// through the error
 	if *helpF {
 		pflag.Usage()
-		return opts, changed, &parseCliResult{true, false}
+		return opts, changed, &parseCliResult{true, false, ""}
 	}
 
 	if *versionF {
 		fmt.Printf("pg_goback version %v\n", version)
-		return opts, changed, &parseCliResult{false, true}
+		return opts, changed, &parseCliResult{false, true, ""}
+	}
+
+	if len(*convertConfF) > 0 {
+		return opts, changed, &parseCliResult{false, false, *convertConfF}
 	}
 
 	opts.Dbnames = pflag.Args()

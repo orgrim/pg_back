@@ -381,6 +381,7 @@ func defaultDbOpts(opts options) *dbOpts {
 		SumAlgo:       opts.SumAlgo,
 		PurgeInterval: opts.PurgeInterval,
 		PurgeKeep:     opts.PurgeKeep,
+		PgDumpOpts:    opts.PgDumpOpts,
 	}
 	return &dbo
 }
@@ -395,6 +396,18 @@ func main() {
 	var pce *parseCliResult
 	if perr != nil {
 		if errors.As(perr, &pce) {
+			// Convert the configuration file if a path as been
+			// passed in the result and exit. Since the
+			// configuration file from pg_back v1 is a shell
+			// script, we may just fail to convert it. So we just
+			// output the result on stdout and exit to let the user
+			// check the result
+			if len(pce.LegacyConfig) > 0 {
+				if err := convertLegacyConfFile(pce.LegacyConfig); err != nil {
+					l.Fatalln(err)
+					os.Exit(1)
+				}
+			}
 			os.Exit(0)
 		} else {
 			l.Fatalln(perr)

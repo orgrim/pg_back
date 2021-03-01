@@ -141,10 +141,11 @@ func TestParseCli(t *testing.T) {
 	var (
 		defaults = defaultOptions()
 		tests    = []struct {
-			args    []string
-			want    options
-			help    bool
-			version bool
+			args       []string
+			want       options
+			help       bool
+			version    bool
+			legacyConf string
 		}{
 			{
 				[]string{"-b", "test", "a", "b"},
@@ -163,6 +164,7 @@ func TestParseCli(t *testing.T) {
 				},
 				false,
 				false,
+				"",
 			},
 			{
 				[]string{"-t", "--without-templates"},
@@ -181,18 +183,28 @@ func TestParseCli(t *testing.T) {
 				},
 				false,
 				false,
+				"",
 			},
 			{
 				[]string{"--help"},
 				defaults,
 				true,
 				false,
+				"",
 			},
 			{
 				[]string{"--version"},
 				defaults,
 				false,
 				true,
+				"",
+			},
+			{
+				[]string{"--convert-legacy-config", "some/path"},
+				defaults,
+				false,
+				false,
+				"some/path",
 			},
 		}
 	)
@@ -230,6 +242,9 @@ func TestParseCli(t *testing.T) {
 				}
 				if errVal.ShowVersion != st.version {
 					t.Errorf("got %v, want %v for version flag\n", errVal.ShowVersion, st.version)
+				}
+				if errVal.LegacyConfig != st.legacyConf {
+					t.Errorf("got %v, want %v for convert legacy config flag\n", errVal.LegacyConfig, st.legacyConf)
 				}
 			} else {
 				if diff := cmp.Diff(st.want, opts, cmpopts.EquateEmpty()); diff != "" {
