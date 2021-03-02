@@ -246,7 +246,7 @@ func TestShowSettings(t *testing.T) {
 		t.Errorf("expected some data, got nothing")
 	} else {
 		p := strings.Split(got, "\n")
-		re := regexp.MustCompile(`^(\w+) = '(.+)'$`)
+		re := regexp.MustCompile(`^([\.\w]+) = '(.*)'$`)
 		for _, v := range p {
 			if v == "" {
 				continue
