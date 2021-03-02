@@ -56,6 +56,7 @@ type options struct {
 	WithTemplates bool
 	Format        string
 	DirJobs       int
+	CompressLevel int
 	Jobs          int
 	PauseTimeout  int
 	PurgeInterval time.Duration
@@ -75,6 +76,7 @@ func defaultOptions() options {
 		Directory:     "/var/backups/postgresql",
 		Format:        "custom",
 		DirJobs:       1,
+		CompressLevel: -1,
 		Jobs:          1,
 		PauseTimeout:  3600,
 		PurgeInterval: -30 * 24 * time.Hour,
@@ -168,6 +170,7 @@ func parseCli(args []string) (options, []string, error) {
 	pflag.IntVarP(&opts.Jobs, "jobs", "j", 1, "dump this many databases concurrently")
 	pflag.StringVarP(&opts.Format, "format", "F", "custom", "database dump format: plain, custom, tar or directory")
 	pflag.IntVarP(&opts.DirJobs, "parallel-backup-jobs", "J", 1, "number of parallel jobs to dumps when using directory format")
+	pflag.IntVarP(&opts.CompressLevel, "compress", "Z", -1, "compression level for compressed formats")
 	pflag.StringVarP(&opts.SumAlgo, "checksum-algo", "S", "none", "signature algorithm: none sha1 sha224 sha256 sha384 sha512")
 	pflag.StringVarP(&purgeInterval, "purge-older-than", "P", "30", "purge backups older than this duration in days\nuse an interval with units \"s\" (seconds), \"m\" (minutes) or \"h\" (hours)\nfor less than a day.")
 	pflag.StringVarP(&purgeKeep, "purge-min-keep", "K", "0", "minimum number of dumps to keep when purging or 'all' to keep everything\n")
@@ -247,6 +250,10 @@ func parseCli(args []string) (options, []string, error) {
 	}
 	opts.PurgeInterval = interval
 
+	if opts.CompressLevel < -1 || opts.CompressLevel > 9 {
+		return opts, changed, fmt.Errorf("compression level must be in range 0..9")
+	}
+
 	return opts, changed, nil
 }
 
@@ -277,6 +284,7 @@ func loadConfigurationFile(path string) (options, error) {
 	opts.WithTemplates = s.Key("with_templates").MustBool(false)
 	opts.Format = s.Key("format").MustString("custom")
 	opts.DirJobs = s.Key("parallel_backup_jobs").MustInt(1)
+	opts.CompressLevel = s.Key("compress_level").MustInt(-1)
 	opts.Jobs = s.Key("jobs").MustInt(1)
 	opts.PauseTimeout = s.Key("pause_timeout").MustInt(3600)
 	purgeInterval = s.Key("purge_older_than").MustString("30")
@@ -297,6 +305,10 @@ func loadConfigurationFile(path string) (options, error) {
 		return opts, err
 	}
 	opts.PurgeInterval = interval
+
+	if opts.CompressLevel < -1 || opts.CompressLevel > 9 {
+		return opts, fmt.Errorf("compression level must be in range 0..9")
+	}
 
 	// Validate the value of the timestamp format
 	switch timeFormat {
@@ -329,6 +341,7 @@ func loadConfigurationFile(path string) (options, error) {
 		o := dbOpts{}
 		o.Format = s.Key("format").MustString(opts.Format)
 		o.Jobs = s.Key("parallel_backup_jobs").MustInt(opts.DirJobs)
+		o.CompressLevel = s.Key("compress_level").MustInt(opts.CompressLevel)
 		o.SumAlgo = s.Key("checksum_algorithm").MustString(opts.SumAlgo)
 		dbPurgeInterval = s.Key("purge_older_than").MustString(purgeInterval)
 		dbPurgeKeep = s.Key("purge_min_keep").MustString(purgeKeep)
@@ -345,6 +358,10 @@ func loadConfigurationFile(path string) (options, error) {
 			return opts, err
 		}
 		o.PurgeInterval = interval
+
+		if o.CompressLevel < -1 || o.CompressLevel > 9 {
+			return opts, fmt.Errorf("compression level must be in range 0..9")
+		}
 
 		o.Schemas = parseIdentifierList(s.Key("schemas").String())
 		o.ExcludedSchemas = parseIdentifierList(s.Key("exclude_schemas").String())
@@ -417,6 +434,11 @@ func mergeCliAndConfigOptions(cliOpts options, configOpts options, onCli []strin
 			opts.DirJobs = cliOpts.DirJobs
 			for _, dbo := range opts.PerDbOpts {
 				dbo.Jobs = cliOpts.DirJobs
+			}
+		case "compress":
+			opts.CompressLevel = cliOpts.CompressLevel
+			for _, dbo := range opts.PerDbOpts {
+				dbo.CompressLevel = cliOpts.CompressLevel
 			}
 		case "checksum-algo":
 			opts.SumAlgo = cliOpts.SumAlgo

@@ -79,6 +79,9 @@ type dbOpts struct {
 	// Number of parallel jobs for directory format
 	Jobs int
 
+	// Compression level for compressed formats, -1 means the default
+	CompressLevel int
+
 	// Purge configuration
 	PurgeInterval time.Duration
 	PurgeKeep     int
@@ -348,6 +351,7 @@ func defaultDbOpts(opts options) *dbOpts {
 	dbo := dbOpts{
 		Format:        opts.Format,
 		Jobs:          opts.DirJobs,
+		CompressLevel: opts.CompressLevel,
 		SumAlgo:       opts.SumAlgo,
 		PurgeInterval: opts.PurgeInterval,
 		PurgeKeep:     opts.PurgeKeep,
@@ -426,6 +430,15 @@ func (d *dump) dump() error {
 		args = append(args, "-b")
 	case 2: // without blobs
 		args = append(args, "-B")
+	}
+
+	// Add compression level option only if not dumping in the plain format
+	if d.Options.CompressLevel >= 0 {
+		if []rune(d.Options.Format)[0] != 'p' && []rune(d.Options.Format)[0] != 't' {
+			args = append(args, "-Z", fmt.Sprintf("%d", d.Options.CompressLevel))
+		} else {
+			l.Warnln("compression level is not supported by the target format")
+		}
 	}
 
 	if len(d.Options.PgDumpOpts) > 0 {
