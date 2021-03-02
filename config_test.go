@@ -491,7 +491,7 @@ func TestError(t *testing.T) {
 	err := &parseCliResult{}
 
 	s := fmt.Sprintf("%s", err)
-	if s != "parsing of command line args failed" {
+	if s != "please exit now" {
 		t.Errorf("func (*parseCliResult) Error() failed")
 	}
 }

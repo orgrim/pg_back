@@ -101,11 +101,14 @@ with `--post-backup-hook`. The command are executed directly, not by a shell,
 respecting single and double quoted values. Even if some operation fails, the
 post backup hook is executed when present.
 
-## Convert a pg_back v1 configuration file
+## Managing the configuration file
 
 Give the path of the v1 configuration file to the `--convert-legacy-config`
 command line option, and pg_goback will try its best to convert it to the v2
 format.
+
+The default configuration file can be printed with the `--print-default-config`
+command line option.
 
 ## Testing
 

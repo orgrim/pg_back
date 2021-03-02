@@ -26,6 +26,7 @@
 package main
 
 import (
+	_ "embed"
 	"errors"
 	"fmt"
 	"github.com/anmitsu/go-shlex"
@@ -38,6 +39,9 @@ import (
 )
 
 var defaultCfgFile = "/etc/pg_goback/pg_goback.conf"
+
+//go:embed pg_goback.conf
+var defaultCfg string
 
 // options struct holds command line and configuration file options
 type options struct {
@@ -87,10 +91,11 @@ type parseCliResult struct {
 	ShowHelp     bool
 	ShowVersion  bool
 	LegacyConfig string
+	ShowConfig   bool
 }
 
 func (*parseCliResult) Error() string {
-	return "parsing of command line args failed"
+	return "please exit now"
 }
 
 func validateDumpFormat(s string) error {
@@ -142,6 +147,7 @@ func parseCli(args []string) (options, []string, error) {
 	var purgeKeep, purgeInterval string
 
 	opts := defaultOptions()
+	pce := &parseCliResult{}
 
 	pflag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "pg_goback dumps some PostgreSQL databases\n\n")
@@ -171,10 +177,11 @@ func parseCli(args []string) (options, []string, error) {
 	pflag.IntVarP(&opts.Port, "port", "p", 0, "database server port number")
 	pflag.StringVarP(&opts.Username, "username", "U", "", "connect as specified database user")
 	pflag.StringVarP(&opts.ConnDb, "dbname", "d", "", "connect to database name\n")
-	convertConfF := pflag.String("convert-legacy-config", "", "convert a pg_back v1 configuration file\n")
+	pflag.StringVar(&pce.LegacyConfig, "convert-legacy-config", "", "convert a pg_back v1 configuration file")
+	pflag.BoolVar(&pce.ShowConfig, "print-default-config", false, "print the default configuration\n")
 	pflag.BoolVarP(&opts.Verbose, "verbose", "v", false, "verbose mode\n")
-	helpF := pflag.BoolP("help", "?", false, "print usage")
-	versionF := pflag.BoolP("version", "V", false, "print version")
+	pflag.BoolVarP(&pce.ShowHelp, "help", "?", false, "print usage")
+	pflag.BoolVarP(&pce.ShowVersion, "version", "V", false, "print version")
 
 	// Do not use the default pflag.Parse() that use os.Args[1:],
 	// but pass it explicitly so that unit-tests can feed any set
@@ -198,19 +205,24 @@ func parseCli(args []string) (options, []string, error) {
 	}
 
 	// When --help or --version is given print and tell the caller
-	// through the error
-	if *helpF {
+	// through the error to exit
+	if pce.ShowHelp {
 		pflag.Usage()
-		return opts, changed, &parseCliResult{true, false, ""}
+		return opts, changed, pce
 	}
 
-	if *versionF {
+	if pce.ShowVersion {
 		fmt.Printf("pg_goback version %v\n", version)
-		return opts, changed, &parseCliResult{false, true, ""}
+		return opts, changed, pce
 	}
 
-	if len(*convertConfF) > 0 {
-		return opts, changed, &parseCliResult{false, false, *convertConfF}
+	if len(pce.LegacyConfig) > 0 {
+		return opts, changed, pce
+	}
+
+	if pce.ShowConfig {
+		fmt.Print(defaultCfg)
+		return opts, changed, pce
 	}
 
 	opts.Dbnames = pflag.Args()
