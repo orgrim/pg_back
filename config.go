@@ -54,7 +54,7 @@ type options struct {
 	ExcludeDbs    []string
 	Dbnames       []string
 	WithTemplates bool
-	Format        string
+	Format        rune
 	DirJobs       int
 	CompressLevel int
 	Jobs          int
@@ -74,7 +74,7 @@ type options struct {
 func defaultOptions() options {
 	return options{
 		Directory:     "/var/backups/postgresql",
-		Format:        "custom",
+		Format:        'c',
 		DirJobs:       1,
 		CompressLevel: -1,
 		Jobs:          1,
@@ -101,8 +101,10 @@ func (*parseCliResult) Error() string {
 }
 
 func validateDumpFormat(s string) error {
-	for _, v := range []string{"plain", "custom", "tar", "directory"} {
-		if strings.HasPrefix(v, s) {
+	for _, format := range []string{"plain", "custom", "tar", "directory"} {
+		// PostgreSQL tools allow the full name of the format and the
+		// first letter
+		if s == format || s == string([]rune(format)[0]) {
 			return nil
 		}
 	}
@@ -146,7 +148,7 @@ func validatePurgeTimeLimitValue(i string) (time.Duration, error) {
 }
 
 func parseCli(args []string) (options, []string, error) {
-	var purgeKeep, purgeInterval string
+	var format, purgeKeep, purgeInterval string
 
 	opts := defaultOptions()
 	pce := &parseCliResult{}
@@ -168,7 +170,7 @@ func parseCli(args []string) (options, []string, error) {
 	WithoutTemplates := pflag.Bool("without-templates", false, "force exclude templates")
 	pflag.IntVarP(&opts.PauseTimeout, "pause-timeout", "T", 3600, "abort if replication cannot be paused after this number of seconds")
 	pflag.IntVarP(&opts.Jobs, "jobs", "j", 1, "dump this many databases concurrently")
-	pflag.StringVarP(&opts.Format, "format", "F", "custom", "database dump format: plain, custom, tar or directory")
+	pflag.StringVarP(&format, "format", "F", "custom", "database dump format: plain, custom, tar or directory")
 	pflag.IntVarP(&opts.DirJobs, "parallel-backup-jobs", "J", 1, "number of parallel jobs to dumps when using directory format")
 	pflag.IntVarP(&opts.CompressLevel, "compress", "Z", -1, "compression level for compressed formats")
 	pflag.StringVarP(&opts.SumAlgo, "checksum-algo", "S", "none", "signature algorithm: none sha1 sha224 sha256 sha384 sha512")
@@ -254,11 +256,17 @@ func parseCli(args []string) (options, []string, error) {
 		return opts, changed, fmt.Errorf("compression level must be in range 0..9")
 	}
 
+	if err := validateDumpFormat(format); err != nil {
+		return opts, changed, err
+	}
+
+	opts.Format = []rune(format)[0]
+
 	return opts, changed, nil
 }
 
 func loadConfigurationFile(path string) (options, error) {
-	var purgeKeep, purgeInterval string
+	var format, purgeKeep, purgeInterval string
 
 	opts := defaultOptions()
 
@@ -282,7 +290,7 @@ func loadConfigurationFile(path string) (options, error) {
 	opts.ExcludeDbs = s.Key("exclude_dbs").Strings(",")
 	opts.Dbnames = s.Key("include_dbs").Strings(",")
 	opts.WithTemplates = s.Key("with_templates").MustBool(false)
-	opts.Format = s.Key("format").MustString("custom")
+	format = s.Key("format").MustString("custom")
 	opts.DirJobs = s.Key("parallel_backup_jobs").MustInt(1)
 	opts.CompressLevel = s.Key("compress_level").MustInt(-1)
 	opts.Jobs = s.Key("jobs").MustInt(1)
@@ -310,6 +318,11 @@ func loadConfigurationFile(path string) (options, error) {
 		return opts, fmt.Errorf("compression level must be in range 0..9")
 	}
 
+	if err := validateDumpFormat(format); err != nil {
+		return opts, err
+	}
+	opts.Format = []rune(format)[0]
+
 	// Validate the value of the timestamp format
 	switch timeFormat {
 	case "legacy":
@@ -336,10 +349,10 @@ func loadConfigurationFile(path string) (options, error) {
 			continue
 		}
 
-		var dbPurgeInterval, dbPurgeKeep string
+		var dbFormat, dbPurgeInterval, dbPurgeKeep string
 
 		o := dbOpts{}
-		o.Format = s.Key("format").MustString(opts.Format)
+		dbFormat = s.Key("format").MustString(format)
 		o.Jobs = s.Key("parallel_backup_jobs").MustInt(opts.DirJobs)
 		o.CompressLevel = s.Key("compress_level").MustInt(opts.CompressLevel)
 		o.SumAlgo = s.Key("checksum_algorithm").MustString(opts.SumAlgo)
@@ -362,6 +375,11 @@ func loadConfigurationFile(path string) (options, error) {
 		if o.CompressLevel < -1 || o.CompressLevel > 9 {
 			return opts, fmt.Errorf("compression level must be in range 0..9")
 		}
+
+		if err := validateDumpFormat(dbFormat); err != nil {
+			return opts, err
+		}
+		o.Format = []rune(dbFormat)[0]
 
 		o.Schemas = parseIdentifierList(s.Key("schemas").String())
 		o.ExcludedSchemas = parseIdentifierList(s.Key("exclude_schemas").String())

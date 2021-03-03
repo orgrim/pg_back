@@ -38,7 +38,7 @@ import (
 )
 
 func TestValidateDumpFormat(t *testing.T) {
-	var tests = []string{"pl", "plain", "c", "custom", "t", "tar", "d", "dir", "directory"}
+	var tests = []string{"p", "plain", "c", "custom", "t", "tar", "d", "directory"}
 
 	for i, st := range tests {
 		t.Run(fmt.Sprintf("%v", i), func(t *testing.T) {
@@ -48,7 +48,7 @@ func TestValidateDumpFormat(t *testing.T) {
 		})
 	}
 
-	tests = []string{"bad", "plaino"}
+	tests = []string{"bad", "plaino", "pl", "dir"}
 	for i, st := range tests {
 		t.Run(fmt.Sprintf("%v", i), func(t *testing.T) {
 			if err := validateDumpFormat(st); err == nil {
@@ -119,7 +119,7 @@ func TestValidatePurgeTimeLimitValue(t *testing.T) {
 func TestDefaultOptions(t *testing.T) {
 	var want = options{
 		Directory:     "/var/backups/postgresql",
-		Format:        "custom",
+		Format:        'c',
 		DirJobs:       1,
 		CompressLevel: -1,
 		Jobs:          1,
@@ -153,7 +153,7 @@ func TestParseCli(t *testing.T) {
 				options{
 					Directory:     "test",
 					Dbnames:       []string{"a", "b"},
-					Format:        "custom",
+					Format:        'c',
 					DirJobs:       1,
 					CompressLevel: 2,
 					Jobs:          1,
@@ -173,7 +173,7 @@ func TestParseCli(t *testing.T) {
 				options{
 					Directory:     "/var/backups/postgresql",
 					WithTemplates: false,
-					Format:        "custom",
+					Format:        'c',
 					DirJobs:       1,
 					CompressLevel: -1,
 					Jobs:          1,
@@ -269,7 +269,7 @@ func TestLoadConfigurationFile(t *testing.T) {
 			options{
 				Directory:     "test",
 				Port:          5433,
-				Format:        "custom",
+				Format:        'c',
 				DirJobs:       1,
 				CompressLevel: -1,
 				Jobs:          1,
@@ -287,7 +287,7 @@ func TestLoadConfigurationFile(t *testing.T) {
 			options{
 				Directory:     "test",
 				Dbnames:       []string{"a", "b", "postgres"},
-				Format:        "custom",
+				Format:        'c',
 				DirJobs:       1,
 				CompressLevel: 9,
 				Jobs:          1,
@@ -304,7 +304,7 @@ func TestLoadConfigurationFile(t *testing.T) {
 			false,
 			options{
 				Directory:     "/var/backups/postgresql",
-				Format:        "custom",
+				Format:        'c',
 				DirJobs:       1,
 				CompressLevel: -1,
 				Jobs:          1,
@@ -321,7 +321,7 @@ func TestLoadConfigurationFile(t *testing.T) {
 			false,
 			options{
 				Directory:     "/var/backups/postgresql",
-				Format:        "custom",
+				Format:        'c',
 				DirJobs:       1,
 				CompressLevel: -1,
 				Jobs:          1,
@@ -356,7 +356,7 @@ func TestLoadConfigurationFile(t *testing.T) {
 			false,
 			options{
 				Directory:     "test",
-				Format:        "custom",
+				Format:        'c',
 				DirJobs:       1,
 				CompressLevel: -1,
 				Jobs:          1,
@@ -368,7 +368,7 @@ func TestLoadConfigurationFile(t *testing.T) {
 				TimeFormat:    time.RFC3339,
 				PgDumpOpts:    []string{"-O", "-x"},
 				PerDbOpts: map[string]*dbOpts{"db": &dbOpts{
-					Format:        "custom",
+					Format:        'c',
 					SumAlgo:       "none",
 					Jobs:          2,
 					CompressLevel: 2,
@@ -393,7 +393,7 @@ func TestLoadConfigurationFile(t *testing.T) {
 			false,
 			options{
 				Directory:     "test",
-				Format:        "custom",
+				Format:        'c',
 				DirJobs:       1,
 				CompressLevel: 3,
 				Jobs:          1,
@@ -405,7 +405,7 @@ func TestLoadConfigurationFile(t *testing.T) {
 				TimeFormat:    time.RFC3339,
 				PgDumpOpts:    []string{"-O", "-x"},
 				PerDbOpts: map[string]*dbOpts{"db": &dbOpts{
-					Format:        "custom",
+					Format:        'c',
 					SumAlgo:       "none",
 					CompressLevel: 3,
 					Jobs:          2,
@@ -460,7 +460,7 @@ func TestMergeCliAndConfigoptions(t *testing.T) {
 		ExcludeDbs:    []string{"a", "b"},
 		Dbnames:       []string{"b", "c", "d"},
 		WithTemplates: true,
-		Format:        "dir",
+		Format:        'd',
 		DirJobs:       2,
 		CompressLevel: 4,
 		Jobs:          4,

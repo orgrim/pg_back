@@ -70,7 +70,7 @@ type dump struct {
 
 type dbOpts struct {
 	// Format of the dump
-	Format string
+	Format rune
 
 	// Algorithm of the checksum of the file, "none" is used to
 	// disable checksuming
@@ -383,19 +383,19 @@ func (d *dump) dump() error {
 	d.When = time.Now()
 
 	var fileEnd string
-	switch string([]rune(d.Options.Format)[0]) {
-	case "p":
+	switch d.Options.Format {
+	case 'p':
 		fileEnd = "sql"
-	case "c":
+	case 'c':
 		fileEnd = "dump"
-	case "t":
+	case 't':
 		fileEnd = "tar"
-	case "d":
+	case 'd':
 		fileEnd = "d"
 	}
 
 	file := formatDumpPath(d.Directory, d.TimeFormat, fileEnd, dbname, d.When)
-	formatOpt := fmt.Sprintf("-F%c", []rune(d.Options.Format)[0])
+	formatOpt := fmt.Sprintf("-F%c", d.Options.Format)
 
 	command := filepath.Join(binDir, "pg_dump")
 	args := []string{formatOpt, "-f", file}
@@ -434,7 +434,7 @@ func (d *dump) dump() error {
 
 	// Add compression level option only if not dumping in the plain format
 	if d.Options.CompressLevel >= 0 {
-		if []rune(d.Options.Format)[0] != 'p' && []rune(d.Options.Format)[0] != 't' {
+		if d.Options.Format != 'p' && d.Options.Format != 't' {
 			args = append(args, "-Z", fmt.Sprintf("%d", d.Options.CompressLevel))
 		} else {
 			l.Warnln("compression level is not supported by the target format")
