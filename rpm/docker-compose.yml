@@ -1,7 +1,0 @@
-version: "2"
-
-services:
-  rpmbuild:
-    image: rpmbuild/centos7
-    volumes:
-    - .:/srv
