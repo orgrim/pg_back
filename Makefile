@@ -1,7 +1,7 @@
 
-all: pg_goback
+all: pg_back
 
-pg_goback: *.go
+pg_back: *.go
 	go build -ldflags="-s -w" .
 
 test:
@@ -18,6 +18,6 @@ install:
 
 clean:
 	rm -rf test
-	-rm cover.out pg_goback
+	-rm cover.out pg_back
 
-.PHONY: all pg_goback test coverage coverage-html
+.PHONY: all pg_back test coverage coverage-html

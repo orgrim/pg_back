@@ -1,4 +1,4 @@
-// pg_goback
+// pg_back
 //
 // Copyright 2020-2021 Nicolas Thauvin. All rights reserved.
 //
@@ -38,9 +38,9 @@ import (
 	"time"
 )
 
-var defaultCfgFile = "/etc/pg_goback/pg_goback.conf"
+var defaultCfgFile = "/etc/pg_back/pg_back.conf"
 
-//go:embed pg_goback.conf
+//go:embed pg_back.conf
 var defaultCfg string
 
 // options struct holds command line and configuration file options
@@ -154,9 +154,9 @@ func parseCli(args []string) (options, []string, error) {
 	pce := &parseCliResult{}
 
 	pflag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "pg_goback dumps some PostgreSQL databases\n\n")
+		fmt.Fprintf(os.Stderr, "pg_back dumps some PostgreSQL databases\n\n")
 		fmt.Fprintf(os.Stderr, "Usage:\n")
-		fmt.Fprintf(os.Stderr, "  pg_goback [OPTION]... [DBNAME]...\n")
+		fmt.Fprintf(os.Stderr, "  pg_back [OPTION]... [DBNAME]...\n")
 		fmt.Fprintf(os.Stderr, "\nOptions:\n")
 		pflag.CommandLine.SortFlags = false
 		pflag.PrintDefaults()
@@ -217,7 +217,7 @@ func parseCli(args []string) (options, []string, error) {
 	}
 
 	if pce.ShowVersion {
-		fmt.Printf("pg_goback version %v\n", version)
+		fmt.Printf("pg_back version %v\n", version)
 		return opts, changed, pce
 	}
 

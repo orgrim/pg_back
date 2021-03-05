@@ -1,4 +1,4 @@
-// pg_goback
+// pg_back
 //
 // Copyright 2020-2021 Nicolas Thauvin. All rights reserved.
 //
@@ -236,8 +236,8 @@ func prepareConnInfo(host string, port int, username string, dbname string) stri
 	}
 
 	if !strings.Contains(conninfo, "application_name") {
-		l.Verboseln("using pg_goback as application_name")
-		conninfo += "application_name=pg_goback"
+		l.Verboseln("using pg_back as application_name")
+		conninfo += "application_name=pg_back"
 	}
 
 	return conninfo

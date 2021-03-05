@@ -1,4 +1,4 @@
-// pg_goback
+// pg_back
 //
 // Copyright 2020-2021 Nicolas Thauvin. All rights reserved.
 //

@@ -1,4 +1,4 @@
-// pg_goback
+// pg_back
 //
 // Copyright 2020-2021 Nicolas Thauvin. All rights reserved.
 //
@@ -127,7 +127,7 @@ func TestDefaultOptions(t *testing.T) {
 		PurgeInterval: -30 * 24 * time.Hour,
 		PurgeKeep:     0,
 		SumAlgo:       "none",
-		CfgFile:       "/etc/pg_goback/pg_goback.conf",
+		CfgFile:       "/etc/pg_back/pg_back.conf",
 		TimeFormat:    time.RFC3339,
 	}
 
@@ -161,7 +161,7 @@ func TestParseCli(t *testing.T) {
 					PurgeInterval: -30 * 24 * time.Hour,
 					PurgeKeep:     0,
 					SumAlgo:       "none",
-					CfgFile:       "/etc/pg_goback/pg_goback.conf",
+					CfgFile:       "/etc/pg_back/pg_back.conf",
 					TimeFormat:    time.RFC3339,
 				},
 				false,
@@ -181,7 +181,7 @@ func TestParseCli(t *testing.T) {
 					PurgeInterval: -30 * 24 * time.Hour,
 					PurgeKeep:     0,
 					SumAlgo:       "none",
-					CfgFile:       "/etc/pg_goback/pg_goback.conf",
+					CfgFile:       "/etc/pg_back/pg_back.conf",
 					TimeFormat:    time.RFC3339,
 				},
 				false,
@@ -277,7 +277,7 @@ func TestLoadConfigurationFile(t *testing.T) {
 				PurgeInterval: -30 * 24 * time.Hour,
 				PurgeKeep:     0,
 				SumAlgo:       "none",
-				CfgFile:       "/etc/pg_goback/pg_goback.conf",
+				CfgFile:       "/etc/pg_back/pg_back.conf",
 				TimeFormat:    time.RFC3339,
 			},
 		},
@@ -295,7 +295,7 @@ func TestLoadConfigurationFile(t *testing.T) {
 				PurgeInterval: -30 * 24 * time.Hour,
 				PurgeKeep:     0,
 				SumAlgo:       "none",
-				CfgFile:       "/etc/pg_goback/pg_goback.conf",
+				CfgFile:       "/etc/pg_back/pg_back.conf",
 				TimeFormat:    time.RFC3339,
 			},
 		},
@@ -312,7 +312,7 @@ func TestLoadConfigurationFile(t *testing.T) {
 				PurgeInterval: -30 * 24 * time.Hour,
 				PurgeKeep:     0,
 				SumAlgo:       "none",
-				CfgFile:       "/etc/pg_goback/pg_goback.conf",
+				CfgFile:       "/etc/pg_back/pg_back.conf",
 				TimeFormat:    time.RFC3339,
 			},
 		},
@@ -329,7 +329,7 @@ func TestLoadConfigurationFile(t *testing.T) {
 				PurgeInterval: -30 * 24 * time.Hour,
 				PurgeKeep:     0,
 				SumAlgo:       "none",
-				CfgFile:       "/etc/pg_goback/pg_goback.conf",
+				CfgFile:       "/etc/pg_back/pg_back.conf",
 				TimeFormat:    "2006-01-02_15-04-05",
 			},
 		},
@@ -364,7 +364,7 @@ func TestLoadConfigurationFile(t *testing.T) {
 				PurgeInterval: -30 * 24 * time.Hour,
 				PurgeKeep:     0,
 				SumAlgo:       "none",
-				CfgFile:       "/etc/pg_goback/pg_goback.conf",
+				CfgFile:       "/etc/pg_back/pg_back.conf",
 				TimeFormat:    time.RFC3339,
 				PgDumpOpts:    []string{"-O", "-x"},
 				PerDbOpts: map[string]*dbOpts{"db": &dbOpts{
@@ -401,7 +401,7 @@ func TestLoadConfigurationFile(t *testing.T) {
 				PurgeInterval: -30 * 24 * time.Hour,
 				PurgeKeep:     0,
 				SumAlgo:       "none",
-				CfgFile:       "/etc/pg_goback/pg_goback.conf",
+				CfgFile:       "/etc/pg_back/pg_back.conf",
 				TimeFormat:    time.RFC3339,
 				PgDumpOpts:    []string{"-O", "-x"},
 				PerDbOpts: map[string]*dbOpts{"db": &dbOpts{
@@ -470,7 +470,7 @@ func TestMergeCliAndConfigoptions(t *testing.T) {
 		SumAlgo:       "sha256",
 		PreHook:       "touch /tmp/pre-hook",
 		PostHook:      "touch /tmp/post-hook",
-		CfgFile:       "/etc/pg_goback/pg_goback.conf",
+		CfgFile:       "/etc/pg_back/pg_back.conf",
 		TimeFormat:    time.RFC3339,
 	}
 

@@ -1,4 +1,4 @@
-// pg_goback
+// pg_back
 //
 // Copyright 2020-2021 Nicolas Thauvin. All rights reserved.
 //
@@ -139,14 +139,14 @@ func TestPrepareConnInfo(t *testing.T) {
 		dbname   string
 		want     string
 	}{
-		{"/tmp", 0, "", "", "host=/tmp application_name=pg_goback"},
-		{"localhost", 5432, "postgres", "postgres", "host=localhost port=5432 user=postgres dbname=postgres application_name=pg_goback"},
-		{"localhost", 0, "postgres", "postgres", "host=localhost user=postgres dbname=postgres application_name=pg_goback"},
-		{"localhost", 5432, "", "postgres", "host=localhost port=5432 dbname=postgres application_name=pg_goback"},
-		{"localhost", 5432, "postgres", "", "host=localhost port=5432 user=postgres application_name=pg_goback"},
-		{"localhost", 0, "postgres", "", "host=localhost user=postgres application_name=pg_goback"},
-		{"", 0, "postgres", "", "host=/tmp user=postgres application_name=pg_goback"},
-		{"localhost", 0, "postgres", "host=/tmp port=5432", "host=/tmp port=5432 application_name=pg_goback"},
+		{"/tmp", 0, "", "", "host=/tmp application_name=pg_back"},
+		{"localhost", 5432, "postgres", "postgres", "host=localhost port=5432 user=postgres dbname=postgres application_name=pg_back"},
+		{"localhost", 0, "postgres", "postgres", "host=localhost user=postgres dbname=postgres application_name=pg_back"},
+		{"localhost", 5432, "", "postgres", "host=localhost port=5432 dbname=postgres application_name=pg_back"},
+		{"localhost", 5432, "postgres", "", "host=localhost port=5432 user=postgres application_name=pg_back"},
+		{"localhost", 0, "postgres", "", "host=localhost user=postgres application_name=pg_back"},
+		{"", 0, "postgres", "", "host=/tmp user=postgres application_name=pg_back"},
+		{"localhost", 0, "postgres", "host=/tmp port=5432", "host=/tmp port=5432 application_name=pg_back"},
 	}
 
 	for i, subt := range tests {

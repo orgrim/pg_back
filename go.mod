@@ -1,4 +1,4 @@
-module github.com/orgrim/pg_goback
+module github.com/orgrim/pg_back
 
 go 1.16
 

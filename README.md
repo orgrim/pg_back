@@ -1,12 +1,12 @@
-# pg_goback dumps databases from PostgreSQL
+# pg_back dumps databases from PostgreSQL
 
 ## Description
 
-pg_goback is a dump tool for PostgreSQL. The goal is to dump all or some
+pg_back is a dump tool for PostgreSQL. The goal is to dump all or some
 databases with globals at once in the format you want, because a simple call to
 pg_dumpall only dumps databases in the plain SQL format.
 
-Behind the scene, pg_goback uses pg_dumpall to dump roles and tablespaces
+Behind the scene, pg_back uses pg_dumpall to dump roles and tablespaces
 definitions, pg_dump to dump all or each selected database to a separate file
 in the custom format. It also extract database level ACL and configuration that
 is not dumped by pg_dump older than 11. Finally, it dumps all configuration
@@ -28,7 +28,7 @@ options of the PostgreSQL instance.
 ## Install
 
 ```
-go get -u github.com/orgrim/pg_goback
+go get -u github.com/orgrim/pg_back
 ```
 
 Use `make` to build and install from source as an alternative.
@@ -104,7 +104,7 @@ post backup hook is executed when present.
 ## Managing the configuration file
 
 Give the path of the v1 configuration file to the `--convert-legacy-config`
-command line option, and pg_goback will try its best to convert it to the v2
+command line option, and pg_back will try its best to convert it to the v2
 format.
 
 The default configuration file can be printed with the `--print-default-config`
@@ -135,5 +135,5 @@ Please use the issues and pull requests features from Github.
 
 PostgreSQL - See [LICENSE][license] file
 
-[license]: https://github.com/orgrim/pg_goback/blob/master/LICENSE
+[license]: https://github.com/orgrim/pg_back/blob/master/LICENSE
 [pg_dump]: https://www.postgresql.org/docs/current/app-pgdump.html
