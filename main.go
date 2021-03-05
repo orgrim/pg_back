@@ -36,7 +36,7 @@ import (
 	"time"
 )
 
-var version = "0.0.1"
+var version = "2.0.0-dev"
 var binDir string
 
 type dump struct {
