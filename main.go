@@ -454,9 +454,22 @@ func (d *dump) dump() error {
 			args = append(args, "-d", makeConnInfo(infos))
 		}
 	} else {
-		appendConnectionOptions(&args, d.Host, d.Port, d.Username)
-		// Finally the name of the database
-		args = append(args, dbname)
+		// Always pass a connstring to pg_dump, databases names with
+		// unusual characters are better handled this way (e.g. names
+		// containing spaces, equals sign, etc.)
+		infos := make(map[string]string, 0)
+
+		if d.Host != "" {
+			infos["host"] = d.Host
+		}
+		if d.Port != 0 {
+			infos["port"] = fmt.Sprintf("%d", d.Port)
+		}
+		if d.Username != "" {
+			infos["user"] = d.Username
+		}
+		infos["dbname"] = dbname
+		args = append(args, "-d", makeConnInfo(infos))
 	}
 
 	pgDumpCmd := exec.Command(command, args...)
@@ -513,18 +526,6 @@ func dumper(id int, jobs <-chan *dump, results chan<- *dump) {
 			l.Infoln("dump of", j.Database, "to", j.Path, "done")
 			results <- j
 		}
-	}
-}
-
-func appendConnectionOptions(args *[]string, host string, port int, username string) {
-	if host != "" {
-		*args = append(*args, "-h", host)
-	}
-	if port != 0 {
-		*args = append(*args, "-p", fmt.Sprintf("%v", port))
-	}
-	if username != "" {
-		*args = append(*args, "-U", username)
 	}
 }
 
@@ -586,7 +587,16 @@ func dumpGlobals(dir string, timeFormat string, host string, port int, username 
 			args = append(args, "-l", dbname)
 		}
 	} else {
-		appendConnectionOptions(&args, host, port, username)
+
+		if host != "" {
+			args = append(args, "-h", host)
+		}
+		if port != 0 {
+			args = append(args, "-p", fmt.Sprintf("%v", port))
+		}
+		if username != "" {
+			args = append(args, "-U", username)
+		}
 		if connDb != "" {
 			args = append(args, "-l", connDb)
 		}
