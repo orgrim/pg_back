@@ -31,7 +31,14 @@ options of the PostgreSQL instance.
 go get -u github.com/orgrim/pg_back
 ```
 
-Use `make` to build and install from source as an alternative.
+Use `make` to build and install from source.
+
+As an alternative, the following *docker* comman, downloads, compiles `pg_back`
+and put it in the current directory:
+
+```
+docker run --rm -v "$PWD":/go/bin golang:1.16 go get github.com/orgrim/pg_back
+```
 
 ## Usage
 
