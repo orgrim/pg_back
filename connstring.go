@@ -189,8 +189,9 @@ func makeConnInfo(infos map[string]string) string {
 		value := strings.ReplaceAll(infos[k], "\\", "\\\\")
 		value = strings.ReplaceAll(value, "'", "\\'")
 
-		// empty values or values containing space must be single quoted
-		if len(infos[k]) == 0 || strings.ContainsAny(infos[k], "\t\n\v\f\r ") {
+		// empty values or values containing space, the equal sign or single quotes
+		// must be single quoted
+		if len(infos[k]) == 0 || strings.ContainsAny(infos[k], "\t\n\v\f\r ='") {
 			value = "'" + value + "'"
 		}
 
