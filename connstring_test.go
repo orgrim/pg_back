@@ -117,7 +117,7 @@ func TestMakeConnInfo(t *testing.T) {
 	}{
 		{
 			map[string]string{"host": "/tmp", "port": "5432", "dbname": "ab c'd", "password": "jE'r\\m"},
-			`dbname='ab c\'d' host=/tmp password=jE\'r\\m port=5432`,
+			`dbname='ab c\'d' host=/tmp password='jE\'r\\m' port=5432`,
 		},
 	}
 
