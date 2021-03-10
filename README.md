@@ -33,8 +33,8 @@ go get -u github.com/orgrim/pg_back
 
 Use `make` to build and install from source.
 
-As an alternative, the following *docker* comman, downloads, compiles and put `pg_back`
-and in the current directory:
+As an alternative, the following *docker* command downloads, compiles and put `pg_back`
+in the current directory:
 
 ```
 docker run --rm -v "$PWD":/go/bin golang:1.16 go get github.com/orgrim/pg_back
