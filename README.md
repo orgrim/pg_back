@@ -124,10 +124,17 @@ The previous v1 configuration files are not compatible with pg_back v2.
 
 Give the path of the v1 configuration file to the `--convert-legacy-config`
 command line option, and pg_back will try its best to convert it to the v2
-format. Redirect the output to the new configuration file.
+format. Redirect the output to the new configuration file:
+
+```
+pg_back --convert-legacy-config  pg_back1.conf > pg_back2.conf
+```
 
 The default configuration file can be printed with the `--print-default-config`
 command line option.
+
+On some environments (especially Debian), you may have to add `host = /var/run/postgresql`
+to override the default `/tmp` host.
 
 ## Testing
 
