@@ -6,8 +6,8 @@ pg_back is a dump tool for PostgreSQL. The goal is to dump all or some
 databases with globals at once in the format you want, because a simple call to
 pg_dumpall only dumps databases in the plain SQL format.
 
-Behind the scene, pg_back uses pg_dumpall to dump roles and tablespaces
-definitions, pg_dump to dump all or each selected database to a separate file
+Behind the scene, pg_back uses `pg_dumpall` to dump roles and tablespaces
+definitions, `pg_dump` to dump all or each selected database to a separate file
 in the custom format. It also extract database level ACL and configuration that
 is not dumped by pg_dump older than 11. Finally, it dumps all configuration
 options of the PostgreSQL instance.
@@ -27,29 +27,37 @@ options of the PostgreSQL instance.
 
 ## Install
 
+A compiled binary is available from the [Github repository](https://github.com/orgrim/pg_back/releases).
+
+The binary only needs `pg_dumpall` and `pg_dump`.
+
+## Install from source
+
 ```
 go get -u github.com/orgrim/pg_back
 ```
 
-Use `make` to build and install from source.
+Use `make` to build and install from source (you need go 1.16 or above).
 
-As an alternative, the following *docker* command downloads, compiles and put `pg_back`
+As an alternative, the following *docker* command downloads, compiles and puts `pg_back`
 in the current directory:
 
 ```
 docker run --rm -v "$PWD":/go/bin golang:1.16 go get github.com/orgrim/pg_back
 ```
 
-The binary only needs `pg_dumpall` and `pg_dump`.
-
 ## Usage
 
 Use the `--help` or `-?` to print the list of available options. To dump all
-database, you only need to give the proper connection options to the PostgreSQL
+databases, you only need to give the proper connection options to the PostgreSQL
 instance and the path to a writable directory to store the dump files.
 
-The defaut output directory `/var/backups/postgresql` may not exists or have
-the proper ownership for you user, use `-b` to give the path where to store the
+If default and command line options are not enough, a configuration file
+may be provided with `-c <configfilename>`.
+(Note: see below to convert configuration files from version 1.)
+
+If the default output directory `/var/backups/postgresql` does not exist or has
+improper ownership for your user, use `-b` to give the path where to store the
 files. The path may contain the `{dbname}` keyword, that would be replaced by
 the name of the database being dumped, this permits to dump.
 
@@ -58,13 +66,13 @@ need less known connection options such as `sslcert` and `sslkey`, you can give
 a `keyword=value` libpq connection string like `pg_dump` and `pg_dumpall`
 accept with their `-d` option.
 
-The others command line options let you tweak what is dumped, purged, and how
-it is done. These options can be put in a configuration file. The command lien
+The other command line options let you tweak what is dumped, purged, and how
+it is done. These options can be put in a configuration file. The command line
 options override configuration options.
 
 Per-database configuration can only be done with a configuration file. The
-configuration file uses the ini format, global options are in a unspecified
-section at the top of the file and database specific options are in a section
+configuration file uses the `ini` format, global options are in a unspecified
+section at the top of the file, and database specific options are in a section
 named after the database. Per database options override global options of the
 configuration file.
 
@@ -78,7 +86,7 @@ templates are dumped. To include templates, use `--with-templates` (`-T`), if
 templates are includes from the configuration file, `--without-templates` force
 exclude them.
 
-Databases can be excluded with --exclude-dbs (-D), it is a comma separated list
+Databases can be excluded with `--exclude-dbs` (`-D`), which is a comma separated list
 of database names. If a database is listed on the command line and part of
 exclusion list, exclusion wins.
 
@@ -102,19 +110,21 @@ A number of dump files to keep when purging can also be specified with
 `--purge-min-keep` (`-K`) with the special value `all` to keep everything, thus
 avoiding file removal completly. When both `--purge-older-than` and
 `--purge-min-keep` are used, the minimum number of dumps to keep is enforced
-before old dumps are removed. This avoid remove all dumps when the time
+before old dumps are removed. This avoids removing all dumps when the time
 interval is too small.
 
 A command can be run before taking dumps with `--pre-backup-hook`, and after
-with `--post-backup-hook`. The command are executed directly, not by a shell,
+with `--post-backup-hook`. The commands are executed directly, not by a shell,
 respecting single and double quoted values. Even if some operation fails, the
 post backup hook is executed when present.
 
 ## Managing the configuration file
 
+The previous v1 configuration files are not compatible with pg_back v2.
+
 Give the path of the v1 configuration file to the `--convert-legacy-config`
 command line option, and pg_back will try its best to convert it to the v2
-format.
+format. Redirect the output to the new configuration file.
 
 The default configuration file can be printed with the `--print-default-config`
 command line option.
