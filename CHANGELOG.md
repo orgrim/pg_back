@@ -3,6 +3,7 @@
 ## pg_back 2.0.1
 
 * Use /var/run/postgresql as default host for connections
+* Support Windows
 
 ## pg_back 2.0.0
 
