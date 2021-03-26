@@ -145,7 +145,7 @@ func TestPrepareConnInfo(t *testing.T) {
 		{"localhost", 5432, "", "postgres", "host=localhost port=5432 dbname=postgres application_name=pg_back"},
 		{"localhost", 5432, "postgres", "", "host=localhost port=5432 user=postgres application_name=pg_back"},
 		{"localhost", 0, "postgres", "", "host=localhost user=postgres application_name=pg_back"},
-		{"", 0, "postgres", "", "host=/tmp user=postgres application_name=pg_back"},
+		{"", 0, "postgres", "", "host=/var/run/postgresql user=postgres application_name=pg_back"},
 		{"localhost", 0, "postgres", "host=/tmp port=5432", "host=/tmp port=5432 application_name=pg_back"},
 	}
 

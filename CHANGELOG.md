@@ -1,5 +1,9 @@
 # Changelog
 
+## pg_back 2.0.1
+
+* Use /var/run/postgresql as default host for connections
+
 ## pg_back 2.0.0
 
 * Full rewrite in Go
