@@ -1,0 +1,68 @@
+# .goreleaser.yml created by: goreleaser version 0.156.2
+# Documentation at http://goreleaser.com
+before:
+  hooks:
+    # You may remove this if you don't use go modules.
+    - go mod download
+builds:
+  - env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - windows
+      - darwin
+archives:
+  - replacements:
+      darwin: Darwin
+      linux: Linux
+      windows: Windows
+      386: i386
+      amd64: x86_64
+    format_overrides:
+      - goos: windows
+        format: zip
+checksum:
+  name_template: 'checksums.txt'
+snapshot:
+  name_template: "dev-{{.Commit}}"
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+source:
+  enabled: true
+nfpms:
+  - homepage: https://github.com/orgrim/pg_back/
+    maintainer: Nicolas Thauvin <nico@orgrim.net>
+    description: |
+      pg_back uses pg_dumpall to dump roles and tablespaces, pg_dump to dump
+      each selected database to a separate file. The custom format of pg_dump
+      is used by default.
+    license: PostgreSQL
+    formats:
+      - deb
+      - rpm
+    bindir: /usr/bin
+    contents:
+      - src: pg_back.conf
+        dst: /etc/pg_back/pg_back.conf
+        type: "config|noreplace"
+    overrides:
+      deb:
+        dependencies:
+          - postgresql-client
+      rpm:
+        replacements:
+          amd64: x86_64
+        file_name_template: "{{ .ProjectName }}-{{ .Version }}-{{ .Arch }}"
+        dependencies:
+          - postgresql
+    rpm:
+      summary: pg_back dumps databases from PostgreSQL
+      group: Applications/Databases
+signs:
+  - signature: "${artifact}.asc"
+    args: ["-u", "nico@orgrim.net", "-o", "${signature}", "-a", "-b", "${artifact}"]
+    artifacts: checksum
