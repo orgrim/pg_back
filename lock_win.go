@@ -23,40 +23,36 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
 // THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-// +build !windows
+// +build windows
 
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
-	"syscall"
 )
 
-// lockPath open and try to lock a file with a non-blocking exclusive
-// lock. return the open file, which must be held open to keep the
-// lock, wether it could be locked and a potentiel error.
+// lockPath on windows just creates a file without locking, it only tests if
+// the file exist to consider it locked
 func lockPath(path string) (*os.File, bool, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return nil, false, err
 	}
 
+	info, err := os.Stat(path)
+	if err == nil {
+		if info.IsDir() {
+			return nil, false, &os.PathError{Op: "stat", Path: path, Err: fmt.Errorf("unexpected directory")}
+		}
+		return nil, false, err
+	}
+
+	l.Verboseln("creating lock file", path)
 	f, err := os.Create(path)
 	if err != nil {
 		return nil, false, err
 	}
-
-	l.Verboseln("locking", path, "with flock()")
-	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
-		switch err {
-		case syscall.EWOULDBLOCK:
-			return f, false, nil
-		default:
-			f.Close()
-			return nil, false, err
-		}
-	}
-
 	return f, true, nil
 }
 
@@ -64,11 +60,7 @@ func lockPath(path string) (*os.File, bool, error) {
 // underlying path
 func unlockPath(f *os.File) error {
 	path := f.Name()
-	l.Verboseln("unlocking", path, "with flock()")
-	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_UN); err != nil {
-		return err
-	}
-
+	l.Verboseln("removing lock file", path)
 	f.Close()
 	return os.Remove(path)
 }
