@@ -27,15 +27,162 @@ package main
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"sort"
 	"strings"
 	"unicode"
 )
 
-// parseConnInfo parses and converts a key=value connection string of
+const (
+	CI_KEYVAL int = iota
+	CI_URI
+)
+
+type ConnInfo struct {
+	Kind  int // See CI_* constants
+	Infos map[string]string
+}
+
+func parseConnInfo(connstring string) (*ConnInfo, error) {
+	c := ConnInfo{}
+
+	if strings.HasPrefix(connstring, "postgresql://") {
+		c.Kind = CI_URI
+		i, err := parseUrlConnInfo(connstring)
+		if err != nil {
+			return nil, err
+		}
+		c.Infos = i
+		return &c, nil
+	}
+
+	if strings.Contains(connstring, "=") {
+		c.Kind = CI_KEYVAL
+		i, err := parseKeywordConnInfo(connstring)
+		if err != nil {
+			return nil, err
+		}
+		c.Infos = i
+		return &c, nil
+	}
+
+	return nil, fmt.Errorf("parseConnInfo: invalid input connection string")
+}
+
+func (c *ConnInfo) String() string {
+	switch c.Kind {
+	case CI_KEYVAL:
+		return makeKeywordConnInfo(c.Infos)
+	case CI_URI:
+		return makeUrlConnInfo(c.Infos)
+	}
+
+	return ""
+}
+
+func (c *ConnInfo) Copy() *ConnInfo {
+	newC := ConnInfo{
+		Kind:  c.Kind,
+		Infos: make(map[string]string, len(c.Infos)),
+	}
+
+	for k, v := range c.Infos {
+		newC.Infos[k] = v
+	}
+
+	return &newC
+}
+
+// Set returns a pointer to a full copy of the conninfo with the key added or
+// the value updated
+func (c *ConnInfo) Set(keyword, value string) *ConnInfo {
+	newC := c.Copy()
+	newC.Infos[keyword] = value
+
+	return newC
+}
+
+// Del returns a pointer to a full copy of the conninfo with the key removed
+func (c *ConnInfo) Del(keyword string) *ConnInfo {
+	newC := c.Copy()
+	delete(newC.Infos, keyword)
+
+	return newC
+}
+
+func parseUrlConnInfo(connstring string) (map[string]string, error) {
+	u, err := url.Parse(connstring)
+	if err != nil {
+		return nil, fmt.Errorf("parsing of URI conninfo failed: %w", err)
+	}
+
+	connInfo := make(map[string]string, 0)
+	if u.Host != "" {
+		fullHosts := strings.Split(u.Host, ",")
+		if len(fullHosts) == 1 {
+			v := u.Hostname()
+			if v != "" {
+				connInfo["host"] = v
+			}
+			v = u.Port()
+			if v != "" {
+				connInfo["port"] = v
+			}
+		} else {
+			// We need to split and group hosts and ports
+			// ourselves, net/url does not handle multiple hosts
+			// correctly
+			hosts := make([]string, 0)
+			ports := make([]string, 0)
+			for _, fullHost := range fullHosts {
+				hostPort := make([]string, 0)
+				if strings.HasPrefix(fullHost, "[") {
+					// Handle literal IPv6 addresses
+					hostPort = strings.Split(strings.TrimPrefix(fullHost, "["), "]:")
+				} else {
+					hostPort = strings.Split(fullHost, ":")
+				}
+				if len(hostPort) == 1 {
+					hosts = append(hosts, strings.Trim(hostPort[0], "[]"))
+				} else {
+					hosts = append(hosts, strings.Trim(hostPort[0], "[]"))
+					ports = append(ports, hostPort[1])
+				}
+			}
+			connInfo["host"] = strings.Join(hosts, ",")
+			connInfo["port"] = strings.Join(ports, ",")
+		}
+	}
+
+	user := u.User.Username()
+	if user != "" {
+		connInfo["user"] = user
+	}
+
+	password, set := u.User.Password()
+	if password != "" && set {
+		connInfo["password"] = password
+	}
+
+	dbname := strings.TrimPrefix(u.Path, "/")
+	if dbname != "" {
+		connInfo["dbname"] = dbname
+	}
+
+	for k, vs := range u.Query() {
+		if k == "" {
+			continue
+		}
+		connInfo[k] = strings.Join(vs, ",")
+	}
+
+	return connInfo, nil
+}
+
+// parseKeywordConnInfo parses and converts a key=value connection string of
 // PostgreSQL into a map
-func parseConnInfo(connstring string) (map[string]string, error) {
+func parseKeywordConnInfo(connstring string) (map[string]string, error) {
 
 	// Structure to hold the state of the parsing
 	s := struct {
@@ -173,7 +320,7 @@ func parseConnInfo(connstring string) (map[string]string, error) {
 	return pairs, nil
 }
 
-func makeConnInfo(infos map[string]string) string {
+func makeKeywordConnInfo(infos map[string]string) string {
 	conninfo := ""
 
 	// Map keys are randomized, sort them so that the output is always the
@@ -204,42 +351,148 @@ func makeConnInfo(infos map[string]string) string {
 	return conninfo
 }
 
-func prepareConnInfo(host string, port int, username string, dbname string) string {
-	var conninfo string
+func makeUrlConnInfo(infos map[string]string) string {
+	u := &url.URL{
+		Scheme: "postgresql",
+	}
 
-	// dbname may be a connstring. The database name option, usually -d for
-	// PostgreSQL binaires accept a connection string. We do a simple check
-	// for a = sign. If someone has a database name containing a space, one
-	// can still dump it by giving us connstring.
-	if strings.Contains(dbname, "=") {
-		conninfo = fmt.Sprintf("%v ", dbname)
+	// create user info
+	username, hasUser := infos["user"]
+	pass, hasPass := infos["password"]
+
+	var user *url.Userinfo
+	if hasPass {
+		user = url.UserPassword(username, pass)
+	} else if hasUser {
+		user = url.User(username)
+	}
+	u.User = user
+
+	// Manage host:port list with commas. When the hosts is a unix socket
+	// directory, do not set the Host field of the url because it won't be
+	// percent encoded, use the query part instead
+	if !strings.Contains(infos["host"], "/") {
+		hosts := strings.Split(infos["host"], ",")
+		ports := strings.Split(infos["port"], ",")
+
+		// Ensure we have lists of the same size to build host:port in a loop
+		if len(hosts) > len(ports) {
+			if len(ports) == 1 {
+				// same non default port for all hosts, duplicate it
+				// for the next loop
+				if ports[0] != "" {
+					for i := 0; i < len(hosts); i++ {
+						ports = append(ports, ports[0])
+					}
+				}
+			} else {
+				// fill with empty port to fix the list
+				for i := 0; i < len(hosts); i++ {
+					ports = append(ports, "")
+				}
+			}
+		}
+
+		hostnames := make([]string, 0, len(hosts))
+
+		for i, host := range hosts {
+			// Take care of IPv6 addresses
+			if strings.Contains(host, ":") && !strings.HasPrefix(host, "[") {
+				host = "[" + host + "]"
+			}
+
+			if ports[i] != "" {
+				hostnames = append(hostnames, host+":"+ports[i])
+			} else {
+				hostnames = append(hostnames, host)
+			}
+		}
+
+		u.Host = strings.Join(hostnames, ",")
+	}
+
+	// dbname
+	u.Path = "/" + infos["dbname"]
+	u.RawPath = "/" + url.PathEscape(infos["dbname"])
+
+	// compute query
+	query := url.Values{}
+	needPort := false
+
+	// Sort keys so that host comes before port and we can add port to the
+	// query when we are forced to add host to the query (unix socket
+	// directory) in the next loop
+	keys := make([]string, 0, len(infos))
+	for k := range infos {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	for _, k := range keys {
+		if k == "host" && strings.Contains(infos[k], "/") || k == "port" && needPort {
+			needPort = true
+			query.Set(k, infos[k])
+			continue
+		}
+
+		if k != "host" && k != "port" && k != "user" && k != "password" && k != "dbname" {
+			query.Set(k, infos[k])
+		}
+	}
+	u.RawQuery = query.Encode()
+
+	return u.String()
+}
+
+// prepareConnInfo returns a connexion string computed from the input
+// values. When the dbname is already a connection string or a postgresql://
+// URI, it only add the application_name keyword if not set.
+func prepareConnInfo(host string, port int, username string, dbname string) (*ConnInfo, error) {
+	var (
+		conninfo *ConnInfo
+		err      error
+	)
+
+	// dbname may be a connstring or a URI. The database name option,
+	// usually -d for PostgreSQL binaires accept a connection string and
+	// URIs. We do a simple check for a = sign or the postgresql scheme. If
+	// someone has a database name containing a space, one can still dump
+	// it by giving us connstring.
+	if strings.HasPrefix(dbname, "postgresql://") || strings.Contains(dbname, "=") {
+		conninfo, err = parseConnInfo(dbname)
+		if err != nil {
+			return nil, err
+		}
 	} else {
+		conninfo = &ConnInfo{
+			Infos: make(map[string]string),
+		}
 
 		if host != "" {
-			conninfo += fmt.Sprintf("host=%v ", host)
+			conninfo.Infos["host"] = host
 		} else {
 			// driver lib/pq defaults to localhost for the host, so
 			// we have to check PGHOST and fallback to the unix
 			// socket directory to avoid overriding PGHOST
 			if _, ok := os.LookupEnv("PGHOST"); !ok {
-				conninfo += "host=/var/run/postgresql "
+				conninfo.Infos["host"] = "/var/run/postgresql"
 			}
 		}
 		if port != 0 {
-			conninfo += fmt.Sprintf("port=%v ", port)
+			conninfo.Infos["port"] = fmt.Sprintf("%v", port)
 		}
 		if username != "" {
-			conninfo += fmt.Sprintf("user=%v ", username)
+			conninfo.Infos["user"] = username
 		}
 		if dbname != "" {
-			conninfo += fmt.Sprintf("dbname=%v ", dbname)
+			conninfo.Infos["dbname"] = dbname
 		}
 	}
 
-	if !strings.Contains(conninfo, "application_name") {
+	if _, ok := conninfo.Infos["application_name"]; !ok {
 		l.Verboseln("using pg_back as application_name")
-		conninfo += "application_name=pg_back"
+		conninfo.Infos["application_name"] = "pg_back"
 	}
 
-	return conninfo
+	return conninfo, nil
 }
