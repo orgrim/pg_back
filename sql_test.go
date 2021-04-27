@@ -45,8 +45,11 @@ func needPgConn(t *testing.T) {
 	}
 
 	if testdb == nil {
-		var err error
-		testdb, err = dbOpen(os.Getenv("PGBK_TEST_CONNINFO"))
+		conninfo, err := parseConnInfo(os.Getenv("PGBK_TEST_CONNINFO"))
+		if err != nil {
+			t.Fatalf("unable to parse PGBK_TEST_CONNINFO: %s", err)
+		}
+		testdb, err = dbOpen(conninfo)
 		if err != nil {
 			t.Fatalf("expected an ok on dbOpen(), got %s", err)
 		}
@@ -136,7 +139,10 @@ func TestDbOpen(t *testing.T) {
 		t.Skip("testing with PostgreSQL disabled")
 	}
 
-	conninfo := os.Getenv("PGBK_TEST_CONNINFO")
+	conninfo, err := parseConnInfo(os.Getenv("PGBK_TEST_CONNINFO"))
+	if err != nil {
+		t.Fatalf("unable to parse PGBK_TEST_CONNINFO: %s", err)
+	}
 	db, err := dbOpen(conninfo)
 	if err != nil {
 		t.Fatalf("expected an ok on dbOpen(), got %s", err)

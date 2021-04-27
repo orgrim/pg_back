@@ -53,10 +53,10 @@ func pgGetVersionNum(db *sql.DB) (int, error) {
 	return version, nil
 }
 
-func dbOpen(conninfo string) (*pg, error) {
-
-	l.Verboseln("connecting to PostgreSQL with: \"", conninfo, "\"")
-	db, err := sql.Open("postgres", conninfo)
+func dbOpen(conninfo *ConnInfo) (*pg, error) {
+	connstr := conninfo.String()
+	l.Verbosef("connecting to PostgreSQL with: \"%s\"", connstr)
+	db, err := sql.Open("postgres", connstr)
 	if err != nil {
 		return nil, fmt.Errorf("could not open database: %s", err)
 	}

@@ -58,10 +58,7 @@ type dump struct {
 	TimeFormat string
 
 	// Connection parameters
-	Host       string
-	Port       int
-	Username   string
-	ConnString string
+	ConnString *ConnInfo
 
 	// Result
 	When     time.Time
@@ -153,20 +150,25 @@ func main() {
 		binDir = opts.BinDirectory
 	}
 
+	// Parse the connection information
+	l.Verboseln("processing input connection parameters")
+	conninfo, err := prepareConnInfo(opts.Host, opts.Port, opts.Username, opts.ConnDb)
+	if err != nil {
+		l.Fatalln("could not compute connection string:", err)
+		os.Exit(1)
+	}
+
 	if err := preBackupHook(opts.PreHook); err != nil {
 		postBackupHook(opts.PostHook)
 		os.Exit(1)
 	}
 
 	l.Infoln("dumping globals")
-	if err := dumpGlobals(opts.Directory, opts.TimeFormat, opts.Host,
-		opts.Port, opts.Username, opts.ConnDb); err != nil {
+	if err := dumpGlobals(opts.Directory, opts.TimeFormat, conninfo); err != nil {
 		l.Fatalln("pg_dumpall -g failed:", err)
 		postBackupHook(opts.PostHook)
 		os.Exit(1)
 	}
-
-	conninfo := prepareConnInfo(opts.Host, opts.Port, opts.Username, opts.ConnDb)
 
 	db, err := dbOpen(conninfo)
 	if err != nil {
@@ -224,20 +226,16 @@ func main() {
 		if !found {
 			o = defDbOpts
 		}
+
 		d := &dump{
 			Database:   dbname,
 			Options:    o,
 			Directory:  opts.Directory,
 			TimeFormat: opts.TimeFormat,
-			Host:       opts.Host,
-			Port:       opts.Port,
-			Username:   opts.Username,
+			ConnString: conninfo,
 			ExitCode:   -1,
 		}
 
-		if strings.Contains(opts.ConnDb, "=") {
-			d.ConnString = opts.ConnDb
-		}
 		l.Verbosef("sending dump job for database %s to worker pool", dbname)
 		jobs <- d
 	}
@@ -445,32 +443,10 @@ func (d *dump) dump() error {
 		args = append(args, d.Options.PgDumpOpts...)
 	}
 
-	// Connection option a passed in as options or a connstring
-	if len(d.ConnString) > 0 {
-		if infos, err := parseConnInfo(d.ConnString); err != nil {
-			return fmt.Errorf("cannot parse connstring: %w", err)
-		} else {
-			infos["dbname"] = dbname
-			args = append(args, "-d", makeConnInfo(infos))
-		}
-	} else {
-		// Always pass a connstring to pg_dump, databases names with
-		// unusual characters are better handled this way (e.g. names
-		// containing spaces, equals sign, etc.)
-		infos := make(map[string]string, 0)
-
-		if d.Host != "" {
-			infos["host"] = d.Host
-		}
-		if d.Port != 0 {
-			infos["port"] = fmt.Sprintf("%d", d.Port)
-		}
-		if d.Username != "" {
-			infos["user"] = d.Username
-		}
-		infos["dbname"] = dbname
-		args = append(args, "-d", makeConnInfo(infos))
-	}
+	// Connection option are passed as a connstring even if we add options
+	// on the command line
+	conninfo := d.ConnString.Set("dbname", dbname)
+	args = append(args, "-d", conninfo.String())
 
 	pgDumpCmd := exec.Command(command, args...)
 	l.Verboseln("running:", pgDumpCmd)
@@ -568,39 +544,17 @@ func pgDumpVersion() int {
 	return (maj*100+min)*100 + rev
 }
 
-func dumpGlobals(dir string, timeFormat string, host string, port int, username string, connDb string) error {
+func dumpGlobals(dir string, timeFormat string, conninfo *ConnInfo) error {
 	command := filepath.Join(binDir, "pg_dumpall")
 	args := []string{"-g"}
 
-	// When connDb is a connstring use it instead of other
-	// options. pg_dumpall does the same
-	if strings.Contains(connDb, "=") {
-		args = append(args, "-d", connDb)
-
-		// pg_dumpall only connects to another database if it is given
-		// with the -l option
-		infos, err := parseConnInfo(connDb)
-		if err != nil {
-			return err
-		}
-		if dbname, ok := infos["dbname"]; ok {
-			args = append(args, "-l", dbname)
-		}
-	} else {
-
-		if host != "" {
-			args = append(args, "-h", host)
-		}
-		if port != 0 {
-			args = append(args, "-p", fmt.Sprintf("%v", port))
-		}
-		if username != "" {
-			args = append(args, "-U", username)
-		}
-		if connDb != "" {
-			args = append(args, "-l", connDb)
-		}
+	// pg_dumpall only connects to another database if it is given
+	// with the -l option
+	if dbname, ok := conninfo.Infos["dbname"]; ok {
+		args = append(args, "-l", dbname)
 	}
+
+	args = append(args, "-d", conninfo.String())
 
 	file := formatDumpPath(dir, timeFormat, "sql", "pg_globals", time.Now())
 	args = append(args, "-f", file)
