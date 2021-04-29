@@ -30,6 +30,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/lib/pq"
+	"os"
 	"strings"
 	"time"
 )
@@ -54,7 +55,20 @@ func pgGetVersionNum(db *sql.DB) (int, error) {
 }
 
 func dbOpen(conninfo *ConnInfo) (*pg, error) {
-	connstr := conninfo.String()
+	// Workaround the limitation of lib/pq that cannot use the passfile
+	// keyword and find the default pgpass.conf file on Windows, by setting
+	// the PGPASSFILE environment variable. It parses the file but without
+	// expanding variables in the path given in PGPASSFILE.
+	if passfile, ok := conninfo.Infos["passfile"]; ok {
+		if err := os.Setenv("PGPASSFILE", passfile); err != nil {
+			l.Warnln("could not set PGPASSFILE environment variable:", err)
+		}
+	}
+
+	// lib/pq does not like the passfile keyword either.
+	c := conninfo.Del("passfile")
+
+	connstr := c.String()
 	l.Verbosef("connecting to PostgreSQL with: \"%s\"", connstr)
 	db, err := sql.Open("postgres", connstr)
 	if err != nil {
