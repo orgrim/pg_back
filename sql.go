@@ -29,8 +29,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"github.com/lib/pq"
-	"os"
+	"github.com/jackc/pgtype"
+	_ "github.com/jackc/pgx/v4/stdlib"
 	"strings"
 	"time"
 )
@@ -55,22 +55,9 @@ func pgGetVersionNum(db *sql.DB) (int, error) {
 }
 
 func dbOpen(conninfo *ConnInfo) (*pg, error) {
-	// Workaround the limitation of lib/pq that cannot use the passfile
-	// keyword and find the default pgpass.conf file on Windows, by setting
-	// the PGPASSFILE environment variable. It parses the file but without
-	// expanding variables in the path given in PGPASSFILE.
-	if passfile, ok := conninfo.Infos["passfile"]; ok {
-		if err := os.Setenv("PGPASSFILE", passfile); err != nil {
-			l.Warnln("could not set PGPASSFILE environment variable:", err)
-		}
-	}
-
-	// lib/pq does not like the passfile keyword either.
-	c := conninfo.Del("passfile")
-
-	connstr := c.String()
+	connstr := conninfo.String()
 	l.Verbosef("connecting to PostgreSQL with: \"%s\"", connstr)
-	db, err := sql.Open("postgres", connstr)
+	db, err := sql.Open("pgx", connstr)
 	if err != nil {
 		return nil, fmt.Errorf("could not open database: %s", err)
 	}
@@ -264,11 +251,11 @@ func dumpCreateDBAndACL(db *pg, dbname string) (string, error) {
 			collate    string
 			ctype      string
 			istemplate bool
-			acl        []sql.NullString
+			acl        pgtype.TextArray
 			connlimit  int
 			tablespace string
 		)
-		err := rows.Scan(&owner, &encoding, &collate, &ctype, &istemplate, pq.Array(&acl), &connlimit, &tablespace)
+		err := rows.Scan(&owner, &encoding, &collate, &ctype, &istemplate, &acl, &connlimit, &tablespace)
 		if err != nil {
 			return "", fmt.Errorf("could not get row: %s", err)
 		}
@@ -299,7 +286,7 @@ func dumpCreateDBAndACL(db *pg, dbname string) (string, error) {
 		// when the list is not empty and no acl are granted
 		// to public, we have to output a revoke statement for
 		// public, before any grant.
-		if len(acl) > 0 {
+		if len(acl.Elements) > 0 {
 			var (
 				t         string
 				revokeAll bool = true
@@ -307,9 +294,8 @@ func dumpCreateDBAndACL(db *pg, dbname string) (string, error) {
 
 			s += fmt.Sprintf("--\n-- Database privileges \n--\n\n")
 
-			for _, e := range acl {
-				// skip NULL values
-				if !e.Valid {
+			for _, e := range acl.Elements {
+				if e.Status == pgtype.Null {
 					continue
 				}
 
@@ -431,7 +417,7 @@ func dumpDBConfig(db *pg, dbname string) (string, error) {
 
 	for rows.Next() {
 		var (
-			role   sql.NullString
+			role   pgtype.Text
 			keyVal string
 		)
 
@@ -448,7 +434,7 @@ func dumpDBConfig(db *pg, dbname string) (string, error) {
 			tokens[1] = fmt.Sprintf("'%s'", tokens[1])
 		}
 
-		if role.Valid {
+		if role.Status != pgtype.Null {
 			s += fmt.Sprintf("ALTER ROLE \"%s\" IN DATABASE \"%s\" SET \"%s\" TO %s;\n", role.String, dbname, tokens[0], tokens[1])
 		} else {
 			s += fmt.Sprintf("ALTER DATABASE \"%s\" SET \"%s\" TO %s;\n", dbname, tokens[0], tokens[1])

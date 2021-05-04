@@ -28,7 +28,6 @@ package main
 import (
 	"fmt"
 	"net/url"
-	"os"
 	"sort"
 	"strings"
 	"unicode"
@@ -463,6 +462,7 @@ func prepareConnInfo(host string, port int, username string, dbname string) (*Co
 		if err != nil {
 			return nil, err
 		}
+
 	} else {
 		conninfo = &ConnInfo{
 			Infos: make(map[string]string),
@@ -470,20 +470,16 @@ func prepareConnInfo(host string, port int, username string, dbname string) (*Co
 
 		if host != "" {
 			conninfo.Infos["host"] = host
-		} else {
-			// driver lib/pq defaults to localhost for the host, so
-			// we have to check PGHOST and fallback to the unix
-			// socket directory to avoid overriding PGHOST
-			if _, ok := os.LookupEnv("PGHOST"); !ok {
-				conninfo.Infos["host"] = "/var/run/postgresql"
-			}
 		}
+
 		if port != 0 {
 			conninfo.Infos["port"] = fmt.Sprintf("%v", port)
 		}
+
 		if username != "" {
 			conninfo.Infos["user"] = username
 		}
+
 		if dbname != "" {
 			conninfo.Infos["dbname"] = dbname
 		}
