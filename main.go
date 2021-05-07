@@ -396,7 +396,7 @@ func (d *dump) dump() error {
 	formatOpt := fmt.Sprintf("-F%c", d.Options.Format)
 
 	command := filepath.Join(binDir, "pg_dump")
-	args := []string{formatOpt, "-f", file}
+	args := []string{formatOpt, "-f", file, "-w"}
 
 	if fileEnd == "d" && d.Options.Jobs > 1 {
 		args = append(args, "-j", fmt.Sprintf("%d", d.Options.Jobs))
@@ -546,7 +546,7 @@ func pgDumpVersion() int {
 
 func dumpGlobals(dir string, timeFormat string, conninfo *ConnInfo) error {
 	command := filepath.Join(binDir, "pg_dumpall")
-	args := []string{"-g"}
+	args := []string{"-g", "-w"}
 
 	// pg_dumpall only connects to another database if it is given
 	// with the -l option
