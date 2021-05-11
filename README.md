@@ -64,7 +64,9 @@ the name of the database being dumped, this permits to dump.
 To connect to PostgreSQL, use the `-h`, `-p`, `-U` and `-d` options. If you
 need less known connection options such as `sslcert` and `sslkey`, you can give
 a `keyword=value` libpq connection string like `pg_dump` and `pg_dumpall`
-accept with their `-d` option.
+accept with their `-d` option. When using connection strings, backslashes must
+be escaped (doubled), as well as literal single quotes (used as string
+delimiters).
 
 The other command line options let you tweak what is dumped, purged, and how
 it is done. These options can be put in a configuration file. The command line
