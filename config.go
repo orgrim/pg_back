@@ -33,6 +33,7 @@ import (
 	"github.com/spf13/pflag"
 	"gopkg.in/ini.v1"
 	"os"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -72,6 +73,11 @@ type options struct {
 }
 
 func defaultOptions() options {
+	timeFormat := time.RFC3339
+	if runtime.GOOS == "windows" {
+		timeFormat = "2006-01-02_15-04-05"
+	}
+
 	return options{
 		Directory:     "/var/backups/postgresql",
 		Format:        'c',
@@ -83,7 +89,7 @@ func defaultOptions() options {
 		PurgeKeep:     0,
 		SumAlgo:       "none",
 		CfgFile:       defaultCfgFile,
-		TimeFormat:    time.RFC3339,
+		TimeFormat:    timeFormat,
 	}
 }
 
@@ -323,7 +329,13 @@ func loadConfigurationFile(path string) (options, error) {
 	}
 	opts.Format = []rune(format)[0]
 
-	// Validate the value of the timestamp format
+	// Validate the value of the timestamp format. Force the use of legacy
+	// on windows to avoid failure when creating filenames with the
+	// timestamp
+	if runtime.GOOS == "windows" {
+		timeFormat = "legacy"
+	}
+
 	switch timeFormat {
 	case "legacy":
 		opts.TimeFormat = "2006-01-02_15-04-05"

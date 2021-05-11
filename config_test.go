@@ -33,6 +33,7 @@ import (
 	"github.com/spf13/pflag"
 	"io/ioutil"
 	"os"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -117,6 +118,11 @@ func TestValidatePurgeTimeLimitValue(t *testing.T) {
 }
 
 func TestDefaultOptions(t *testing.T) {
+	timeFormat := time.RFC3339
+	if runtime.GOOS == "windows" {
+		timeFormat = "2006-01-02_15-04-05"
+	}
+
 	var want = options{
 		Directory:     "/var/backups/postgresql",
 		Format:        'c',
@@ -128,7 +134,7 @@ func TestDefaultOptions(t *testing.T) {
 		PurgeKeep:     0,
 		SumAlgo:       "none",
 		CfgFile:       "/etc/pg_back/pg_back.conf",
-		TimeFormat:    time.RFC3339,
+		TimeFormat:    timeFormat,
 	}
 
 	got := defaultOptions()
@@ -139,6 +145,10 @@ func TestDefaultOptions(t *testing.T) {
 }
 
 func TestParseCli(t *testing.T) {
+	timeFormat := time.RFC3339
+	if runtime.GOOS == "windows" {
+		timeFormat = "2006-01-02_15-04-05"
+	}
 	var (
 		defaults = defaultOptions()
 		tests    = []struct {
@@ -162,7 +172,7 @@ func TestParseCli(t *testing.T) {
 					PurgeKeep:     0,
 					SumAlgo:       "none",
 					CfgFile:       "/etc/pg_back/pg_back.conf",
-					TimeFormat:    time.RFC3339,
+					TimeFormat:    timeFormat,
 				},
 				false,
 				false,
@@ -182,7 +192,7 @@ func TestParseCli(t *testing.T) {
 					PurgeKeep:     0,
 					SumAlgo:       "none",
 					CfgFile:       "/etc/pg_back/pg_back.conf",
-					TimeFormat:    time.RFC3339,
+					TimeFormat:    timeFormat,
 				},
 				false,
 				false,
@@ -258,6 +268,11 @@ func TestParseCli(t *testing.T) {
 }
 
 func TestLoadConfigurationFile(t *testing.T) {
+	timeFormat := time.RFC3339
+	if runtime.GOOS == "windows" {
+		timeFormat = "2006-01-02_15-04-05"
+	}
+
 	var tests = []struct {
 		params []string
 		fail   bool
@@ -278,7 +293,7 @@ func TestLoadConfigurationFile(t *testing.T) {
 				PurgeKeep:     0,
 				SumAlgo:       "none",
 				CfgFile:       "/etc/pg_back/pg_back.conf",
-				TimeFormat:    time.RFC3339,
+				TimeFormat:    timeFormat,
 			},
 		},
 		{ // ensure comma separated lists work
@@ -296,7 +311,7 @@ func TestLoadConfigurationFile(t *testing.T) {
 				PurgeKeep:     0,
 				SumAlgo:       "none",
 				CfgFile:       "/etc/pg_back/pg_back.conf",
-				TimeFormat:    time.RFC3339,
+				TimeFormat:    timeFormat,
 			},
 		},
 		{
@@ -313,7 +328,7 @@ func TestLoadConfigurationFile(t *testing.T) {
 				PurgeKeep:     0,
 				SumAlgo:       "none",
 				CfgFile:       "/etc/pg_back/pg_back.conf",
-				TimeFormat:    time.RFC3339,
+				TimeFormat:    timeFormat,
 			},
 		},
 		{
@@ -365,7 +380,7 @@ func TestLoadConfigurationFile(t *testing.T) {
 				PurgeKeep:     0,
 				SumAlgo:       "none",
 				CfgFile:       "/etc/pg_back/pg_back.conf",
-				TimeFormat:    time.RFC3339,
+				TimeFormat:    timeFormat,
 				PgDumpOpts:    []string{"-O", "-x"},
 				PerDbOpts: map[string]*dbOpts{"db": &dbOpts{
 					Format:        'c',
@@ -402,7 +417,7 @@ func TestLoadConfigurationFile(t *testing.T) {
 				PurgeKeep:     0,
 				SumAlgo:       "none",
 				CfgFile:       "/etc/pg_back/pg_back.conf",
-				TimeFormat:    time.RFC3339,
+				TimeFormat:    timeFormat,
 				PgDumpOpts:    []string{"-O", "-x"},
 				PerDbOpts: map[string]*dbOpts{"db": &dbOpts{
 					Format:        'c',
@@ -450,6 +465,11 @@ func TestLoadConfigurationFile(t *testing.T) {
 }
 
 func TestMergeCliAndConfigoptions(t *testing.T) {
+	timeFormat := time.RFC3339
+	if runtime.GOOS == "windows" {
+		timeFormat = "2006-01-02_15-04-05"
+	}
+
 	want := options{
 		BinDirectory:  "/bin",
 		Directory:     "test",
@@ -471,7 +491,7 @@ func TestMergeCliAndConfigoptions(t *testing.T) {
 		PreHook:       "touch /tmp/pre-hook",
 		PostHook:      "touch /tmp/post-hook",
 		CfgFile:       "/etc/pg_back/pg_back.conf",
-		TimeFormat:    time.RFC3339,
+		TimeFormat:    timeFormat,
 	}
 
 	cliOptList := []string{
