@@ -30,6 +30,7 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -46,12 +47,14 @@ func TestLockPath(t *testing.T) {
 		t.Fatal("could not create temp subdir:", err)
 	}
 
-	_, _, err = lockPath(filepath.Join(dir, "subfail", "subfail", "lockfail"))
 	var e *os.PathError
-	if !errors.As(err, &e) {
-		t.Errorf("expected a *os.PathError, got %q\n", err)
+	// On windows the directory is created even with a mode of the tempdir that should make it fail
+	if runtime.GOOS != "windows" {
+		_, _, err = lockPath(filepath.Join(dir, "subfail", "subfail", "lockfail"))
+		if !errors.As(err, &e) {
+			t.Errorf("expected a *os.PathError, got %q\n", err)
+		}
 	}
-
 	// path is subdir of tempdir to make os.create fail
 	_, _, err = lockPath(filepath.Join(dir, "subfail"))
 	if !errors.As(err, &e) {

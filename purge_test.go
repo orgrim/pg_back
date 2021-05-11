@@ -30,6 +30,7 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -43,49 +44,63 @@ func TestPurgeDumps(t *testing.T) {
 	}
 	defer os.RemoveAll(dir)
 
-	// empty path
+	// empty path - on windows chmod does not work as expected
 	wd := filepath.Join(dir, "real", "bad")
 	if err := os.MkdirAll(wd, 0755); err != nil {
 		t.Fatal("could not create test dir")
 	}
-	os.Chmod(filepath.Dir(wd), 0444)
-	err = purgeDumps(wd, "", 0, time.Time{})
-	if err == nil {
-		t.Errorf("empty path gave error <nil>\n")
+
+	if runtime.GOOS != "windows" {
+		os.Chmod(filepath.Dir(wd), 0444)
+		err = purgeDumps(wd, "", 0, time.Time{})
+		if err == nil {
+			t.Errorf("empty path gave error <nil>\n")
+		}
+		os.Chmod(filepath.Dir(wd), 0755)
 	}
-	os.Chmod(filepath.Dir(wd), 0755)
 
 	// empty dbname
-	tf := formatDumpPath(wd, time.RFC3339, "dump", "", time.Now().Add(-time.Hour))
+	when := time.Now().Add(-time.Hour)
+	tf := formatDumpPath(wd, "2006-01-02_15-04-05", "dump", "", when)
+	f, err := os.Create(tf)
+	if err != nil {
+		t.Errorf("could not create temp file %s: %s", tf, err)
+	}
+
+	f.Close()
+	os.Chtimes(tf, when, when)
+
 	err = purgeDumps(wd, "", 0, time.Now())
 	if err != nil {
-		t.Errorf("empty dbname gave error %s", err)
+		t.Errorf("empty dbname (file: %s) gave error %s", tf, err)
 	}
 	if _, err := os.Stat(tf); err == nil {
 		t.Errorf("file still exists")
 	}
 
 	// file without write perms
-	tf = formatDumpPath(wd, time.RFC3339, "dump", "db", time.Now().Add(-time.Hour))
-	ioutil.WriteFile(tf, []byte("truc\n"), 0644)
-	os.Chmod(filepath.Dir(tf), 0555)
+	if runtime.GOOS != "windows" {
+		tf = formatDumpPath(wd, time.RFC3339, "dump", "db", time.Now().Add(-time.Hour))
+		ioutil.WriteFile(tf, []byte("truc\n"), 0644)
+		os.Chmod(filepath.Dir(tf), 0555)
 
-	err = purgeDumps(wd, "db", 0, time.Now())
-	if err == nil {
-		t.Errorf("bad perms on file did not gave an error")
+		err = purgeDumps(wd, "db", 0, time.Now())
+		if err == nil {
+			t.Errorf("bad perms on file did not gave an error")
+		}
+		os.Chmod(filepath.Dir(tf), 0755)
+
+		// dir without write perms
+		tf = formatDumpPath(wd, time.RFC3339, "d", "db", time.Now().Add(-time.Hour))
+		os.MkdirAll(tf, 0755)
+		os.Chmod(filepath.Dir(tf), 0555)
+
+		err = purgeDumps(wd, "db", 0, time.Now())
+		if err == nil {
+			t.Errorf("bad perms on dir did not gave an error")
+		}
+		os.Chmod(filepath.Dir(tf), 0755)
 	}
-	os.Chmod(filepath.Dir(tf), 0755)
-
-	// dir without write perms
-	tf = formatDumpPath(wd, time.RFC3339, "d", "db", time.Now().Add(-time.Hour))
-	os.MkdirAll(tf, 0755)
-	os.Chmod(filepath.Dir(tf), 0555)
-
-	err = purgeDumps(wd, "db", 0, time.Now())
-	if err == nil {
-		t.Errorf("bad perms on dir did not gave an error")
-	}
-	os.Chmod(filepath.Dir(tf), 0755)
 
 	// time and keep limits
 	var tests = []struct {
@@ -111,7 +126,7 @@ func TestPurgeDumps(t *testing.T) {
 			}
 			for i := 1; i <= 3; i++ {
 				when := time.Now().Add(-time.Hour * time.Duration(i))
-				tf = formatDumpPath(wd, time.RFC3339, "dump", "db", when)
+				tf = formatDumpPath(wd, "2006-01-02_15-04-05", "dump", "db", when)
 				ioutil.WriteFile(tf, []byte("truc\n"), 0644)
 				os.Chtimes(tf, when, when)
 			}

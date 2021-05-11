@@ -31,6 +31,7 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
+	"strings"
 	"testing"
 )
 
@@ -41,13 +42,12 @@ func TestHookCommand(t *testing.T) {
 	}{
 		{"echo 'a'", `^\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} INFO: test: a\n$`},
 		{"echo a'", `^\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} ERROR: unable to parse hook command: No closing quotation\n$`},
-		{"echo -e 'a\nb'", `^\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} INFO: test: a\n\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} INFO: test: b\n$`},
+		{"echo 'a\nb'", `^\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} INFO: test: a\n\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} INFO: test: b\n$`},
 		{"", `^\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} ERROR: unable to run an empty command\n$`},
-		{"/nothingBLA a", `^\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} ERROR: fork/exec /nothingBLA: no such file or directory\n$`},
+		{"/nothingBLA a", `^\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} ERROR: .*/nothingBLA.*\n$`},
 		{"sh -c 'echo test; exit 1'", `^\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} ERROR: test: test\n\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} ERROR: exit status 1\n$`},
 	}
 
-	//	l := NewLevelLog()
 	for i, subt := range tests {
 		t.Run(fmt.Sprintf("%v", i), func(t *testing.T) {
 			buf := new(bytes.Buffer)
@@ -57,7 +57,7 @@ func TestHookCommand(t *testing.T) {
 				l.Errorln(err)
 			}
 
-			lines := buf.String()
+			lines := strings.ReplaceAll(buf.String(), "\r", "")
 			matched, err := regexp.MatchString(subt.re, lines)
 			if err != nil {
 				t.Fatal("pattern did not compile:", err)
@@ -78,7 +78,7 @@ func TestPreBackupHook(t *testing.T) {
 	}{
 		{"echo 'a'", `\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} INFO: running pre-backup command: echo 'a'\n\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} INFO: pre-backup: a\n$`, false},
 		{"", "", false},
-		{"/nothingBLA a", `\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} INFO: running pre-backup command: /nothingBLA a\n\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} FATAL: hook command failed: fork/exec /nothingBLA: no such file or directory\n$`, true},
+		{"/nothingBLA a", `\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} INFO: running pre-backup command: /nothingBLA a\n\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} FATAL: .*/nothingBLA.*\n$`, true},
 	}
 	for i, subt := range tests {
 		t.Run(fmt.Sprintf("%v", i), func(t *testing.T) {
@@ -95,7 +95,7 @@ func TestPreBackupHook(t *testing.T) {
 				}
 			}
 
-			lines := buf.String()
+			lines := strings.ReplaceAll(buf.String(), "\r", "")
 			matched, err := regexp.MatchString(subt.re, lines)
 			if err != nil {
 				t.Fatal("pattern did not compile:", err)
