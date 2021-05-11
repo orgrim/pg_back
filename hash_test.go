@@ -32,6 +32,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -91,6 +92,11 @@ func TestChecksumFile(t *testing.T) {
 				t.Errorf("checksumFile returned: %v", err)
 			}
 
+			_, err := exec.LookPath(st.tool)
+			if err != nil {
+				t.Skip("check command not in the PATH:", st.tool)
+			}
+
 			c := exec.Command(st.tool, "-c", "test."+st.algo)
 			out, err := c.CombinedOutput()
 			if err != nil {
@@ -125,7 +131,7 @@ func TestChecksumFile(t *testing.T) {
 		if err != nil {
 			t.Fatal("could not create test file")
 		}
-		fmt.Fprintf(f, "abdc%d\n", i)
+		fmt.Fprintf(f, "abdc%d", i)
 		f.Close()
 	}
 
@@ -136,13 +142,26 @@ func TestChecksumFile(t *testing.T) {
 				t.Errorf("checksumFile returned: %v", err)
 			}
 
+			_, err := exec.LookPath(st.tool)
+			if err != nil {
+				t.Skip("check command not in the PATH:", st.tool)
+			}
+
 			c := exec.Command(st.tool, "-c", fmt.Sprintf("test.d.%s", st.algo))
 			out, err := c.CombinedOutput()
 			if err != nil {
 				t.Errorf("check command failed: %s\n", out)
 			}
-			if string(out) != "test.d/test0: OK\ntest.d/test1: OK\ntest.d/test2: OK\n" {
-				t.Errorf("expected OK, got %q\n", out)
+
+			res := string(out)
+			if runtime.GOOS == "windows" {
+				if res != "test.d\\test0: OK\ntest.d\\test1: OK\ntest.d\\test2: OK\n" {
+					t.Errorf("expected OK, got %q\n", out)
+				}
+			} else {
+				if res != "test.d/test0: OK\ntest.d/test1: OK\ntest.d/test2: OK\n" {
+					t.Errorf("expected OK, got %q\n", out)
+				}
 			}
 		})
 	}
