@@ -4,6 +4,9 @@
 
 * Use /var/run/postgresql as default host for connections
 * Support Windows
+* Force legacy timestamp format on Windows
+* Allow postgresql URIs as connection strings
+* Tell pg_dump and pg_dumpall never to prompt for a password
 
 ## pg_back 2.0.0
 
