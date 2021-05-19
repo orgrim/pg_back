@@ -35,6 +35,7 @@ import (
 type LevelLog struct {
 	logger  *log.Logger
 	verbose bool
+	quiet   bool
 }
 
 var l = NewLevelLog()
@@ -44,11 +45,20 @@ func NewLevelLog() *LevelLog {
 	return &LevelLog{
 		logger:  log.New(os.Stderr, "", log.LstdFlags|log.Lmsgprefix),
 		verbose: false,
+		quiet:   false,
 	}
 }
 
 // SetVerbose toggles verbose mode
-func (l *LevelLog) SetVerbose(verbose bool) {
+func (l *LevelLog) SetVerbosity(verbose bool, quiet bool) {
+	if quiet {
+		l.quiet = quiet
+		l.verbose = false
+
+		// Quiet mode takes over verbose mode
+		return
+	}
+
 	l.verbose = verbose
 	if verbose {
 		l.logger.SetFlags(log.LstdFlags | log.Lmsgprefix | log.Lmicroseconds)
@@ -73,14 +83,18 @@ func (l *LevelLog) Verboseln(v ...interface{}) {
 
 // Infof prints a message with INFO: prefix using log.Printf
 func (l *LevelLog) Infof(format string, v ...interface{}) {
-	l.logger.SetPrefix("INFO: ")
-	l.logger.Printf(format, v...)
+	if !l.quiet {
+		l.logger.SetPrefix("INFO: ")
+		l.logger.Printf(format, v...)
+	}
 }
 
 // Infoln prints a message with INFO: prefix using log.Println
 func (l *LevelLog) Infoln(v ...interface{}) {
-	l.logger.SetPrefix("INFO: ")
-	l.logger.Println(v...)
+	if !l.quiet {
+		l.logger.SetPrefix("INFO: ")
+		l.logger.Println(v...)
+	}
 }
 
 // Warnf prints a message with WARN: prefix using log.Printf

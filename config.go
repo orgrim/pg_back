@@ -70,6 +70,7 @@ type options struct {
 	CfgFile       string
 	TimeFormat    string
 	Verbose       bool
+	Quiet         bool
 }
 
 func defaultOptions() options {
@@ -190,6 +191,7 @@ func parseCli(args []string) (options, []string, error) {
 	pflag.StringVarP(&opts.ConnDb, "dbname", "d", "", "connect to database name\n")
 	pflag.StringVar(&pce.LegacyConfig, "convert-legacy-config", "", "convert a pg_back v1 configuration file")
 	pflag.BoolVar(&pce.ShowConfig, "print-default-config", false, "print the default configuration\n")
+	pflag.BoolVarP(&opts.Quiet, "quiet", "q", false, "quiet mode")
 	pflag.BoolVarP(&opts.Verbose, "verbose", "v", false, "verbose mode\n")
 	pflag.BoolVarP(&pce.ShowHelp, "help", "?", false, "print usage")
 	pflag.BoolVarP(&pce.ShowVersion, "version", "V", false, "print version")
