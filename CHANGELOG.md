@@ -1,5 +1,10 @@
 # Changelog
 
+## pg_back 2.0.2
+
+* Add quiet mode with the commnad line option -q/--quiet. It takes precedence
+  over verbose mode.
+
 ## pg_back 2.0.1
 
 * Use /var/run/postgresql as default host for connections

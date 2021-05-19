@@ -127,8 +127,8 @@ func main() {
 		}
 	}
 
-	// Enable verbose mode as soon as possible
-	l.SetVerbose(cliOpts.Verbose)
+	// Enable verbose mode or quiet mode as soon as possible
+	l.SetVerbosity(cliOpts.Verbose, cliOpts.Quiet)
 
 	// Load configuration file and allow the default configuration
 	// file to be absent

@@ -38,7 +38,7 @@ func TestLevelLogSetVerbose(t *testing.T) {
 	l := NewLevelLog()
 	for i, subt := range tests {
 		t.Run(fmt.Sprintf("%v", i), func(t *testing.T) {
-			l.SetVerbose(subt)
+			l.SetVerbosity(subt, false)
 			if l.verbose != subt {
 				t.Errorf("got %v, want %v", l.verbose, subt)
 			}
@@ -65,7 +65,7 @@ func TestLevelLogVerbose(t *testing.T) {
 		t.Run(fmt.Sprintf("%v", i), func(t *testing.T) {
 			buf := new(bytes.Buffer)
 			l.logger.SetOutput(buf)
-			l.SetVerbose(subt.verbose)
+			l.SetVerbosity(subt.verbose, false)
 			if subt.fOrln {
 				l.Verbosef("%s", subt.message)
 			} else {
@@ -228,5 +228,38 @@ func TestLevelLogFatal(t *testing.T) {
 			}
 			l.logger.SetOutput(os.Stderr)
 		})
+	}
+}
+
+func TestLevelLogQuiet(t *testing.T) {
+	l := NewLevelLog()
+
+	// Set verbose and quiet to ensure quiet takes over verbose when both are true
+	l.SetVerbosity(true, true)
+
+	buf := new(bytes.Buffer)
+	l.logger.SetOutput(buf)
+
+	l.Verbosef("test")
+	if buf.Len() > 0 {
+		t.Errorf("log function Verbosef has printed data when it should not")
+	}
+
+	buf.Reset()
+	l.Verboseln("test")
+	if buf.Len() > 0 {
+		t.Errorf("log function Verboseln has printed data when it should not")
+	}
+
+	buf.Reset()
+	l.Infof("test")
+	if buf.Len() > 0 {
+		t.Errorf("log function Infof has printed data when it should not")
+	}
+
+	buf.Reset()
+	l.Infoln("test")
+	if buf.Len() > 0 {
+		t.Errorf("log function Infoln has printed data when it should not")
 	}
 }
