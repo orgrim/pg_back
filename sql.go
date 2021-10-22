@@ -506,6 +506,41 @@ func showSettings(db *pg) (string, error) {
 	}
 }
 
+func extractFileFromSettings(db *pg, name string) (string, error) {
+	query := "SELECT setting, pg_read_file(setting, 0, (pg_stat_file(setting)).size) FROM pg_settings WHERE name = $1"
+
+	l.Verboseln("executing SQL query:", query)
+	rows, err := db.conn.Query(query, name)
+	if err != nil {
+		return "", fmt.Errorf("could not query file contents from settings: %s", err)
+	}
+	defer rows.Close()
+
+	var result string
+
+	for rows.Next() {
+		var (
+			path     string
+			contents string
+		)
+
+		err := rows.Scan(&path, &contents)
+		if err != nil {
+			l.Errorln(err)
+			continue
+		}
+
+		result = fmt.Sprintf("# path: %s\n%s\n", path, contents)
+	}
+
+	err = rows.Err()
+	if err != nil {
+		return "", fmt.Errorf("could not retrive rows: %s", err)
+	}
+
+	return result, nil
+}
+
 type pgReplicaHasLocks struct{}
 
 func (*pgReplicaHasLocks) Error() string {
