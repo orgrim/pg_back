@@ -191,6 +191,13 @@ func main() {
 		}
 	}
 
+	if err := dumpConfigFiles(opts.Directory, opts.TimeFormat, db); err != nil {
+		db.Close()
+		l.Fatalln("could not dump configuration files:", err)
+		postBackupHook(opts.PostHook)
+		os.Exit(1)
+	}
+
 	databases, err := listDatabases(db, opts.WithTemplates, opts.ExcludeDbs, opts.Dbnames)
 	if err != nil {
 		l.Fatalln(err)
@@ -334,7 +341,7 @@ func main() {
 		}
 	}
 
-	for _, other := range []string{"pg_globals", "pg_settings"} {
+	for _, other := range []string{"pg_globals", "pg_settings", "hba_file", "ident_file"} {
 		limit := now.Add(defDbOpts.PurgeInterval)
 		if err := purgeDumps(opts.Directory, other, defDbOpts.PurgeKeep, limit); err != nil {
 			exitCode = 1
@@ -605,5 +612,29 @@ func dumpSettings(dir string, timeFormat string, db *pg) error {
 		}
 	}
 
+	return nil
+}
+
+func dumpConfigFiles(dir string, timeFormat string, db *pg) error {
+	for _, param := range []string{"hba_file", "ident_file"} {
+		file := formatDumpPath(dir, timeFormat, "out", param, time.Now())
+
+		if err := os.MkdirAll(filepath.Dir(file), 0755); err != nil {
+			return err
+		}
+
+		s, err := extractFileFromSettings(db, param)
+		if err != nil {
+			return err
+		}
+
+		// Use a Buffer to avoid creating an empty file
+		if len(s) > 0 {
+			l.Verbosef("writing contents of '%s' to: %s", param, file)
+			if err := ioutil.WriteFile(file, []byte(s), 0644); err != nil {
+				return err
+			}
+		}
+	}
 	return nil
 }

@@ -292,5 +292,24 @@ func TestDumpCreateDBAndACL(t *testing.T) {
 	}
 }
 
+func TestExtractFileFromSettings(t *testing.T) {
+	needPgConn(t)
+
+	got, err := extractFileFromSettings(testdb, "hba_file")
+	if err != nil {
+		t.Errorf("expected non nil error, got %q", err)
+	}
+
+	if got == "" {
+		t.Errorf("expected some data, got nothing")
+	} else {
+		c := strings.Split(got, "\n")
+		re := regexp.MustCompile(`^# path: \S+`)
+		if !re.MatchString(c[0]) {
+			t.Errorf("excepted string matching \"^# path: \\S+\", got %s", c[0])
+		}
+	}
+}
+
 // Testing replication management fonctions needs a more complex setup
 // so we skip it.
