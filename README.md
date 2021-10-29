@@ -125,6 +125,20 @@ with `--post-backup-hook`. The commands are executed directly, not by a shell,
 respecting single and double quoted values. Even if some operation fails, the
 post backup hook is executed when present.
 
+All the files procuded by a run of pg_back can be encrypted using age
+(<https://age-encryption.org/> an easy to use tool that does authenticated
+encryption of files). To keep things simple, encryption is done using a
+passphrase. To encrypt files, use the `--encrypt` option along with the
+`--cipher-pass` option or `PGBK_PASSPHRASE` environment variable to specify the
+passphrase. When `encrypt` is set to true in the configuration file, the
+`--no-encrypt` option allows to disable encryption on the command line.
+
+Encrypted files can be decrypted with the correct passphrase and the
+`--decrypt` option. When `--decrypt` is present on the command line, dumps are
+not performed, instead files are decrypted. Files can also be decrypted with
+the `age` tool, independently. Decryption of multiple files can be parallelized
+with the `-j` option.
+
 ## Managing the configuration file
 
 The previous v1 configuration files are not compatible with pg_back v2.

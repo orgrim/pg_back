@@ -33,6 +33,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -59,6 +60,9 @@ type dump struct {
 
 	// Connection parameters
 	ConnString *ConnInfo
+
+	// Cipher passphrase, when not empty cipher the file
+	CipherPassphrase string
 
 	// Result
 	When     time.Time
@@ -145,6 +149,16 @@ func main() {
 	// the command line
 	opts := mergeCliAndConfigOptions(cliOpts, configOpts, cliOptList)
 
+	// When asked to decrypt the backups, do it here and exit, we have all
+	// required input (passphrase and backup directory)
+	if opts.Decrypt {
+		if err := decryptDirectory(opts.Directory, opts.CipherPassphrase, opts.Jobs); err != nil {
+			l.Fatalln(err)
+			os.Exit(1)
+		}
+		os.Exit(0)
+	}
+
 	// Remember when we start so that a purge interval of 0s won't remove the dumps we
 	// are taking
 	now := time.Now()
@@ -186,10 +200,16 @@ func main() {
 			if !more {
 				break
 			}
+
 			if opts.SumAlgo != "none" {
 				if err = checksumFile(file, opts.SumAlgo); err != nil {
 					l.Warnln("checksum failed", err)
-					continue
+				}
+			}
+
+			if opts.Encrypt {
+				if err = encryptFile(file, opts.CipherPassphrase, false); err != nil {
+					l.Warnln("encryption failed", err)
 				}
 			}
 		}
@@ -270,6 +290,12 @@ func main() {
 	}
 
 	defDbOpts := defaultDbOpts(opts)
+
+	var passphrase string
+	if opts.Encrypt {
+		passphrase = opts.CipherPassphrase
+	}
+
 	// feed the database
 	for _, dbname := range databases {
 		o, found := opts.PerDbOpts[dbname]
@@ -278,13 +304,14 @@ func main() {
 		}
 
 		d := &dump{
-			Database:      dbname,
-			Options:       o,
-			Directory:     opts.Directory,
-			TimeFormat:    opts.TimeFormat,
-			ConnString:    conninfo,
-			ExitCode:      -1,
-			PgDumpVersion: pgDumpVersion,
+			Database:         dbname,
+			Options:          o,
+			Directory:        opts.Directory,
+			TimeFormat:       opts.TimeFormat,
+			ConnString:       conninfo,
+			CipherPassphrase: passphrase,
+			ExitCode:         -1,
+			PgDumpVersion:    pgDumpVersion,
 		}
 
 		l.Verbosef("sending dump job for database %s to worker pool", dbname)
@@ -567,6 +594,15 @@ func (d *dump) dump() error {
 		}
 	}
 
+	// Encrypt the file
+	if d.CipherPassphrase != "" {
+		l.Infoln("encrypting", file)
+		if err = encryptFile(file, d.CipherPassphrase, false); err != nil {
+			return fmt.Errorf("encrypt failed: %s", err)
+
+		}
+	}
+
 	d.ExitCode = 0
 	return nil
 }
@@ -751,4 +787,92 @@ func dumpConfigFiles(dir string, timeFormat string, db *pg, fc chan<- string) er
 		}
 	}
 	return nil
+}
+
+func decryptDirectory(dir string, password string, workers int) error {
+
+	// Run a pool of workers to decrypt concurrently
+	var wg sync.WaitGroup
+
+	// Workers pick paths from the file queue
+	fq := make(chan string)
+
+	// We need a channel to know if a worker got an error at some point and
+	// return an error
+	ret := make(chan bool, workers)
+
+	// Start workers than listen for filenames to decrypt until the queue
+	// is closed
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func(id int) {
+			l.Verboseln("started decrypt worker", id)
+			failed := false
+			for {
+				file, more := <-fq
+				if !more {
+					break
+				}
+
+				l.Verbosef("[%d] processing: %s\n", id, file)
+				if err := decryptFile(file, password); err != nil {
+					l.Errorln(err)
+					failed = true
+				}
+			}
+
+			if failed {
+				ret <- true
+			}
+
+			wg.Done()
+			l.Verboseln("terminated decrypt worker", id)
+		}(i)
+	}
+
+	// Read the directory
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return fmt.Errorf("unable to read directory %s: %w", dir, err)
+	}
+
+	for _, path := range entries {
+		if path.IsDir() {
+			l.Verboseln("dump is a directory, decrypting all files inside")
+			subdir := filepath.Join(dir, path.Name())
+			subentries, err := os.ReadDir(subdir)
+			if err != nil {
+				l.Warnf("unable to read subdir %s: %s", subdir, err)
+				continue
+			}
+
+			for _, subpath := range subentries {
+				if subpath.IsDir() {
+					// skip garbage dir in dump directory
+					continue
+				}
+
+				file := filepath.Join(subdir, subpath.Name())
+				if strings.HasSuffix(file, ".age") {
+					fq <- file
+				}
+			}
+			continue
+		}
+
+		file := filepath.Join(dir, path.Name())
+		if strings.HasSuffix(file, ".age") {
+			fq <- file
+		}
+	}
+
+	close(fq)
+	wg.Wait()
+
+	select {
+	case _ = <-ret:
+		return fmt.Errorf("failure in decrypt, please examine logs")
+	default:
+		return nil
+	}
 }

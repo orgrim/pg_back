@@ -46,31 +46,34 @@ var defaultCfg string
 
 // options struct holds command line and configuration file options
 type options struct {
-	BinDirectory  string
-	Directory     string
-	Host          string
-	Port          int
-	Username      string
-	ConnDb        string
-	ExcludeDbs    []string
-	Dbnames       []string
-	WithTemplates bool
-	Format        rune
-	DirJobs       int
-	CompressLevel int
-	Jobs          int
-	PauseTimeout  int
-	PurgeInterval time.Duration
-	PurgeKeep     int
-	SumAlgo       string
-	PreHook       string
-	PostHook      string
-	PgDumpOpts    []string
-	PerDbOpts     map[string]*dbOpts
-	CfgFile       string
-	TimeFormat    string
-	Verbose       bool
-	Quiet         bool
+	BinDirectory     string
+	Directory        string
+	Host             string
+	Port             int
+	Username         string
+	ConnDb           string
+	ExcludeDbs       []string
+	Dbnames          []string
+	WithTemplates    bool
+	Format           rune
+	DirJobs          int
+	CompressLevel    int
+	Jobs             int
+	PauseTimeout     int
+	PurgeInterval    time.Duration
+	PurgeKeep        int
+	SumAlgo          string
+	PreHook          string
+	PostHook         string
+	PgDumpOpts       []string
+	PerDbOpts        map[string]*dbOpts
+	CfgFile          string
+	TimeFormat       string
+	Verbose          bool
+	Quiet            bool
+	Encrypt          bool
+	CipherPassphrase string
+	Decrypt          bool
 }
 
 func defaultOptions() options {
@@ -185,6 +188,12 @@ func parseCli(args []string) (options, []string, error) {
 	pflag.StringVarP(&purgeKeep, "purge-min-keep", "K", "0", "minimum number of dumps to keep when purging or 'all' to keep everything\n")
 	pflag.StringVar(&opts.PreHook, "pre-backup-hook", "", "command to run before taking dumps")
 	pflag.StringVar(&opts.PostHook, "post-backup-hook", "", "command to run after taking dumps\n")
+
+	pflag.BoolVar(&opts.Encrypt, "encrypt", false, "encrypt the dumps")
+	NoEncrypt := pflag.Bool("no-encrypt", false, "do not encrypt the dumps")
+	pflag.BoolVar(&opts.Decrypt, "decrypt", false, "decrypt files in the backup directory")
+	pflag.StringVar(&opts.CipherPassphrase, "cipher-pass", "", "cipher passphrase for encryption and decryption\n")
+
 	pflag.StringVarP(&opts.Host, "host", "h", "", "database server host or socket directory")
 	pflag.IntVarP(&opts.Port, "port", "p", 0, "database server port number")
 	pflag.StringVarP(&opts.Username, "username", "U", "", "connect as specified database user")
@@ -215,6 +224,13 @@ func parseCli(args []string) (options, []string, error) {
 	if *WithoutTemplates {
 		opts.WithTemplates = false
 		changed = append(changed, "with-templates")
+	}
+
+	// To override cipher = true from the config file on the command line,
+	// have MergeCliAndConfigOptions() use the false value
+	if *NoEncrypt {
+		opts.Encrypt = false
+		changed = append(changed, "encrypt")
 	}
 
 	// When --help or --version is given print and tell the caller
@@ -270,6 +286,30 @@ func parseCli(args []string) (options, []string, error) {
 
 	opts.Format = []rune(format)[0]
 
+	if opts.Encrypt && opts.Decrypt {
+		return opts, changed, fmt.Errorf("options --encrypt and --decrypt are mutually exclusive")
+	}
+
+	// Ensure a non-empty passphrase is set when asking for encryption
+	if (opts.Encrypt || opts.Decrypt) && len(opts.CipherPassphrase) == 0 {
+		oncli := false
+		for _, v := range changed {
+			if v == "cipher-pass" {
+				oncli = true
+				break
+			}
+		}
+
+		// Fallback on the environment
+		if !oncli {
+			opts.CipherPassphrase, _ = os.LookupEnv("PGBK_PASSPHRASE")
+		}
+
+		if len(opts.CipherPassphrase) == 0 {
+			return opts, changed, fmt.Errorf("cannot use an empty passphrase for encryption")
+		}
+	}
+
 	return opts, changed, nil
 }
 
@@ -308,6 +348,8 @@ func loadConfigurationFile(path string) (options, error) {
 	opts.SumAlgo = s.Key("checksum_algorithm").MustString("none")
 	opts.PreHook = s.Key("pre_backup_hook").MustString("")
 	opts.PostHook = s.Key("post_backup_hook").MustString("")
+	opts.Encrypt = s.Key("encrypt").MustBool(false)
+	opts.CipherPassphrase = s.Key("cipher_passphrase").MustString("")
 
 	// Validate purge keep and time limit
 	keep, err := validatePurgeKeepValue(purgeKeep)
@@ -330,6 +372,10 @@ func loadConfigurationFile(path string) (options, error) {
 		return opts, err
 	}
 	opts.Format = []rune(format)[0]
+
+	if opts.Encrypt && len(opts.CipherPassphrase) == 0 {
+		return opts, fmt.Errorf("cannot use an empty passphrase for encryption")
+	}
 
 	// Validate the value of the timestamp format. Force the use of legacy
 	// on windows to avoid failure when creating filenames with the
@@ -491,6 +537,12 @@ func mergeCliAndConfigOptions(cliOpts options, configOpts options, onCli []strin
 			opts.PreHook = cliOpts.PreHook
 		case "post-backup-hook":
 			opts.PostHook = cliOpts.PostHook
+		case "encrypt":
+			opts.Encrypt = cliOpts.Encrypt
+		case "cipher-pass":
+			opts.CipherPassphrase = cliOpts.CipherPassphrase
+		case "decrypt":
+			opts.Decrypt = cliOpts.Decrypt
 		case "host":
 			opts.Host = cliOpts.Host
 		case "port":
