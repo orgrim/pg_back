@@ -223,7 +223,7 @@ func dumpCreateDBAndACL(db *pg, dbname string) (string, error) {
 	// this is no longer necessary after 11. Dumping ACL is the
 	// job of pg_dump so we have to check its version, not the
 	// server
-	if pgDumpVersion() >= 110000 {
+	if pgToolVersion("pg_dump") >= 110000 {
 		l.Verboseln("no need to dump create database query and database ACL with pg_dump from >=11")
 		return "", nil
 	}
@@ -400,7 +400,7 @@ func dumpDBConfig(db *pg, dbname string) (string, error) {
 	// this is no longer necessary after 11. Dumping ACL is the
 	// job of pg_dump so we have to check its version, not the
 	// server
-	if pgDumpVersion() >= 110000 {
+	if pgToolVersion("pg_dump") >= 110000 {
 		l.Verboseln("no need to dump database configuration with pg_dump from >=11")
 		return "", nil
 	}

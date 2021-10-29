@@ -57,7 +57,7 @@ func needPgConn(t *testing.T) {
 }
 
 func needPgDump(t *testing.T) {
-	if pgDumpVersion() >= 110000 {
+	if pgToolVersion("pg_dump") >= 110000 {
 		t.Skip("testing with a pg_dump version > 11")
 	}
 }
