@@ -450,7 +450,7 @@ func (d *dump) dump() error {
 	// It is recommended to use --create with the plain format
 	// from PostgreSQL 11 to get the ACL and configuration of the
 	// database
-	if pgDumpVersion() >= 110000 && fileEnd == "sql" {
+	if pgToolVersion("pg_dump") >= 110000 && fileEnd == "sql" {
 		args = append(args, "--create")
 	}
 
@@ -576,17 +576,33 @@ func formatDumpPath(dir string, timeFormat string, suffix string, dbname string,
 	return filepath.Join(d, f)
 }
 
-func pgDumpVersion() int {
-	vs, err := exec.Command(filepath.Join(binDir, "pg_dump"), "-V").Output()
+func pgToolVersion(tool string) int {
+	vs, err := exec.Command(filepath.Join(binDir, tool), "--version").Output()
 	if err != nil {
-		l.Warnln("failed to retrieve version of pg_dump:", err)
+		l.Warnf("failed to retrieve version of %s: %s", tool, err)
 		return 0
 	}
 
-	var maj, min, rev int
-	fmt.Sscanf(string(vs), "pg_dump (PostgreSQL) %d.%d.%d", &maj, &min, &rev)
+	var maj, min, rev, numver int
+	n, _ := fmt.Sscanf(string(vs), tool+" (PostgreSQL) %d.%d.%d", &maj, &min, &rev)
 
-	return (maj*100+min)*100 + rev
+	if n == 3 {
+		// Before PostgreSQL 10, the format si MAJ.MIN.REV
+		numver = (maj*100+min)*100 + rev
+	} else if n == 2 {
+		// From PostgreSQL 10, the format si MAJ.REV, so the rev ends
+		// up in min with the scan
+		numver = maj*10000 + min
+	} else {
+		// We have the special case of the development version, where the
+		// format is MAJdevel
+		fmt.Sscanf(string(vs), tool+" (PostgreSQL) %ddevel", &maj)
+		numver = maj * 10000
+	}
+
+	l.Verboseln(tool, "version is:", numver)
+
+	return numver
 }
 
 func dumpGlobals(dir string, timeFormat string, conninfo *ConnInfo, fc chan<- string) error {
