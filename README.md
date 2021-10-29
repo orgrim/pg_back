@@ -46,6 +46,11 @@ in the current directory:
 docker run --rm -v "$PWD":/go/bin golang:1.16 go get github.com/orgrim/pg_back
 ```
 
+## Minimum versions
+
+The minimum version of `pg_dump` et `pg_dumpall` required to dump is 8.4. The
+oldest tested server version of PostgreSQL is 8.2.
+
 ## Usage
 
 Use the `--help` or `-?` to print the list of available options. To dump all

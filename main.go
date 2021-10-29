@@ -153,7 +153,12 @@ func main() {
 		binDir = opts.BinDirectory
 	}
 
+	// Ensure that pg_dump accepts the options we will give it
 	pgDumpVersion := pgToolVersion("pg_dump")
+	if pgDumpVersion < 80400 {
+		l.Fatalln("provided pg_dump is older than 8.4, unable use it.")
+		os.Exit(1)
+	}
 
 	// Parse the connection information
 	l.Verboseln("processing input connection parameters")
