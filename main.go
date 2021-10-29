@@ -63,6 +63,9 @@ type dump struct {
 	// Result
 	When     time.Time
 	ExitCode int
+
+	// Version of pg_dump
+	PgDumpVersion int
 }
 
 type dbOpts struct {
@@ -150,6 +153,8 @@ func main() {
 		binDir = opts.BinDirectory
 	}
 
+	pgDumpVersion := pgToolVersion("pg_dump")
+
 	// Parse the connection information
 	l.Verboseln("processing input connection parameters")
 	conninfo, err := prepareConnInfo(opts.Host, opts.Port, opts.Username, opts.ConnDb)
@@ -235,12 +240,13 @@ func main() {
 		}
 
 		d := &dump{
-			Database:   dbname,
-			Options:    o,
-			Directory:  opts.Directory,
-			TimeFormat: opts.TimeFormat,
-			ConnString: conninfo,
-			ExitCode:   -1,
+			Database:      dbname,
+			Options:       o,
+			Directory:     opts.Directory,
+			TimeFormat:    opts.TimeFormat,
+			ConnString:    conninfo,
+			ExitCode:      -1,
+			PgDumpVersion: pgDumpVersion,
 		}
 
 		l.Verbosef("sending dump job for database %s to worker pool", dbname)
@@ -396,6 +402,10 @@ func (d *dump) dump() error {
 	case 't':
 		fileEnd = "tar"
 	case 'd':
+		if d.PgDumpVersion < 90100 {
+			return fmt.Errorf("provided pg_dump version does not support directory format")
+		}
+
 		fileEnd = "d"
 	}
 
@@ -406,13 +416,17 @@ func (d *dump) dump() error {
 	args := []string{formatOpt, "-f", file, "-w"}
 
 	if fileEnd == "d" && d.Options.Jobs > 1 {
-		args = append(args, "-j", fmt.Sprintf("%d", d.Options.Jobs))
+		if d.PgDumpVersion < 90300 {
+			l.Warnln("provided pg_dump version does not support parallel jobs, ignoring option")
+		} else {
+			args = append(args, "-j", fmt.Sprintf("%d", d.Options.Jobs))
+		}
 	}
 
 	// It is recommended to use --create with the plain format
 	// from PostgreSQL 11 to get the ACL and configuration of the
 	// database
-	if pgToolVersion("pg_dump") >= 110000 && fileEnd == "sql" {
+	if d.PgDumpVersion >= 110000 && fileEnd == "sql" {
 		args = append(args, "--create")
 	}
 
@@ -434,7 +448,11 @@ func (d *dump) dump() error {
 	case 1: // with blobs
 		args = append(args, "-b")
 	case 2: // without blobs
-		args = append(args, "-B")
+		if d.PgDumpVersion < 100000 {
+			l.Warnln("provided pg_dump version does not support excluding blobs, ignoring option")
+		} else {
+			args = append(args, "-B")
+		}
 	}
 
 	// Add compression level option only if not dumping in the plain format
@@ -451,11 +469,22 @@ func (d *dump) dump() error {
 	}
 
 	// Connection option are passed as a connstring even if we add options
-	// on the command line
+	// on the command line. For older version, it is passed using the
+	// environment
 	conninfo := d.ConnString.Set("dbname", dbname)
-	args = append(args, "-d", conninfo.String())
+
+	var env []string
+
+	if d.PgDumpVersion < 90300 {
+		args = append(args, dbname)
+		env = os.Environ()
+		env = append(env, d.ConnString.MakeEnv()...)
+	} else {
+		args = append(args, "-d", conninfo.String())
+	}
 
 	pgDumpCmd := exec.Command(command, args...)
+	pgDumpCmd.Env = env
 	l.Verboseln("running:", pgDumpCmd)
 	stdoutStderr, err := pgDumpCmd.CombinedOutput()
 	if err != nil {
@@ -577,7 +606,17 @@ func dumpGlobals(dir string, timeFormat string, conninfo *ConnInfo) error {
 		args = append(args, "-l", dbname)
 	}
 
-	args = append(args, "-d", conninfo.String())
+	// With older version of PostgreSQL not supporting connection strings
+	// on their -d option, use the environment to pass the connection
+	// information
+	var env []string
+
+	if pgToolVersion("pg_dumpall") < 90300 {
+		env = os.Environ()
+		env = append(env, conninfo.MakeEnv()...)
+	} else {
+		args = append(args, "-d", conninfo.String())
+	}
 
 	file := formatDumpPath(dir, timeFormat, "sql", "pg_globals", time.Now())
 	args = append(args, "-f", file)
@@ -587,6 +626,7 @@ func dumpGlobals(dir string, timeFormat string, conninfo *ConnInfo) error {
 	}
 
 	pgDumpallCmd := exec.Command(command, args...)
+	pgDumpallCmd.Env = env
 	l.Verboseln("running:", pgDumpallCmd)
 	stdoutStderr, err := pgDumpallCmd.CombinedOutput()
 	if err != nil {

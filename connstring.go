@@ -110,6 +110,76 @@ func (c *ConnInfo) Del(keyword string) *ConnInfo {
 	return newC
 }
 
+// MakeEnv return the conninfo as a list of "key=value" environment variables
+// that the libpq understands, as stated in the documentation of PostgreSQL 14
+func (c *ConnInfo) MakeEnv() []string {
+	env := make([]string, 0, len(c.Infos))
+	for k, v := range c.Infos {
+		switch k {
+		case "host":
+			env = append(env, "PGHOST="+v)
+		case "hostaddr":
+			env = append(env, "PGHOSTADDR="+v)
+		case "port":
+			env = append(env, "PGPORT="+v)
+		case "dbname":
+			env = append(env, "PGDATABASE="+v)
+		case "user":
+			env = append(env, "PGUSER="+v)
+		case "password":
+			env = append(env, "PGPASSWORD="+v)
+		case "passfile":
+			env = append(env, "PGPASSFILE="+v)
+		case "service":
+			env = append(env, "PGSERVICE="+v)
+		case "options":
+			env = append(env, "PGOPTIONS="+v)
+		case "application_name":
+			env = append(env, "PGAPPNAME="+v)
+		case "sslmode":
+			env = append(env, "PGSSLMODE="+v)
+		case "requiressl":
+			env = append(env, "PGREQUIRESSL="+v)
+		case "sslcert":
+			env = append(env, "PGSSLCERT="+v)
+		case "sslkey":
+			env = append(env, "PGSSLKEY="+v)
+		case "sslrootcert":
+			env = append(env, "PGSSLROOTCERT="+v)
+		case "sslcrl":
+			env = append(env, "PGSSLCRL="+v)
+		case "krbsrvname":
+			env = append(env, "PGKRBSRVNAME="+v)
+		case "gsslib":
+			env = append(env, "PGGSSLIB="+v)
+		case "connect_timeout":
+			env = append(env, "PGCONNECT_TIMEOUT="+v)
+		case "channel_binding":
+			env = append(env, "PGCHANNELBINDING="+v)
+		case "sslcompression":
+			env = append(env, "PGSSLCOMPRESSION="+v)
+		case "sslcrldir":
+			env = append(env, "PGSSLCRLDIR="+v)
+		case "sslsni":
+			env = append(env, "PGSSLSNI="+v)
+		case "requirepeer":
+			env = append(env, "PGREQUIREPEER="+v)
+		case "ssl_min_protocol_version":
+			env = append(env, "PGSSLMINPROTOCOLVERSION="+v)
+		case "ssl_max_protocol_version":
+			env = append(env, "PGSSLMAXPROTOCOLVERSION="+v)
+		case "gssencmode":
+			env = append(env, "PGGSSENCMODE="+v)
+		case "client_encoding":
+			env = append(env, "PGCLIENTENCODING="+v)
+		case "target_session_attrs":
+			env = append(env, "PGTARGETSESSIONATTRS="+v)
+		}
+	}
+
+	return env
+}
+
 func parseUrlConnInfo(connstring string) (map[string]string, error) {
 	u, err := url.Parse(connstring)
 	if err != nil {
