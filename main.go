@@ -163,8 +163,31 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Use another goroutine to compute checksum of other files than
+	// dumps. We just have to send the paths of files to it.
+	producedFiles := make(chan string)
+
+	// To stop gracefully, we would close the channel and tell the main
+	// goroutine it's done
+	ppDone := make(chan bool, 1)
+	go func() {
+		for {
+			file, more := <-producedFiles
+			if !more {
+				break
+			}
+			if opts.SumAlgo != "none" {
+				if err = checksumFile(file, opts.SumAlgo); err != nil {
+					l.Warnln("checksum failed", err)
+					continue
+				}
+			}
+		}
+		ppDone <- true
+	}()
+
 	l.Infoln("dumping globals")
-	if err := dumpGlobals(opts.Directory, opts.TimeFormat, conninfo); err != nil {
+	if err := dumpGlobals(opts.Directory, opts.TimeFormat, conninfo, producedFiles); err != nil {
 		l.Fatalln("pg_dumpall -g failed:", err)
 		postBackupHook(opts.PostHook)
 		os.Exit(1)
@@ -174,27 +197,33 @@ func main() {
 	if err != nil {
 		l.Fatalln("connection to PostgreSQL failed:", err)
 		postBackupHook(opts.PostHook)
+		close(producedFiles)
+		<-ppDone
 		os.Exit(1)
 	}
 	defer db.Close()
 
 	l.Infoln("dumping instance configuration")
 	var verr *pgVersionError
-	if err := dumpSettings(opts.Directory, opts.TimeFormat, db); err != nil {
+	if err := dumpSettings(opts.Directory, opts.TimeFormat, db, producedFiles); err != nil {
 		if errors.As(err, &verr) {
 			l.Warnln(err)
 		} else {
 			db.Close()
 			l.Fatalln("could not dump configuration parameters:", err)
 			postBackupHook(opts.PostHook)
+			close(producedFiles)
+			<-ppDone
 			os.Exit(1)
 		}
 	}
 
-	if err := dumpConfigFiles(opts.Directory, opts.TimeFormat, db); err != nil {
+	if err := dumpConfigFiles(opts.Directory, opts.TimeFormat, db, producedFiles); err != nil {
 		db.Close()
 		l.Fatalln("could not dump configuration files:", err)
 		postBackupHook(opts.PostHook)
+		close(producedFiles)
+		<-ppDone
 		os.Exit(1)
 	}
 
@@ -203,6 +232,8 @@ func main() {
 		l.Fatalln(err)
 		db.Close()
 		postBackupHook(opts.PostHook)
+		close(producedFiles)
+		<-ppDone
 		os.Exit(1)
 	}
 	l.Verboseln("databases to dump:", databases)
@@ -211,6 +242,8 @@ func main() {
 		db.Close()
 		l.Fatalln(err)
 		postBackupHook(opts.PostHook)
+		close(producedFiles)
+		<-ppDone
 		os.Exit(1)
 	}
 
@@ -316,6 +349,9 @@ func main() {
 
 			f.Close()
 
+			// Have its checksum computed
+			producedFiles <- aclpath
+
 			l.Infoln("dump of ACL and configuration of", dbname, "to", aclpath, "done")
 		}
 	}
@@ -349,6 +385,8 @@ func main() {
 	}
 
 	postBackupHook(opts.PostHook)
+	close(producedFiles)
+	<-ppDone
 	os.Exit(exitCode)
 }
 
@@ -551,7 +589,7 @@ func pgDumpVersion() int {
 	return (maj*100+min)*100 + rev
 }
 
-func dumpGlobals(dir string, timeFormat string, conninfo *ConnInfo) error {
+func dumpGlobals(dir string, timeFormat string, conninfo *ConnInfo, fc chan<- string) error {
 	command := filepath.Join(binDir, "pg_dumpall")
 	args := []string{"-g", "-w"}
 
@@ -588,10 +626,15 @@ func dumpGlobals(dir string, timeFormat string, conninfo *ConnInfo) error {
 			}
 		}
 	}
+
+	if fc != nil {
+		fc <- file
+	}
+
 	return nil
 }
 
-func dumpSettings(dir string, timeFormat string, db *pg) error {
+func dumpSettings(dir string, timeFormat string, db *pg, fc chan<- string) error {
 
 	file := formatDumpPath(dir, timeFormat, "out", "pg_settings", time.Now())
 
@@ -610,12 +653,16 @@ func dumpSettings(dir string, timeFormat string, db *pg) error {
 		if err := ioutil.WriteFile(file, []byte(s), 0644); err != nil {
 			return err
 		}
+
+		if fc != nil {
+			fc <- file
+		}
 	}
 
 	return nil
 }
 
-func dumpConfigFiles(dir string, timeFormat string, db *pg) error {
+func dumpConfigFiles(dir string, timeFormat string, db *pg, fc chan<- string) error {
 	for _, param := range []string{"hba_file", "ident_file"} {
 		file := formatDumpPath(dir, timeFormat, "out", param, time.Now())
 
@@ -633,6 +680,12 @@ func dumpConfigFiles(dir string, timeFormat string, db *pg) error {
 			l.Verbosef("writing contents of '%s' to: %s", param, file)
 			if err := ioutil.WriteFile(file, []byte(s), 0644); err != nil {
 				return err
+			}
+
+			// We have produced a file send it to the channel for
+			// further processing
+			if fc != nil {
+				fc <- file
 			}
 		}
 	}
