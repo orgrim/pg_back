@@ -94,7 +94,7 @@ func checksumFile(path string, algo string) error {
 				l.Verboseln("computing checksum of:", path)
 				r, cerr := computeChecksum(path, h)
 				if cerr != nil {
-					return fmt.Errorf("could not checksum %s: %s", path, err)
+					return fmt.Errorf("could not checksum %s: %s", path, cerr)
 				}
 				fmt.Fprintf(o, "%x *%s\n", r, path)
 			}
@@ -113,5 +113,54 @@ func checksumFile(path string, algo string) error {
 		r, _ := computeChecksum(path, h)
 		fmt.Fprintf(o, "%x  %s\n", r, path)
 	}
+	return nil
+}
+
+func checksumFileList(paths []string, algo string, sumFilePrefix string) error {
+	var h hash.Hash
+
+	switch algo {
+	case "none":
+		return nil
+	case "sha1":
+		h = sha1.New()
+	case "sha224":
+		h = sha256.New224()
+	case "sha256":
+		h = sha256.New()
+	case "sha384":
+		h = sha512.New384()
+	case "sha512":
+		h = sha512.New()
+	default:
+		return fmt.Errorf("unsupported hash algorithm: %s", algo)
+	}
+
+	sumPath := fmt.Sprintf("%s.%s", sumFilePrefix, algo)
+	l.Verbosef("create or use checksum file: %s", sumPath)
+	o, err := os.OpenFile(sumPath, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0666)
+	if err != nil {
+		return fmt.Errorf("could not open %s: %w", sumPath, err)
+	}
+
+	defer o.Close()
+
+	failed := false
+	for _, path := range paths {
+		l.Verboseln("computing checksum of:", path)
+		r, err := computeChecksum(path, h)
+		if err != nil {
+			l.Errorf("could not checksum %s: %s", path, err)
+			failed = true
+			continue
+		}
+
+		fmt.Fprintf(o, "%x *%s\n", r, path)
+	}
+
+	if failed {
+		return fmt.Errorf("computing of checksum failed. Please examine output")
+	}
+
 	return nil
 }

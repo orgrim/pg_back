@@ -135,7 +135,7 @@ passphrase. When `encrypt` is set to true in the configuration file, the
 default, unencrypted source files are removed when they are successfully
 encrypted. Use the `--encrypt-keep-src` option to keep them or
 `--no-encrypt-keep-src` to force remove them and override the configuration
-file.
+file. If required, checksum of encrypted files are computed.
 
 Encrypted files can be decrypted with the correct passphrase and the
 `--decrypt` option. When `--decrypt` is present on the command line, dumps are

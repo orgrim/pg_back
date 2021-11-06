@@ -205,14 +205,23 @@ func main() {
 			}
 
 			if opts.SumAlgo != "none" {
-				if err = checksumFile(file, opts.SumAlgo); err != nil {
+				if err := checksumFile(file, opts.SumAlgo); err != nil {
 					l.Warnln("checksum failed", err)
 				}
 			}
 
 			if opts.Encrypt {
-				if err = encryptFile(file, opts.CipherPassphrase, opts.EncryptKeepSrc); err != nil {
+				encFiles, err := encryptFile(file, opts.CipherPassphrase, opts.EncryptKeepSrc)
+				if err != nil {
 					l.Warnln("encryption failed", err)
+					continue
+				}
+				if opts.SumAlgo != "none" {
+					for _, encFile := range encFiles {
+						if err := checksumFile(encFile, opts.SumAlgo); err != nil {
+							l.Warnln("checksum failed", err)
+						}
+					}
 				}
 			}
 		}
@@ -601,9 +610,16 @@ func (d *dump) dump() error {
 	// Encrypt the file
 	if d.CipherPassphrase != "" {
 		l.Infoln("encrypting", file)
-		if err = encryptFile(file, d.CipherPassphrase, d.EncryptKeepSrc); err != nil {
+		encFiles, err := encryptFile(file, d.CipherPassphrase, d.EncryptKeepSrc)
+		if err != nil {
 			return fmt.Errorf("encrypt failed: %s", err)
 
+		}
+
+		if d.Options.SumAlgo != "none" && len(encFiles) > 0 {
+			if err := checksumFileList(encFiles, d.Options.SumAlgo, fmt.Sprintf("%s.age", file)); err != nil {
+				return fmt.Errorf("failed to checksum encrypted files: %w", err)
+			}
 		}
 	}
 
