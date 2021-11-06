@@ -131,7 +131,11 @@ encryption of files). To keep things simple, encryption is done using a
 passphrase. To encrypt files, use the `--encrypt` option along with the
 `--cipher-pass` option or `PGBK_PASSPHRASE` environment variable to specify the
 passphrase. When `encrypt` is set to true in the configuration file, the
-`--no-encrypt` option allows to disable encryption on the command line.
+`--no-encrypt` option allows to disable encryption on the command line. By
+default, unencrypted source files are removed when they are successfully
+encrypted. Use the `--encrypt-keep-src` option to keep them or
+`--no-encrypt-keep-src` to force remove them and override the configuration
+file.
 
 Encrypted files can be decrypted with the correct passphrase and the
 `--decrypt` option. When `--decrypt` is present on the command line, dumps are

@@ -64,6 +64,9 @@ type dump struct {
 	// Cipher passphrase, when not empty cipher the file
 	CipherPassphrase string
 
+	// Keep original files after encryption
+	EncryptKeepSrc bool
+
 	// Result
 	When     time.Time
 	ExitCode int
@@ -208,7 +211,7 @@ func main() {
 			}
 
 			if opts.Encrypt {
-				if err = encryptFile(file, opts.CipherPassphrase, false); err != nil {
+				if err = encryptFile(file, opts.CipherPassphrase, opts.EncryptKeepSrc); err != nil {
 					l.Warnln("encryption failed", err)
 				}
 			}
@@ -310,6 +313,7 @@ func main() {
 			TimeFormat:       opts.TimeFormat,
 			ConnString:       conninfo,
 			CipherPassphrase: passphrase,
+			EncryptKeepSrc:   opts.EncryptKeepSrc,
 			ExitCode:         -1,
 			PgDumpVersion:    pgDumpVersion,
 		}
@@ -597,7 +601,7 @@ func (d *dump) dump() error {
 	// Encrypt the file
 	if d.CipherPassphrase != "" {
 		l.Infoln("encrypting", file)
-		if err = encryptFile(file, d.CipherPassphrase, false); err != nil {
+		if err = encryptFile(file, d.CipherPassphrase, d.EncryptKeepSrc); err != nil {
 			return fmt.Errorf("encrypt failed: %s", err)
 
 		}

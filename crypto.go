@@ -117,6 +117,7 @@ func encryptFile(path string, password string, keep bool) error {
 				}
 
 				if !keep {
+					l.Verboseln("removeing source file:", path)
 					src.Close()
 					if err := os.Remove(path); err != nil {
 						return fmt.Errorf("could not remove %s: %w", path, err)
@@ -155,6 +156,7 @@ func encryptFile(path string, password string, keep bool) error {
 		}
 
 		if !keep {
+			l.Verboseln("removeing source file:", path)
 			src.Close()
 			if err := os.Remove(path); err != nil {
 				return fmt.Errorf("could not remove %s: %w", path, err)

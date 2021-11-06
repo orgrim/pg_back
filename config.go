@@ -72,6 +72,7 @@ type options struct {
 	Verbose          bool
 	Quiet            bool
 	Encrypt          bool
+	EncryptKeepSrc   bool
 	CipherPassphrase string
 	Decrypt          bool
 }
@@ -191,6 +192,8 @@ func parseCli(args []string) (options, []string, error) {
 
 	pflag.BoolVar(&opts.Encrypt, "encrypt", false, "encrypt the dumps")
 	NoEncrypt := pflag.Bool("no-encrypt", false, "do not encrypt the dumps")
+	pflag.BoolVar(&opts.EncryptKeepSrc, "encrypt-keep-src", false, "keep original files when encrypting")
+	NoEncryptKeepSrc := pflag.Bool("no-encrypt-keep-src", false, "do not keep original files when encrypting")
 	pflag.BoolVar(&opts.Decrypt, "decrypt", false, "decrypt files in the backup directory")
 	pflag.StringVar(&opts.CipherPassphrase, "cipher-pass", "", "cipher passphrase for encryption and decryption\n")
 
@@ -231,6 +234,12 @@ func parseCli(args []string) (options, []string, error) {
 	if *NoEncrypt {
 		opts.Encrypt = false
 		changed = append(changed, "encrypt")
+	}
+
+	// Same for encrypt_keep_source = true in the config file
+	if *NoEncryptKeepSrc {
+		opts.EncryptKeepSrc = false
+		changed = append(changed, "encrypt-keep-src")
 	}
 
 	// When --help or --version is given print and tell the caller
@@ -350,6 +359,7 @@ func loadConfigurationFile(path string) (options, error) {
 	opts.PostHook = s.Key("post_backup_hook").MustString("")
 	opts.Encrypt = s.Key("encrypt").MustBool(false)
 	opts.CipherPassphrase = s.Key("cipher_passphrase").MustString("")
+	opts.EncryptKeepSrc = s.Key("encrypt_keep_source").MustBool(false)
 
 	// Validate purge keep and time limit
 	keep, err := validatePurgeKeepValue(purgeKeep)
@@ -539,6 +549,8 @@ func mergeCliAndConfigOptions(cliOpts options, configOpts options, onCli []strin
 			opts.PostHook = cliOpts.PostHook
 		case "encrypt":
 			opts.Encrypt = cliOpts.Encrypt
+		case "encrypt-keep-src":
+			opts.EncryptKeepSrc = cliOpts.EncryptKeepSrc
 		case "cipher-pass":
 			opts.CipherPassphrase = cliOpts.CipherPassphrase
 		case "decrypt":
