@@ -80,10 +80,12 @@ func ageDecrypt(src io.Reader, dst io.Writer, password string) error {
 	return nil
 }
 
-func encryptFile(path string, password string, keep bool) error {
+func encryptFile(path string, password string, keep bool) ([]string, error) {
+	encrypted := make([]string, 0)
+
 	i, err := os.Stat(path)
 	if err != nil {
-		return err
+		return encrypted, err
 	}
 
 	if i.IsDir() {
@@ -103,7 +105,7 @@ func encryptFile(path string, password string, keep bool) error {
 				defer src.Close()
 
 				dstFile := fmt.Sprintf("%s.age", path)
-				dst, err := os.Create(dstPath)
+				dst, err := os.Create(dstFile)
 				if err != nil {
 					l.Errorln(err)
 					return err
@@ -112,12 +114,14 @@ func encryptFile(path string, password string, keep bool) error {
 
 				if err := ageEncrypt(src, dst, password); err != nil {
 					dst.Close()
-					os.Remove(dstPath)
+					os.Remove(dstFile)
 					return fmt.Errorf("could not encrypt %s: %s", path, err)
 				}
 
+				encrypted = append(encrypted, dstFile)
+
 				if !keep {
-					l.Verboseln("removeing source file:", path)
+					l.Verboseln("removing source file:", path)
 					src.Close()
 					if err := os.Remove(path); err != nil {
 						return fmt.Errorf("could not remove %s: %w", path, err)
@@ -128,14 +132,14 @@ func encryptFile(path string, password string, keep bool) error {
 		})
 
 		if err != nil {
-			return fmt.Errorf("error walking the path %q: %v", path, err)
+			return encrypted, fmt.Errorf("error walking the path %q: %v", path, err)
 		}
 	} else {
 		l.Verboseln("encrypting:", path)
 		src, err := os.Open(path)
 		if err != nil {
 			l.Errorln(err)
-			return err
+			return encrypted, err
 		}
 
 		defer src.Close()
@@ -144,7 +148,7 @@ func encryptFile(path string, password string, keep bool) error {
 		dst, err := os.Create(dstFile)
 		if err != nil {
 			l.Errorln(err)
-			return err
+			return encrypted, err
 		}
 
 		defer dst.Close()
@@ -152,19 +156,21 @@ func encryptFile(path string, password string, keep bool) error {
 		if err := ageEncrypt(src, dst, password); err != nil {
 			dst.Close()
 			os.Remove(dstFile)
-			return fmt.Errorf("could not encrypt %s: %s", path, err)
+			return encrypted, fmt.Errorf("could not encrypt %s: %s", path, err)
 		}
 
+		encrypted = append(encrypted, dstFile)
+
 		if !keep {
-			l.Verboseln("removeing source file:", path)
+			l.Verboseln("removing source file:", path)
 			src.Close()
 			if err := os.Remove(path); err != nil {
-				return fmt.Errorf("could not remove %s: %w", path, err)
+				return encrypted, fmt.Errorf("could not remove %s: %w", path, err)
 			}
 		}
 	}
 
-	return nil
+	return encrypted, nil
 }
 
 func decryptFile(path string, password string) error {
