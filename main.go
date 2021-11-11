@@ -155,7 +155,18 @@ func main() {
 	// When asked to decrypt the backups, do it here and exit, we have all
 	// required input (passphrase and backup directory)
 	if opts.Decrypt {
-		if err := decryptDirectory(opts.Directory, opts.CipherPassphrase, opts.Jobs); err != nil {
+		// Avoid getting wrong globs from the config file since we are
+		// using the remaining args from the command line that are
+		// usually as a list of databases to dump
+		globs := []string{}
+		for _, v := range cliOptList {
+			if v == "include-dbs" {
+				globs = opts.Dbnames
+				break
+			}
+		}
+
+		if err := decryptDirectory(opts.Directory, opts.CipherPassphrase, opts.Jobs, globs); err != nil {
 			l.Fatalln(err)
 			os.Exit(1)
 		}
@@ -809,7 +820,7 @@ func dumpConfigFiles(dir string, timeFormat string, db *pg, fc chan<- string) er
 	return nil
 }
 
-func decryptDirectory(dir string, password string, workers int) error {
+func decryptDirectory(dir string, password string, workers int, globs []string) error {
 
 	// Run a pool of workers to decrypt concurrently
 	var wg sync.WaitGroup
@@ -850,13 +861,35 @@ func decryptDirectory(dir string, password string, workers int) error {
 		}(i)
 	}
 
-	// Read the directory
+	// Read the directory, filter the contents with the provided globs and
+	// send the path to the workers. When a directory is found, send its
+	// content, the first level only to the workers
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return fmt.Errorf("unable to read directory %s: %w", dir, err)
 	}
 
 	for _, path := range entries {
+		keep := true
+		if len(globs) > 0 {
+			keep = false
+			for _, glob := range globs {
+				keep, err = filepath.Match(glob, path.Name())
+				if err != nil {
+					return fmt.Errorf("bad patern: %w", err)
+				}
+
+				if keep {
+					break
+				}
+			}
+		}
+
+		if !keep {
+			l.Verbosef("skipping: %s, patterns: %v\n", path.Name(), globs)
+			continue
+		}
+
 		if path.IsDir() {
 			l.Verboseln("dump is a directory, decrypting all files inside")
 			subdir := filepath.Join(dir, path.Name())
@@ -886,9 +919,15 @@ func decryptDirectory(dir string, password string, workers int) error {
 		}
 	}
 
+	// Closing the channel will make the workers stop as soon as it is
+	// empty
 	close(fq)
 	wg.Wait()
 
+	// Check the return channel to find if there was an error. There are
+	// maybe more than one but when creating the buffered channel we can't
+	// know the size of the buffer, so we limit to one error per worker to
+	// avoid being blocked by channel
 	select {
 	case _ = <-ret:
 		return fmt.Errorf("failure in decrypt, please examine logs")

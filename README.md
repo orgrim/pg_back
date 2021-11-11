@@ -141,7 +141,8 @@ Encrypted files can be decrypted with the correct passphrase and the
 `--decrypt` option. When `--decrypt` is present on the command line, dumps are
 not performed, instead files are decrypted. Files can also be decrypted with
 the `age` tool, independently. Decryption of multiple files can be parallelized
-with the `-j` option.
+with the `-j` option. Arguments on the commandline (database names when
+dumping) are used as shell globs to choose which files to decrypt.
 
 ## Managing the configuration file
 
