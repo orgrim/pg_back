@@ -91,3 +91,33 @@ func purgeDumps(directory string, dbname string, keep int, limit time.Time) erro
 	}
 	return nil
 }
+
+func purgeRemoteDumps(repo Repo, dbname string, keep int, limit time.Time) (rv error) {
+	files, err := repo.List(dbname)
+	if err != nil {
+		return fmt.Errorf("could not purge: %w", err)
+	}
+
+	// Sort the list of filenames by date, youngest first,
+	// so that we can slice it easily to keep backups
+	sort.Slice(files, func(i, j int) bool {
+		return files[i].modtime.After(files[j].modtime)
+	})
+
+	if keep < len(files) && keep >= 0 {
+		for _, f := range files[keep:] {
+			if f.modtime.Before(limit) {
+				l.Infoln("removing remote file", f.key)
+				if err := repo.Remove(f.key); err != nil {
+					l.Errorln("could not purge: %w", err)
+					rv = err
+				}
+				continue
+			}
+
+			l.Verboseln("keeping remote file", f.key)
+		}
+	}
+
+	return
+}

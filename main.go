@@ -420,6 +420,16 @@ func run() (retVal error) {
 	// (globals and settings) like databases
 	l.Infoln("purging old dumps")
 
+	var repo Repo
+
+	switch opts.Upload {
+	case "s3":
+		repo, err = NewS3Repo(opts)
+		if err != nil {
+			return fmt.Errorf("failed to prepare upload to S3: %w", err)
+		}
+	}
+
 	for _, dbname := range databases {
 		o, found := opts.PerDbOpts[dbname]
 		if !found {
@@ -430,12 +440,24 @@ func run() (retVal error) {
 		if err := purgeDumps(opts.Directory, dbname, o.PurgeKeep, limit); err != nil {
 			retVal = err
 		}
+
+		if opts.PurgeRemote {
+			if err := purgeRemoteDumps(repo, dbname, o.PurgeKeep, limit); err != nil {
+				retVal = err
+			}
+		}
 	}
 
 	for _, other := range []string{"pg_globals", "pg_settings", "hba_file", "ident_file"} {
 		limit := now.Add(defDbOpts.PurgeInterval)
 		if err := purgeDumps(opts.Directory, other, defDbOpts.PurgeKeep, limit); err != nil {
 			retVal = err
+		}
+
+		if opts.PurgeRemote {
+			if err := purgeRemoteDumps(repo, other, defDbOpts.PurgeKeep, limit); err != nil {
+				retVal = err
+			}
 		}
 	}
 
@@ -620,6 +642,19 @@ func dumper(id int, jobs <-chan *dump, results chan<- *dump, fc chan<- sumFileJo
 			results <- j
 		}
 	}
+}
+
+func relPath(basedir, path string) string {
+	target, err := filepath.Rel(basedir, path)
+	if err != nil {
+		l.Warnf("could not get relative path from %s: %s\n", path, err)
+		target = path
+	}
+
+	for strings.HasPrefix(target, "../") {
+		target = strings.TrimPrefix(target, "../")
+	}
+	return target
 }
 
 func formatDumpPath(dir string, timeFormat string, suffix string, dbname string, when time.Time) string {
@@ -945,6 +980,11 @@ type sumEncryptFileJob struct {
 	SumFile string
 }
 
+type uploadJob struct {
+	// Path to upload
+	Path string
+}
+
 // postProcessFiles is the entrypoint for common tasks to perform on files
 // produced during execution, checksum and encryption. Different go routines
 // are spawn to process the files as soon as possible
@@ -954,7 +994,7 @@ func postProcessFiles(inFiles chan sumFileJob, wg *sync.WaitGroup, opts options)
 	// status. This chan is buffered with the number of goroutines using it
 	// here so that it never blocks, each go routine must send only one
 	// error, other are only logged.
-	ret := make(chan error, 3*opts.Jobs)
+	ret := make(chan error, 4*opts.Jobs)
 
 	// Create a channel so that each group of worker can tell their job is
 	// done and the next group can be stopped
@@ -964,6 +1004,7 @@ func postProcessFiles(inFiles chan sumFileJob, wg *sync.WaitGroup, opts options)
 	// files) is kept by passing jobs of different types to the next
 	// goroutine over channels
 	encIn := make(chan encryptFileJob)
+	uploadIn := make(chan uploadJob)
 
 	for i := 0; i < opts.Jobs; i++ {
 		wg.Add(1)
@@ -999,7 +1040,7 @@ func postProcessFiles(inFiles chan sumFileJob, wg *sync.WaitGroup, opts options)
 						continue
 					}
 
-					// send the checksum file to encryption
+					// send the checksum file to encryption or upload
 					if opts.Encrypt {
 						encIn <- encryptFileJob{
 							Path:       p,
@@ -1007,17 +1048,53 @@ func postProcessFiles(inFiles chan sumFileJob, wg *sync.WaitGroup, opts options)
 							KeepSrc:    opts.EncryptKeepSrc,
 							SumAlgo:    j.SumAlgo,
 						}
-
+					} else if opts.Upload != "none" {
+						// upload the checksum file only if it won't be encrypted
+						uploadIn <- uploadJob{
+							Path: p,
+						}
 					}
+
 				}
 
-				// send the file to the next step, encryption
+				// send the file to the next step, encryption or upload
 				if opts.Encrypt {
 					encIn <- encryptFileJob{
 						Path:       j.Path,
 						Passphrase: opts.CipherPassphrase,
 						KeepSrc:    opts.EncryptKeepSrc,
 						SumAlgo:    j.SumAlgo,
+					}
+				} else if opts.Upload != "none" {
+					// upload the file only if it won't be encrypted
+					i, err := os.Stat(j.Path)
+					if err != nil {
+						l.Warnln(err)
+						continue
+					}
+
+					if i.IsDir() {
+						entries, err := os.ReadDir(j.Path)
+						if err != nil {
+							l.Warnf("unable to read directory %s: %s", j.Path, err)
+							continue
+						}
+
+						for _, p := range entries {
+							if p.IsDir() {
+								// skip garbage dirs in dump directory
+								continue
+							}
+
+							uploadIn <- uploadJob{
+								Path: filepath.Join(j.Path, p.Name()),
+							}
+						}
+					} else {
+
+						uploadIn <- uploadJob{
+							Path: j.Path,
+						}
 					}
 				}
 			}
@@ -1059,6 +1136,14 @@ func postProcessFiles(inFiles chan sumFileJob, wg *sync.WaitGroup, opts options)
 						SumFile: fmt.Sprintf("%s.age", j.Path),
 					}
 
+					// upload the encrypted files
+					if opts.Upload != "none" {
+						for _, p := range encFiles {
+							uploadIn <- uploadJob{
+								Path: p,
+							}
+						}
+					}
 				}
 			}
 		}(i)
@@ -1073,6 +1158,7 @@ func postProcessFiles(inFiles chan sumFileJob, wg *sync.WaitGroup, opts options)
 				j, more := <-sumEncIn
 				if !more {
 					wg.Done()
+					done <- true
 					l.Verboseln("stopped checksum worker for encrypted files", id)
 					return
 				}
@@ -1083,10 +1169,59 @@ func postProcessFiles(inFiles chan sumFileJob, wg *sync.WaitGroup, opts options)
 
 				if j.SumAlgo != "none" {
 					l.Infoln("computing checksum of", j.SumFile)
-					if err := checksumFileList(j.Paths, j.SumAlgo, j.SumFile); err != nil {
+					p, err := checksumFileList(j.Paths, j.SumAlgo, j.SumFile)
+					if err != nil {
 						l.Errorln("checksum of encrypted files failed:", err)
 						if !failed {
 							ret <- fmt.Errorf("checksum of encrypted files failed: %w", err)
+							failed = true
+						}
+						continue
+					}
+
+					// upload the checksum file
+					if opts.Upload != "none" {
+						uploadIn <- uploadJob{
+							Path: p,
+						}
+					}
+				}
+			}
+		}(i)
+	}
+
+	var (
+		repo Repo
+		err  error
+	)
+
+	switch opts.Upload {
+	case "s3":
+		repo, err = NewS3Repo(opts)
+		if err != nil {
+			l.Errorln("failed to prepare upload to S3:", err)
+			ret <- err
+		}
+	}
+
+	for i := 0; i < opts.Jobs; i++ {
+		wg.Add(1)
+		go func(id int) {
+			l.Verboseln("started upload worker", id)
+			failed := false
+			for {
+				j, more := <-uploadIn
+				if !more {
+					wg.Done()
+					l.Verboseln("stopped upload worker", id)
+					return
+				}
+
+				if opts.Upload != "none" && repo != nil {
+					if err := repo.Upload(j.Path, relPath(opts.Directory, j.Path)); err != nil {
+						l.Errorln(err)
+						if !failed {
+							ret <- err
 							failed = true
 						}
 						continue
@@ -1112,6 +1247,11 @@ func postProcessFiles(inFiles chan sumFileJob, wg *sync.WaitGroup, opts options)
 			<-done
 		}
 		close(sumEncIn)
+
+		for i := 0; i < opts.Jobs; i++ {
+			<-done
+		}
+		close(uploadIn)
 	}()
 
 	return ret

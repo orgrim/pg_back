@@ -118,6 +118,62 @@ func TestValidatePurgeTimeLimitValue(t *testing.T) {
 	}
 }
 
+func TestValidateYesNoOption(t *testing.T) {
+	var tests = []struct {
+		give      string
+		want      bool
+		wantError bool
+	}{
+		{"y", true, false},
+		{"Y", true, false},
+		{"n", false, false},
+		{"N", false, false},
+		{"yes", true, false},
+		{"Yes", true, false},
+		{" no", false, false},
+		{"NO", false, false},
+		{"wrong", false, true},
+	}
+
+	for i, st := range tests {
+		t.Run(fmt.Sprintf("%v", i), func(t *testing.T) {
+			got, err := validateYesNoOption(st.give)
+			if err == nil && st.wantError {
+				t.Errorf("excepted an error got nil")
+			} else if err != nil && !st.wantError {
+				t.Errorf("did not want an error, got %s", err)
+			}
+			if got != st.want {
+				t.Errorf("got %v, want %v", got, st.want)
+			}
+		})
+	}
+}
+
+func TestValidateEnum(t *testing.T) {
+	var tests = []struct {
+		give      string
+		allowed   []string
+		wantError bool
+	}{
+		{"a", []string{"a", "b", "c"}, false},
+		{"d", []string{"a", "b", "c"}, true},
+	}
+
+	for i, st := range tests {
+		t.Run(fmt.Sprintf("%v", i), func(t *testing.T) {
+			got := validateEnum(st.give, st.allowed)
+			if got == nil && st.wantError {
+				t.Errorf("excepted an error got nil")
+			}
+
+			if got != nil && !st.wantError {
+				t.Errorf("did not expect an error, got %s", got)
+			}
+		})
+	}
+}
+
 func TestDefaultOptions(t *testing.T) {
 	timeFormat := time.RFC3339
 	if runtime.GOOS == "windows" {
@@ -136,6 +192,7 @@ func TestDefaultOptions(t *testing.T) {
 		SumAlgo:       "none",
 		CfgFile:       "/etc/pg_back/pg_back.conf",
 		TimeFormat:    timeFormat,
+		Upload:        "none",
 	}
 
 	got := defaultOptions()
@@ -178,6 +235,7 @@ func TestParseCli(t *testing.T) {
 					SumAlgo:       "none",
 					CfgFile:       "/etc/pg_back/pg_back.conf",
 					TimeFormat:    timeFormat,
+					Upload:        "none",
 				},
 				false,
 				false,
@@ -199,6 +257,7 @@ func TestParseCli(t *testing.T) {
 					SumAlgo:       "none",
 					CfgFile:       "/etc/pg_back/pg_back.conf",
 					TimeFormat:    timeFormat,
+					Upload:        "none",
 				},
 				false,
 				false,
@@ -244,6 +303,7 @@ func TestParseCli(t *testing.T) {
 					CfgFile:       "/etc/pg_back/pg_back.conf",
 					TimeFormat:    timeFormat,
 					Encrypt:       true,
+					Upload:        "none",
 				},
 				false,
 				false,
@@ -265,6 +325,7 @@ func TestParseCli(t *testing.T) {
 					CfgFile:       "/etc/pg_back/pg_back.conf",
 					TimeFormat:    timeFormat,
 					Encrypt:       true,
+					Upload:        "none",
 				},
 				false,
 				false,
@@ -287,10 +348,34 @@ func TestParseCli(t *testing.T) {
 					TimeFormat:       timeFormat,
 					Encrypt:          true,
 					CipherPassphrase: "testpass",
+					Upload:           "none",
 				},
 				false,
 				false,
 				"",
+				"",
+			},
+			{
+				[]string{"--upload", "wrong"},
+				options{
+					Directory:        "/var/backups/postgresql",
+					Format:           'c',
+					DirJobs:          1,
+					CompressLevel:    -1,
+					Jobs:             1,
+					PauseTimeout:     3600,
+					PurgeInterval:    -30 * 24 * time.Hour,
+					PurgeKeep:        0,
+					SumAlgo:          "none",
+					CfgFile:          "/etc/pg_back/pg_back.conf",
+					TimeFormat:       timeFormat,
+					Encrypt:          true,
+					CipherPassphrase: "testpass",
+					Upload:           "wrong",
+				},
+				false,
+				false,
+				"invalid value for --upload: value not found in [none s3]",
 				"",
 			},
 		}
@@ -375,6 +460,7 @@ func TestParseCliEnv(t *testing.T) {
 					CfgFile:       "/etc/pg_back/pg_back.conf",
 					TimeFormat:    timeFormat,
 					Encrypt:       true,
+					Upload:        "none",
 				},
 				"cannot use an empty passphrase for encryption",
 				"PGBK_PASSPHRASE=",
@@ -395,6 +481,7 @@ func TestParseCliEnv(t *testing.T) {
 					TimeFormat:       timeFormat,
 					Encrypt:          true,
 					CipherPassphrase: "testpass",
+					Upload:           "none",
 				},
 				"",
 				"PGBK_PASSPHRASE=testpass",
@@ -415,6 +502,7 @@ func TestParseCliEnv(t *testing.T) {
 					TimeFormat:       timeFormat,
 					Encrypt:          true,
 					CipherPassphrase: "testpass",
+					Upload:           "none",
 				},
 				"",
 				"PGBK_PASSPHRASE=testenv",
@@ -479,6 +567,7 @@ func TestLoadConfigurationFile(t *testing.T) {
 				SumAlgo:       "none",
 				CfgFile:       "/etc/pg_back/pg_back.conf",
 				TimeFormat:    timeFormat,
+				Upload:        "none",
 			},
 		},
 		{ // ensure comma separated lists work
@@ -497,6 +586,7 @@ func TestLoadConfigurationFile(t *testing.T) {
 				SumAlgo:       "none",
 				CfgFile:       "/etc/pg_back/pg_back.conf",
 				TimeFormat:    timeFormat,
+				Upload:        "none",
 			},
 		},
 		{
@@ -514,6 +604,7 @@ func TestLoadConfigurationFile(t *testing.T) {
 				SumAlgo:       "none",
 				CfgFile:       "/etc/pg_back/pg_back.conf",
 				TimeFormat:    timeFormat,
+				Upload:        "none",
 			},
 		},
 		{
@@ -531,6 +622,7 @@ func TestLoadConfigurationFile(t *testing.T) {
 				SumAlgo:       "none",
 				CfgFile:       "/etc/pg_back/pg_back.conf",
 				TimeFormat:    "2006-01-02_15-04-05",
+				Upload:        "none",
 			},
 		},
 		{
@@ -577,6 +669,7 @@ func TestLoadConfigurationFile(t *testing.T) {
 					PgDumpOpts:    []string{"-O", "-x"},
 					WithBlobs:     1,
 				}},
+				Upload: "none",
 			},
 		},
 		{
@@ -614,6 +707,7 @@ func TestLoadConfigurationFile(t *testing.T) {
 					PgDumpOpts:    []string{},
 					WithBlobs:     2,
 				}},
+				Upload: "none",
 			},
 		},
 	}
@@ -677,6 +771,7 @@ func TestMergeCliAndConfigoptions(t *testing.T) {
 		PostHook:      "touch /tmp/post-hook",
 		CfgFile:       "/etc/pg_back/pg_back.conf",
 		TimeFormat:    timeFormat,
+		Upload:        "none",
 	}
 
 	cliOptList := []string{

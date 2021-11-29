@@ -75,6 +75,17 @@ type options struct {
 	EncryptKeepSrc   bool
 	CipherPassphrase string
 	Decrypt          bool
+
+	Upload       string // values are none, s3
+	PurgeRemote  bool
+	S3Region     string
+	S3Bucket     string
+	S3EndPoint   string
+	S3Profile    string
+	S3KeyID      string
+	S3Secret     string
+	S3ForcePath  bool
+	S3DisableTLS bool
 }
 
 func defaultOptions() options {
@@ -95,6 +106,7 @@ func defaultOptions() options {
 		SumAlgo:       "none",
 		CfgFile:       defaultCfgFile,
 		TimeFormat:    timeFormat,
+		Upload:        "none",
 	}
 }
 
@@ -158,6 +170,35 @@ func validatePurgeTimeLimitValue(i string) (time.Duration, error) {
 
 }
 
+func validateYesNoOption(s string) (bool, error) {
+	ls := strings.TrimSpace(strings.ToLower(s))
+	if ls == "y" || ls == "yes" {
+		return true, nil
+	}
+
+	if ls == "n" || ls == "no" {
+		return false, nil
+	}
+
+	return false, fmt.Errorf("value must be \"yes\" or \"no\"")
+}
+
+func validateEnum(s string, candidates []string) error {
+	found := false
+	ls := strings.TrimSpace(strings.ToLower(s))
+	for _, v := range candidates {
+		if v == ls {
+			found = true
+		}
+	}
+
+	if !found {
+		return fmt.Errorf("value not found in %v", candidates)
+	}
+
+	return nil
+}
+
 func parseCli(args []string) (options, []string, error) {
 	var format, purgeKeep, purgeInterval string
 
@@ -196,6 +237,18 @@ func parseCli(args []string) (options, []string, error) {
 	NoEncryptKeepSrc := pflag.Bool("no-encrypt-keep-src", false, "do not keep original files when encrypting")
 	pflag.BoolVar(&opts.Decrypt, "decrypt", false, "decrypt files in the backup directory")
 	pflag.StringVar(&opts.CipherPassphrase, "cipher-pass", "", "cipher passphrase for encryption and decryption\n")
+
+	pflag.StringVar(&opts.Upload, "upload", "none", "upload produced files to target (s3, gcs,..) use \"none\" to override\nconfiguration file and disable upload")
+	purgeRemote := pflag.String("purge-remote", "no", "purge the file on remote location after upload, with the same rules as the local directory")
+
+	pflag.StringVar(&opts.S3Region, "s3-region", "", "S3 region")
+	pflag.StringVar(&opts.S3Bucket, "s3-bucket", "", "S3 bucket")
+	pflag.StringVar(&opts.S3Profile, "s3-profile", "", "AWS client profile name to get credentials")
+	pflag.StringVar(&opts.S3KeyID, "s3-key-id", "", "AWS Access key ID")
+	pflag.StringVar(&opts.S3Secret, "s3-secret", "", "AWS Secret access key")
+	pflag.StringVar(&opts.S3EndPoint, "s3-endpoint", "", "S3 endpoint URI")
+	S3ForcePath := pflag.String("s3-force-path", "no", "force path style addressing instead of virtual hosted bucket\naddressing")
+	S3UseTLS := pflag.String("s3-tls", "yes", "enable or disable TLS on requests")
 
 	pflag.StringVarP(&opts.Host, "host", "h", "", "database server host or socket directory")
 	pflag.IntVarP(&opts.Port, "port", "p", 0, "database server port number")
@@ -323,6 +376,33 @@ func parseCli(args []string) (options, []string, error) {
 		}
 	}
 
+	// Validate upload option
+	stores := []string{"none", "s3"}
+	if err := validateEnum(opts.Upload, stores); err != nil {
+		return opts, changed, fmt.Errorf("invalid value for --upload: %s", err)
+	}
+
+	opts.PurgeRemote, err = validateYesNoOption(*purgeRemote)
+	if err != nil {
+		return opts, changed, fmt.Errorf("invalid value for --purge-remote: %s", err)
+	}
+
+	// Validate S3 options
+	opts.S3ForcePath, err = validateYesNoOption(*S3ForcePath)
+	if err != nil {
+		return opts, changed, fmt.Errorf("invalid value for --s3-force-path: %s", err)
+	}
+
+	S3WithTLS, err := validateYesNoOption(*S3UseTLS)
+	if err != nil {
+		return opts, changed, fmt.Errorf("invalid value for --s3-tls: %s", err)
+	}
+	opts.S3DisableTLS = !S3WithTLS
+
+	if opts.Upload == "s3" && opts.S3Bucket == "" {
+		return opts, changed, fmt.Errorf("option --s3-bucket is mandatory when --upload=s3")
+	}
+
 	return opts, changed, nil
 }
 
@@ -365,6 +445,18 @@ func loadConfigurationFile(path string) (options, error) {
 	opts.CipherPassphrase = s.Key("cipher_passphrase").MustString("")
 	opts.EncryptKeepSrc = s.Key("encrypt_keep_source").MustBool(false)
 
+	opts.Upload = s.Key("upload").MustString("none")
+	opts.PurgeRemote = s.Key("purge_remote").MustBool(false)
+
+	opts.S3Region = s.Key("s3_region").MustString("")
+	opts.S3Bucket = s.Key("s3_bucket").MustString("")
+	opts.S3EndPoint = s.Key("s3_endpoint").MustString("")
+	opts.S3Profile = s.Key("s3_profile").MustString("")
+	opts.S3KeyID = s.Key("s3_key_id").MustString("")
+	opts.S3Secret = s.Key("s3_secret").MustString("")
+	opts.S3ForcePath = s.Key("s3_force_path").MustBool(false)
+	opts.S3DisableTLS = !s.Key("s3_tls").MustBool(true)
+
 	// Validate purge keep and time limit
 	keep, err := validatePurgeKeepValue(purgeKeep)
 	if err != nil {
@@ -393,6 +485,16 @@ func loadConfigurationFile(path string) (options, error) {
 
 	if opts.Encrypt && len(opts.CipherPassphrase) == 0 {
 		return opts, fmt.Errorf("cannot use an empty passphrase for encryption")
+	}
+
+	// Validate upload option
+	stores := []string{"none", "s3"}
+	if err := validateEnum(opts.Upload, stores); err != nil {
+		return opts, fmt.Errorf("invalid value for upload: %s", err)
+	}
+
+	if opts.Upload == "s3" && opts.S3Bucket == "" {
+		return opts, fmt.Errorf("option s3_bucket is mandatory when upload is s3")
 	}
 
 	// Validate the value of the timestamp format. Force the use of legacy
@@ -563,6 +665,29 @@ func mergeCliAndConfigOptions(cliOpts options, configOpts options, onCli []strin
 			opts.CipherPassphrase = cliOpts.CipherPassphrase
 		case "decrypt":
 			opts.Decrypt = cliOpts.Decrypt
+
+		case "upload":
+			opts.Upload = cliOpts.Upload
+		case "purge-remote":
+			opts.PurgeRemote = cliOpts.PurgeRemote
+
+		case "s3-region":
+			opts.S3Region = cliOpts.S3Region
+		case "s3-bucket":
+			opts.S3Bucket = cliOpts.S3Bucket
+		case "s3-profile":
+			opts.S3Profile = cliOpts.S3Profile
+		case "s3-key-id":
+			opts.S3KeyID = cliOpts.S3KeyID
+		case "s3-secret":
+			opts.S3Secret = cliOpts.S3Secret
+		case "s3-endpoint":
+			opts.S3EndPoint = cliOpts.S3EndPoint
+		case "s3-force-path":
+			opts.S3ForcePath = cliOpts.S3ForcePath
+		case "s3-tls":
+			opts.S3DisableTLS = cliOpts.S3DisableTLS
+
 		case "host":
 			opts.Host = cliOpts.Host
 		case "port":

@@ -53,6 +53,8 @@ oldest tested server version of PostgreSQL is 8.2.
 
 ## Usage
 
+### Basic usage
+
 Use the `--help` or `-?` to print the list of available options. To dump all
 databases, you only need to give the proper connection options to the PostgreSQL
 instance and the path to a writable directory to store the dump files.
@@ -76,6 +78,8 @@ delimiters).
 The other command line options let you tweak what is dumped, purged, and how
 it is done. These options can be put in a configuration file. The command line
 options override configuration options.
+
+### Per-database configuration
 
 Per-database configuration can only be done with a configuration file. The
 configuration file uses the `ini` format, global options are in a unspecified
@@ -102,11 +106,15 @@ concurrent `pg_dump` jobs greater than 1 with `--jobs` (`-j`) option. It is diff
 than `--parallel-backup-jobs` (`-J`) that controls the number of sessions used by
 `pg_dump` with the directory format.
 
+### Checksums
+
 A checksum of all output files is computed in a separate file when
 `--checksum-algo` (`-S`) is different than `none`. The possible algorithms are:
 `sha1`, `sha224`, `sha256`, `sha384` and `sha512`. The checksum file is in the
 format required by _shaXsum_ (`sha1sum`, `sha256sum`, etc.) tools for checking
 with their `-c` option.
+
+### Purge
 
 Older dumps can be removed based on their age with `--purge-older-than` (`-P`)
 in days, if no unit is given. Allowed units are the ones understood by the
@@ -120,10 +128,14 @@ avoiding file removal completly. When both `--purge-older-than` and
 before old dumps are removed. This avoids removing all dumps when the time
 interval is too small.
 
+### Hooks
+
 A command can be run before taking dumps with `--pre-backup-hook`, and after
 with `--post-backup-hook`. The commands are executed directly, not by a shell,
 respecting single and double quoted values. Even if some operation fails, the
 post backup hook is executed when present.
+
+### Encryption
 
 All the files procuded by a run of pg_back can be encrypted using age
 (<https://age-encryption.org/> an easy to use tool that does authenticated
@@ -143,6 +155,22 @@ not performed, instead files are decrypted. Files can also be decrypted with
 the `age` tool, independently. Decryption of multiple files can be parallelized
 with the `-j` option. Arguments on the commandline (database names when
 dumping) are used as shell globs to choose which files to decrypt.
+
+### Upload to remote locations
+
+All files produced by a run can be uploaded to a remote location by setting the
+`--upload` option to a value different than `none`. The possible values are `s3` or
+`none`.
+
+When set to `s3`, files are uploaded to AWS S3. The `--s3-*` family of options
+can be used to tweak the access to the bucket. The `--s3-profile` option only reads
+credentials and basic configuration, s3 specific options are not used.
+
+The `--purge-remote` option can be set to `yes` to apply the same purge policy
+on the remote location as the local directory.
+
+When files are encrypted and their unencrypted source is kept, only encrypted
+files are uploaded.
 
 ## Managing the configuration file
 
