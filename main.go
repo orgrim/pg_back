@@ -111,6 +111,15 @@ type dbOpts struct {
 }
 
 func main() {
+	// Use another function to allow the use of defer for cleanup, as
+	// os.Exit() does not run deferred functions
+	if err := run(); err != nil {
+		l.Fatalln(err)
+		os.Exit(1)
+	}
+}
+
+func run() error {
 	// Parse commanline arguments first so that we can quit if we
 	// have shown usage or version string. We may have to load a
 	// non default configuration file
@@ -126,15 +135,13 @@ func main() {
 			// check the result
 			if len(pce.LegacyConfig) > 0 {
 				if err := convertLegacyConfFile(pce.LegacyConfig); err != nil {
-					l.Fatalln(err)
-					os.Exit(1)
+					return err
 				}
 			}
-			os.Exit(0)
-		} else {
-			l.Fatalln(err)
-			os.Exit(1)
+			return nil
 		}
+
+		return err
 	}
 
 	// Enable verbose mode or quiet mode as soon as possible
@@ -144,8 +151,7 @@ func main() {
 	// file to be absent
 	configOpts, err := loadConfigurationFile(cliOpts.CfgFile)
 	if err != nil && cliOpts.CfgFile != defaultCfgFile {
-		l.Fatalln(err)
-		os.Exit(1)
+		return err
 	}
 
 	// override options from the configuration file with ones from
@@ -167,10 +173,10 @@ func main() {
 		}
 
 		if err := decryptDirectory(opts.Directory, opts.CipherPassphrase, opts.Jobs, globs); err != nil {
-			l.Fatalln(err)
-			os.Exit(1)
+			return err
 		}
-		os.Exit(0)
+
+		return nil
 	}
 
 	// Remember when we start so that a purge interval of 0s won't remove the dumps we
@@ -184,30 +190,31 @@ func main() {
 	// Ensure that pg_dump accepts the options we will give it
 	pgDumpVersion := pgToolVersion("pg_dump")
 	if pgDumpVersion < 80400 {
-		l.Fatalln("provided pg_dump is older than 8.4, unable use it.")
-		os.Exit(1)
+		return fmt.Errorf("provided pg_dump is older than 8.4, unable use it.")
 	}
 
 	// Parse the connection information
 	l.Verboseln("processing input connection parameters")
 	conninfo, err := prepareConnInfo(opts.Host, opts.Port, opts.Username, opts.ConnDb)
 	if err != nil {
-		l.Fatalln("could not compute connection string:", err)
-		os.Exit(1)
+		return fmt.Errorf("could not compute connection string: %w", err)
 	}
 
+	defer postBackupHook(opts.PostHook)
 	if err := preBackupHook(opts.PreHook); err != nil {
-		postBackupHook(opts.PostHook)
-		os.Exit(1)
+		return err
 	}
 
 	// Use another goroutine to compute checksum of other files than
 	// dumps. We just have to send the paths of files to it.
 	producedFiles := make(chan string)
 
-	// To stop gracefully, we would close the channel and tell the main
-	// goroutine it's done
-	ppDone := make(chan bool, 1)
+	var wg sync.WaitGroup
+
+	wg.Add(1)
+	defer wg.Wait()
+	defer close(producedFiles)
+
 	go func() {
 		for {
 			file, more := <-producedFiles
@@ -236,23 +243,17 @@ func main() {
 				}
 			}
 		}
-		ppDone <- true
+		wg.Done()
 	}()
 
 	l.Infoln("dumping globals")
 	if err := dumpGlobals(opts.Directory, opts.TimeFormat, conninfo, producedFiles); err != nil {
-		l.Fatalln("pg_dumpall -g failed:", err)
-		postBackupHook(opts.PostHook)
-		os.Exit(1)
+		return fmt.Errorf("pg_dumpall -g failed: %w", err)
 	}
 
 	db, err := dbOpen(conninfo)
 	if err != nil {
-		l.Fatalln("connection to PostgreSQL failed:", err)
-		postBackupHook(opts.PostHook)
-		close(producedFiles)
-		<-ppDone
-		os.Exit(1)
+		return fmt.Errorf("connection to PostgreSQL failed: %w", err)
 	}
 	defer db.Close()
 
@@ -262,42 +263,22 @@ func main() {
 		if errors.As(err, &verr) {
 			l.Warnln(err)
 		} else {
-			db.Close()
-			l.Fatalln("could not dump configuration parameters:", err)
-			postBackupHook(opts.PostHook)
-			close(producedFiles)
-			<-ppDone
-			os.Exit(1)
+			return fmt.Errorf("could not dump configuration parameters: %w", err)
 		}
 	}
 
 	if err := dumpConfigFiles(opts.Directory, opts.TimeFormat, db, producedFiles); err != nil {
-		db.Close()
-		l.Fatalln("could not dump configuration files:", err)
-		postBackupHook(opts.PostHook)
-		close(producedFiles)
-		<-ppDone
-		os.Exit(1)
+		return fmt.Errorf("could not dump configuration files: %w", err)
 	}
 
 	databases, err := listDatabases(db, opts.WithTemplates, opts.ExcludeDbs, opts.Dbnames)
 	if err != nil {
-		l.Fatalln(err)
-		db.Close()
-		postBackupHook(opts.PostHook)
-		close(producedFiles)
-		<-ppDone
-		os.Exit(1)
+		return err
 	}
 	l.Verboseln("databases to dump:", databases)
 
 	if err := pauseReplicationWithTimeout(db, opts.PauseTimeout); err != nil {
-		db.Close()
-		l.Fatalln(err)
-		postBackupHook(opts.PostHook)
-		close(producedFiles)
-		<-ppDone
-		os.Exit(1)
+		return err
 	}
 
 	exitCode := 0
@@ -446,10 +427,11 @@ func main() {
 		}
 	}
 
-	postBackupHook(opts.PostHook)
-	close(producedFiles)
-	<-ppDone
-	os.Exit(exitCode)
+	if exitCode != 0 {
+		return fmt.Errorf("some operation failed")
+	}
+
+	return nil
 }
 
 func defaultDbOpts(opts options) *dbOpts {
