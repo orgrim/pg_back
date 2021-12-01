@@ -51,12 +51,12 @@ func computeChecksum(path string, h hash.Hash) (string, error) {
 	return string(h.Sum(nil)), nil
 }
 
-func checksumFile(path string, algo string) error {
+func checksumFile(path string, algo string) (string, error) {
 	var h hash.Hash
 
 	switch algo {
 	case "none":
-		return nil
+		return "", nil
 	case "sha1":
 		h = sha1.New()
 	case "sha224":
@@ -68,19 +68,20 @@ func checksumFile(path string, algo string) error {
 	case "sha512":
 		h = sha512.New()
 	default:
-		return fmt.Errorf("unsupported hash algorithm: %s", algo)
+		return "", fmt.Errorf("unsupported hash algorithm: %s", algo)
 	}
 
 	i, err := os.Stat(path)
 	if err != nil {
-		return err
+		return "", err
 	}
 
-	l.Verbosef("create checksum file: %s.%s", path, algo)
-	o, err := os.Create(fmt.Sprintf("%s.%s", path, algo))
+	sumFile := fmt.Sprintf("%s.%s", path, algo)
+	l.Verbosef("create checksum file: %s", sumFile)
+	o, err := os.Create(sumFile)
 	if err != nil {
 		l.Errorln(err)
-		return err
+		return "", err
 	}
 	defer o.Close()
 
@@ -102,7 +103,7 @@ func checksumFile(path string, algo string) error {
 		})
 
 		if err != nil {
-			return fmt.Errorf("error walking the path %q: %v\n", path, err)
+			return "", fmt.Errorf("error walking the path %q: %v\n", path, err)
 		}
 	} else {
 
@@ -113,7 +114,7 @@ func checksumFile(path string, algo string) error {
 		r, _ := computeChecksum(path, h)
 		fmt.Fprintf(o, "%x  %s\n", r, path)
 	}
-	return nil
+	return sumFile, nil
 }
 
 func checksumFileList(paths []string, algo string, sumFilePrefix string) error {

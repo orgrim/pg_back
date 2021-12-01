@@ -119,7 +119,7 @@ func main() {
 	}
 }
 
-func run() error {
+func run() (retVal error) {
 	// Parse commanline arguments first so that we can quit if we
 	// have shown usage or version string. We may have to load a
 	// non default configuration file
@@ -205,46 +205,40 @@ func run() error {
 		return err
 	}
 
-	// Use another goroutine to compute checksum of other files than
-	// dumps. We just have to send the paths of files to it.
-	producedFiles := make(chan string)
+	// Use another goroutine to compute checksum and other operations on
+	// files by sending them with this channel
+	producedFiles := make(chan sumFileJob)
 
 	var wg sync.WaitGroup
 
-	wg.Add(1)
-	defer wg.Wait()
-	defer close(producedFiles)
+	postProcRet := postProcessFiles(producedFiles, &wg, opts)
 
-	go func() {
-		for {
-			file, more := <-producedFiles
-			if !more {
-				break
-			}
+	// retVal allow us to return with an error from the post processing go
+	// routines, by changing it in a deferred function. Using deferred
+	// function helps preventing us from forgetting any cleanup task. This
+	// is why retVal is named in the signature of run().
+	defer func() {
+		// Detect if the producedFiles channel has been closed twice,
+		// it will be closed to stop post processing and check for
+		// error before purging old files
+		if err := recover(); err == nil {
+			l.Infoln("waiting for postprocessing to complete")
+		}
 
-			if opts.SumAlgo != "none" {
-				if err := checksumFile(file, opts.SumAlgo); err != nil {
-					l.Warnln("checksum failed", err)
-				}
-			}
-
-			if opts.Encrypt {
-				encFiles, err := encryptFile(file, opts.CipherPassphrase, opts.EncryptKeepSrc)
-				if err != nil {
-					l.Warnln("encryption failed", err)
-					continue
-				}
-				if opts.SumAlgo != "none" {
-					for _, encFile := range encFiles {
-						if err := checksumFile(encFile, opts.SumAlgo); err != nil {
-							l.Warnln("checksum failed", err)
-						}
-					}
-				}
+		err := stopPostProcess(&wg, postProcRet)
+		if err != nil {
+			if retVal != nil {
+				// Do not overwrite the error
+				l.Errorln("failed to stop postprocessing:", err)
+			} else {
+				retVal = err
 			}
 		}
-		wg.Done()
 	}()
+
+	// Closing the input channel makes the postprocessing go routine stop,
+	// so it must be done before blocking on the WaitGroup in stopPostProcess()
+	defer close(producedFiles)
 
 	l.Infoln("dumping globals")
 	if err := dumpGlobals(opts.Directory, opts.TimeFormat, conninfo, producedFiles); err != nil {
@@ -290,7 +284,7 @@ func run() error {
 	// start workers - thanks gobyexample.com
 	l.Verbosef("launching %d workers", maxWorkers)
 	for w := 0; w < maxWorkers; w++ {
-		go dumper(w, jobs, results)
+		go dumper(w, jobs, results, producedFiles)
 	}
 
 	defDbOpts := defaultDbOpts(opts)
@@ -393,7 +387,10 @@ func run() error {
 			f.Close()
 
 			// Have its checksum computed
-			producedFiles <- aclpath
+			producedFiles <- sumFileJob{
+				Path:    aclpath,
+				SumAlgo: d.Options.SumAlgo,
+			}
 
 			l.Infoln("dump of ACL and configuration of", dbname, "to", aclpath, "done")
 		}
@@ -403,6 +400,21 @@ func run() error {
 		l.Errorln(err)
 	}
 	db.Close()
+
+	if exitCode != 0 {
+		return fmt.Errorf("some operation failed")
+	}
+
+	// Closing the input channel makes the postprocessing go routine stop,
+	// so it must be done before blocking on the WaitGroup in
+	// stopPostProcess(). The channel would be closed in a defer that check
+	// if retVal is an error, from this point we MUST only use retVal and a
+	// return without value when return from an error
+	close(producedFiles)
+	l.Infoln("waiting for postprocessing to complete")
+	if err := stopPostProcess(&wg, postProcRet); err != nil {
+		return err
+	}
 
 	// purge old dumps per database and treat special files
 	// (globals and settings) like databases
@@ -416,22 +428,18 @@ func run() error {
 		limit := now.Add(o.PurgeInterval)
 
 		if err := purgeDumps(opts.Directory, dbname, o.PurgeKeep, limit); err != nil {
-			exitCode = 1
+			retVal = err
 		}
 	}
 
 	for _, other := range []string{"pg_globals", "pg_settings", "hba_file", "ident_file"} {
 		limit := now.Add(defDbOpts.PurgeInterval)
 		if err := purgeDumps(opts.Directory, other, defDbOpts.PurgeKeep, limit); err != nil {
-			exitCode = 1
+			retVal = err
 		}
 	}
 
-	if exitCode != 0 {
-		return fmt.Errorf("some operation failed")
-	}
-
-	return nil
+	return
 }
 
 func defaultDbOpts(opts options) *dbOpts {
@@ -447,7 +455,7 @@ func defaultDbOpts(opts options) *dbOpts {
 	return &dbo
 }
 
-func (d *dump) dump() error {
+func (d *dump) dump(fc chan<- sumFileJob) error {
 	dbname := d.Database
 	d.ExitCode = 1
 
@@ -588,42 +596,23 @@ func (d *dump) dump() error {
 		return fmt.Errorf("could not release lock for %s: %s", dbname, err)
 	}
 
+	// Send the info on the file for post processing
+	if fc != nil {
+		fc <- sumFileJob{
+			Path:    file,
+			SumAlgo: d.Options.SumAlgo,
+		}
+	}
+
 	d.Path = file
-
-	// Compute the checksum tha goes with the dump file right
-	// after the dump, to this is done concurrently too.
-	if d.Options.SumAlgo != "none" {
-		l.Infoln("computing checksum of", file)
-
-		if err = checksumFile(file, d.Options.SumAlgo); err != nil {
-			return fmt.Errorf("checksum failed: %s", err)
-		}
-	}
-
-	// Encrypt the file
-	if d.CipherPassphrase != "" {
-		l.Infoln("encrypting", file)
-		encFiles, err := encryptFile(file, d.CipherPassphrase, d.EncryptKeepSrc)
-		if err != nil {
-			return fmt.Errorf("encrypt failed: %s", err)
-
-		}
-
-		if d.Options.SumAlgo != "none" && len(encFiles) > 0 {
-			if err := checksumFileList(encFiles, d.Options.SumAlgo, fmt.Sprintf("%s.age", file)); err != nil {
-				return fmt.Errorf("failed to checksum encrypted files: %w", err)
-			}
-		}
-	}
-
 	d.ExitCode = 0
 	return nil
 }
 
-func dumper(id int, jobs <-chan *dump, results chan<- *dump) {
+func dumper(id int, jobs <-chan *dump, results chan<- *dump, fc chan<- sumFileJob) {
 	for j := range jobs {
 
-		if err := j.dump(); err != nil {
+		if err := j.dump(fc); err != nil {
 			l.Errorln("dump of", j.Database, "failed:", err)
 			results <- j
 		} else {
@@ -688,7 +677,7 @@ func pgToolVersion(tool string) int {
 	return numver
 }
 
-func dumpGlobals(dir string, timeFormat string, conninfo *ConnInfo, fc chan<- string) error {
+func dumpGlobals(dir string, timeFormat string, conninfo *ConnInfo, fc chan<- sumFileJob) error {
 	command := filepath.Join(binDir, "pg_dumpall")
 	args := []string{"-g", "-w"}
 
@@ -738,13 +727,15 @@ func dumpGlobals(dir string, timeFormat string, conninfo *ConnInfo, fc chan<- st
 	}
 
 	if fc != nil {
-		fc <- file
+		fc <- sumFileJob{
+			Path: file,
+		}
 	}
 
 	return nil
 }
 
-func dumpSettings(dir string, timeFormat string, db *pg, fc chan<- string) error {
+func dumpSettings(dir string, timeFormat string, db *pg, fc chan<- sumFileJob) error {
 
 	file := formatDumpPath(dir, timeFormat, "out", "pg_settings", time.Now())
 
@@ -765,14 +756,16 @@ func dumpSettings(dir string, timeFormat string, db *pg, fc chan<- string) error
 		}
 
 		if fc != nil {
-			fc <- file
+			fc <- sumFileJob{
+				Path: file,
+			}
 		}
 	}
 
 	return nil
 }
 
-func dumpConfigFiles(dir string, timeFormat string, db *pg, fc chan<- string) error {
+func dumpConfigFiles(dir string, timeFormat string, db *pg, fc chan<- sumFileJob) error {
 	for _, param := range []string{"hba_file", "ident_file"} {
 		file := formatDumpPath(dir, timeFormat, "out", param, time.Now())
 
@@ -795,7 +788,9 @@ func dumpConfigFiles(dir string, timeFormat string, db *pg, fc chan<- string) er
 			// We have produced a file send it to the channel for
 			// further processing
 			if fc != nil {
-				fc <- file
+				fc <- sumFileJob{
+					Path: file,
+				}
 			}
 		}
 	}
@@ -916,4 +911,222 @@ func decryptDirectory(dir string, password string, workers int, globs []string) 
 	default:
 		return nil
 	}
+}
+
+// All FileJobs struct store information on post processing that must be done
+// on a file. Some go routine process one type of job and create the next job
+// and send it to some other goroutine for that kind of job
+type sumFileJob struct {
+	// Path of the file or directory to checksum
+	Path string
+
+	// Checksum algorithm
+	SumAlgo string
+}
+
+type encryptFileJob struct {
+	// Path of the file or directory to checksum
+	Path string
+
+	Passphrase string
+	KeepSrc    bool
+
+	// Store the checksum algo here to pass it to sumEncryptFileJob jobs
+	SumAlgo string
+}
+
+type sumEncryptFileJob struct {
+	// List of path to process
+	Paths []string
+
+	// Checksum algorithm
+	SumAlgo string
+
+	SumFile string
+}
+
+// postProcessFiles is the entrypoint for common tasks to perform on files
+// produced during execution, checksum and encryption. Different go routines
+// are spawn to process the files as soon as possible
+func postProcessFiles(inFiles chan sumFileJob, wg *sync.WaitGroup, opts options) chan error {
+	// Create a channel for errors so that we can inform the main goroutine
+	// that a job failed and have the program exit with a non-zero
+	// status. This chan is buffered with the number of goroutines using it
+	// here so that it never blocks, each go routine must send only one
+	// error, other are only logged.
+	ret := make(chan error, 3*opts.Jobs)
+
+	// Create a channel so that each group of worker can tell their job is
+	// done and the next group can be stopped
+	done := make(chan bool)
+
+	// The order of tasks (checksum, encryption, checksum of encrypted
+	// files) is kept by passing jobs of different types to the next
+	// goroutine over channels
+	encIn := make(chan encryptFileJob)
+
+	for i := 0; i < opts.Jobs; i++ {
+		wg.Add(1)
+		go func(id int) {
+			l.Verboseln("started checksum worker", id)
+			failed := false
+			for {
+
+				j, more := <-inFiles
+				if !more {
+					wg.Done()
+					done <- true
+					l.Verboseln("stopped checksum worker", id)
+					return
+				}
+
+				// An empty checksum algorithm comes from function
+				// operating at instance level, so we use the global
+				// option value for them.
+				if j.SumAlgo == "" {
+					j.SumAlgo = opts.SumAlgo
+				}
+
+				if j.SumAlgo != "none" {
+					l.Infoln("computing checksum of", j.Path)
+					p, err := checksumFile(j.Path, j.SumAlgo)
+					if err != nil {
+						l.Errorln("checksum failed:", err)
+						if !failed {
+							ret <- fmt.Errorf("checksum failed: %w", err)
+							failed = true
+						}
+						continue
+					}
+
+					// send the checksum file to encryption
+					if opts.Encrypt {
+						encIn <- encryptFileJob{
+							Path:       p,
+							Passphrase: opts.CipherPassphrase,
+							KeepSrc:    opts.EncryptKeepSrc,
+							SumAlgo:    j.SumAlgo,
+						}
+
+					}
+				}
+
+				// send the file to the next step, encryption
+				if opts.Encrypt {
+					encIn <- encryptFileJob{
+						Path:       j.Path,
+						Passphrase: opts.CipherPassphrase,
+						KeepSrc:    opts.EncryptKeepSrc,
+						SumAlgo:    j.SumAlgo,
+					}
+				}
+			}
+		}(i)
+	}
+
+	sumEncIn := make(chan sumEncryptFileJob)
+
+	for i := 0; i < opts.Jobs; i++ {
+		wg.Add(1)
+		go func(id int) {
+			l.Verboseln("started encryption worker", id)
+			failed := false
+			for {
+				j, more := <-encIn
+				if !more {
+					wg.Done()
+					done <- true
+					l.Verboseln("stopped encryption worker", id)
+					return
+				}
+
+				if opts.Encrypt {
+					l.Infoln("encrypting", j.Path)
+					encFiles, err := encryptFile(j.Path, j.Passphrase, j.KeepSrc)
+					if err != nil {
+						l.Errorln("encryption failed:", err)
+						if !failed {
+							ret <- fmt.Errorf("encryption failed: %w", err)
+							failed = true
+						}
+						continue
+					}
+
+					// send the encrypted files to checksuming
+					sumEncIn <- sumEncryptFileJob{
+						Paths:   encFiles,
+						SumAlgo: j.SumAlgo,
+						SumFile: fmt.Sprintf("%s.age", j.Path),
+					}
+
+				}
+			}
+		}(i)
+	}
+
+	for i := 0; i < opts.Jobs; i++ {
+		wg.Add(1)
+		go func(id int) {
+			l.Verboseln("started checksum worker for encrypted files", id)
+			failed := false
+			for {
+				j, more := <-sumEncIn
+				if !more {
+					wg.Done()
+					l.Verboseln("stopped checksum worker for encrypted files", id)
+					return
+				}
+
+				if j.SumAlgo == "" {
+					j.SumAlgo = opts.SumAlgo
+				}
+
+				if j.SumAlgo != "none" {
+					l.Infoln("computing checksum of", j.SumFile)
+					if err := checksumFileList(j.Paths, j.SumAlgo, j.SumFile); err != nil {
+						l.Errorln("checksum of encrypted files failed:", err)
+						if !failed {
+							ret <- fmt.Errorf("checksum of encrypted files failed: %w", err)
+							failed = true
+						}
+						continue
+					}
+				}
+			}
+		}(i)
+	}
+
+	// Start a goroutine to wait on each group and close the channel when
+	// their job is done, it will sequentially tell the next group of
+	// worker to stop.
+	go func() {
+		// inFiles will be closed outside of the function, when all
+		// worker reading from it exit, close encIn to make the workers
+		// reading from it stop, and so on.
+		for i := 0; i < opts.Jobs; i++ {
+			<-done
+		}
+		close(encIn)
+
+		for i := 0; i < opts.Jobs; i++ {
+			<-done
+		}
+		close(sumEncIn)
+	}()
+
+	return ret
+}
+
+func stopPostProcess(wg *sync.WaitGroup, rc chan error) error {
+	// Ensure the postprocessing is complete before check the
+	// return channel, otherwise the select could miss it
+	wg.Wait()
+
+	select {
+	case err := <-rc:
+		return fmt.Errorf("some error encountered in postprocessing: %w", err)
+	default:
+	}
+
+	return nil
 }
