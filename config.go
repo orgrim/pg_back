@@ -289,6 +289,10 @@ func parseCli(args []string) (options, []string, error) {
 		return opts, changed, fmt.Errorf("compression level must be in range 0..9")
 	}
 
+	if opts.Jobs < 1 {
+		return opts, changed, fmt.Errorf("concurrent jobs (-j) cannot be less than 1")
+	}
+
 	if err := validateDumpFormat(format); err != nil {
 		return opts, changed, err
 	}
@@ -376,6 +380,10 @@ func loadConfigurationFile(path string) (options, error) {
 
 	if opts.CompressLevel < -1 || opts.CompressLevel > 9 {
 		return opts, fmt.Errorf("compression level must be in range 0..9")
+	}
+
+	if opts.Jobs < 1 {
+		return opts, fmt.Errorf("jobs cannot be less than 1")
 	}
 
 	if err := validateDumpFormat(format); err != nil {
