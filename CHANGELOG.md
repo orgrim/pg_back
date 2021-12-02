@@ -1,6 +1,6 @@
 # Changelog
 
-## pg_back 2.0.2
+## pg_back 2.1.0
 
 * Add quiet mode with the commnad line option -q/--quiet. It takes precedence
   over verbose mode.
