@@ -193,6 +193,10 @@ func run() (retVal error) {
 		return fmt.Errorf("provided pg_dump is older than 8.4, unable use it.")
 	}
 
+	if opts.Upload == "s3" && opts.S3Bucket == "" {
+		return fmt.Errorf("a bucket is mandatory when upload is s3")
+	}
+
 	// Parse the connection information
 	l.Verboseln("processing input connection parameters")
 	conninfo, err := prepareConnInfo(opts.Host, opts.Port, opts.Username, opts.ConnDb)
@@ -428,6 +432,11 @@ func run() (retVal error) {
 		if err != nil {
 			return fmt.Errorf("failed to prepare upload to S3: %w", err)
 		}
+	case "sftp":
+		repo, err = NewSFTPRepo(opts)
+		if err != nil {
+			return fmt.Errorf("failed to prepare upload over SFTP: %w", err)
+		}
 	}
 
 	for _, dbname := range databases {
@@ -442,7 +451,7 @@ func run() (retVal error) {
 		}
 
 		if opts.PurgeRemote {
-			if err := purgeRemoteDumps(repo, dbname, o.PurgeKeep, limit); err != nil {
+			if err := purgeRemoteDumps(repo, opts.Directory, dbname, o.PurgeKeep, limit); err != nil {
 				retVal = err
 			}
 		}
@@ -455,7 +464,7 @@ func run() (retVal error) {
 		}
 
 		if opts.PurgeRemote {
-			if err := purgeRemoteDumps(repo, other, defDbOpts.PurgeKeep, limit); err != nil {
+			if err := purgeRemoteDumps(repo, opts.Directory, other, defDbOpts.PurgeKeep, limit); err != nil {
 				retVal = err
 			}
 		}
@@ -654,6 +663,7 @@ func relPath(basedir, path string) string {
 	for strings.HasPrefix(target, "../") {
 		target = strings.TrimPrefix(target, "../")
 	}
+
 	return target
 }
 
@@ -1201,6 +1211,14 @@ func postProcessFiles(inFiles chan sumFileJob, wg *sync.WaitGroup, opts options)
 		if err != nil {
 			l.Errorln("failed to prepare upload to S3:", err)
 			ret <- err
+			repo = nil
+		}
+	case "sftp":
+		repo, err = NewSFTPRepo(opts)
+		if err != nil {
+			l.Errorln("failed to prepare upload over SFTP:", err)
+			ret <- err
+			repo = nil
 		}
 	}
 
@@ -1213,6 +1231,7 @@ func postProcessFiles(inFiles chan sumFileJob, wg *sync.WaitGroup, opts options)
 				j, more := <-uploadIn
 				if !more {
 					wg.Done()
+					done <- true
 					l.Verboseln("stopped upload worker", id)
 					return
 				}
@@ -1252,6 +1271,15 @@ func postProcessFiles(inFiles chan sumFileJob, wg *sync.WaitGroup, opts options)
 			<-done
 		}
 		close(uploadIn)
+
+		for i := 0; i < opts.Jobs; i++ {
+			<-done
+		}
+
+		if repo != nil {
+			repo.Close()
+		}
+
 	}()
 
 	return ret

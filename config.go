@@ -76,7 +76,7 @@ type options struct {
 	CipherPassphrase string
 	Decrypt          bool
 
-	Upload       string // values are none, s3
+	Upload       string // values are none, s3, sftp
 	PurgeRemote  bool
 	S3Region     string
 	S3Bucket     string
@@ -86,6 +86,14 @@ type options struct {
 	S3Secret     string
 	S3ForcePath  bool
 	S3DisableTLS bool
+
+	SFTPHost             string
+	SFTPPort             string
+	SFTPUsername         string
+	SFTPPassword         string
+	SFTPDirectory        string
+	SFTPIdentityFile     string // path to private key
+	SFTPIgnoreKnownHosts bool
 }
 
 func defaultOptions() options {
@@ -250,6 +258,14 @@ func parseCli(args []string) (options, []string, error) {
 	S3ForcePath := pflag.String("s3-force-path", "no", "force path style addressing instead of virtual hosted bucket\naddressing")
 	S3UseTLS := pflag.String("s3-tls", "yes", "enable or disable TLS on requests")
 
+	pflag.StringVar(&opts.SFTPHost, "sftp-host", "", "Remote hostname for SFTP")
+	pflag.StringVar(&opts.SFTPPort, "sftp-port", "", "Remote port for SFTP")
+	pflag.StringVar(&opts.SFTPUsername, "sftp-user", "", "Login for SFTP when different than the current user")
+	pflag.StringVar(&opts.SFTPPassword, "sftp-password", "", "Password for SFTP or passphrase when identity file is set")
+	pflag.StringVar(&opts.SFTPDirectory, "sftp-directory", "", "Target directory on the remote host")
+	pflag.StringVar(&opts.SFTPIdentityFile, "sftp-identity", "", "Path to a private key")
+	SFTPIgnoreHostKey := pflag.String("sftp-ignore-hostkey", "no", "Check the target host key against local known hosts")
+
 	pflag.StringVarP(&opts.Host, "host", "h", "", "database server host or socket directory")
 	pflag.IntVarP(&opts.Port, "port", "p", 0, "database server port number")
 	pflag.StringVarP(&opts.Username, "username", "U", "", "connect as specified database user")
@@ -377,7 +393,7 @@ func parseCli(args []string) (options, []string, error) {
 	}
 
 	// Validate upload option
-	stores := []string{"none", "s3"}
+	stores := []string{"none", "s3", "sftp"}
 	if err := validateEnum(opts.Upload, stores); err != nil {
 		return opts, changed, fmt.Errorf("invalid value for --upload: %s", err)
 	}
@@ -387,20 +403,25 @@ func parseCli(args []string) (options, []string, error) {
 		return opts, changed, fmt.Errorf("invalid value for --purge-remote: %s", err)
 	}
 
-	// Validate S3 options
-	opts.S3ForcePath, err = validateYesNoOption(*S3ForcePath)
-	if err != nil {
-		return opts, changed, fmt.Errorf("invalid value for --s3-force-path: %s", err)
-	}
+	switch opts.Upload {
+	case "s3":
+		// Validate S3 options
+		opts.S3ForcePath, err = validateYesNoOption(*S3ForcePath)
+		if err != nil {
+			return opts, changed, fmt.Errorf("invalid value for --s3-force-path: %s", err)
+		}
 
-	S3WithTLS, err := validateYesNoOption(*S3UseTLS)
-	if err != nil {
-		return opts, changed, fmt.Errorf("invalid value for --s3-tls: %s", err)
-	}
-	opts.S3DisableTLS = !S3WithTLS
+		S3WithTLS, err := validateYesNoOption(*S3UseTLS)
+		if err != nil {
+			return opts, changed, fmt.Errorf("invalid value for --s3-tls: %s", err)
+		}
+		opts.S3DisableTLS = !S3WithTLS
 
-	if opts.Upload == "s3" && opts.S3Bucket == "" {
-		return opts, changed, fmt.Errorf("option --s3-bucket is mandatory when --upload=s3")
+	case "sftp":
+		opts.SFTPIgnoreKnownHosts, err = validateYesNoOption(*SFTPIgnoreHostKey)
+		if err != nil {
+			return opts, changed, fmt.Errorf("invalid value for --sftp-ignore-hostkey: %s", err)
+		}
 	}
 
 	return opts, changed, nil
@@ -457,6 +478,14 @@ func loadConfigurationFile(path string) (options, error) {
 	opts.S3ForcePath = s.Key("s3_force_path").MustBool(false)
 	opts.S3DisableTLS = !s.Key("s3_tls").MustBool(true)
 
+	opts.SFTPHost = s.Key("sftp_host").MustString("")
+	opts.SFTPPort = s.Key("sftp_port").MustString("")
+	opts.SFTPUsername = s.Key("sftp_user").MustString("")
+	opts.SFTPPassword = s.Key("sftp_password").MustString("")
+	opts.SFTPDirectory = s.Key("sftp_directory").MustString("")
+	opts.SFTPIdentityFile = s.Key("sftp_identity").MustString("")
+	opts.SFTPIgnoreKnownHosts = s.Key("sftp_ignore_hostkey").MustBool(false)
+
 	// Validate purge keep and time limit
 	keep, err := validatePurgeKeepValue(purgeKeep)
 	if err != nil {
@@ -488,13 +517,9 @@ func loadConfigurationFile(path string) (options, error) {
 	}
 
 	// Validate upload option
-	stores := []string{"none", "s3"}
+	stores := []string{"none", "s3", "sftp"}
 	if err := validateEnum(opts.Upload, stores); err != nil {
 		return opts, fmt.Errorf("invalid value for upload: %s", err)
-	}
-
-	if opts.Upload == "s3" && opts.S3Bucket == "" {
-		return opts, fmt.Errorf("option s3_bucket is mandatory when upload is s3")
 	}
 
 	// Validate the value of the timestamp format. Force the use of legacy
@@ -687,6 +712,21 @@ func mergeCliAndConfigOptions(cliOpts options, configOpts options, onCli []strin
 			opts.S3ForcePath = cliOpts.S3ForcePath
 		case "s3-tls":
 			opts.S3DisableTLS = cliOpts.S3DisableTLS
+
+		case "sftp-host":
+			opts.SFTPHost = cliOpts.SFTPHost
+		case "sftp-port":
+			opts.SFTPPort = cliOpts.SFTPPort
+		case "sftp-user":
+			opts.SFTPUsername = cliOpts.SFTPUsername
+		case "sftp-password":
+			opts.SFTPPassword = cliOpts.SFTPPassword
+		case "sftp-directory":
+			opts.SFTPDirectory = cliOpts.SFTPDirectory
+		case "sftp-identity":
+			opts.SFTPIdentityFile = cliOpts.SFTPIdentityFile
+		case "sftp-ignore-hostkey":
+			opts.SFTPIgnoreKnownHosts = cliOpts.SFTPIgnoreKnownHosts
 
 		case "host":
 			opts.Host = cliOpts.Host

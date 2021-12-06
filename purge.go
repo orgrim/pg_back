@@ -37,6 +37,9 @@ import (
 )
 
 func purgeDumps(directory string, dbname string, keep int, limit time.Time) error {
+	// The dbname can be put in the path of the backup directory, so we
+	// have to compute it first. This is why a dbname is required to purge
+	// old dumps
 	dirpath := filepath.Dir(formatDumpPath(directory, "", "", dbname, time.Time{}))
 	dir, err := os.Open(dirpath)
 	if err != nil {
@@ -92,8 +95,15 @@ func purgeDumps(directory string, dbname string, keep int, limit time.Time) erro
 	return nil
 }
 
-func purgeRemoteDumps(repo Repo, dbname string, keep int, limit time.Time) (rv error) {
-	files, err := repo.List(dbname)
+func purgeRemoteDumps(repo Repo, directory string, dbname string, keep int, limit time.Time) (rv error) {
+	// The dbname can be put in the directory tree of the dump, in this
+	// case the directory containing dbname in its name is kept on the
+	// remote path along with any subdirectory. So we have to include it in
+	// the filter when listing remote files
+	dirpath := filepath.Dir(formatDumpPath(directory, "", "", dbname, time.Time{}))
+	prefix := relPath(directory, filepath.Join(dirpath, dbname))
+
+	files, err := repo.List(prefix)
 	if err != nil {
 		return fmt.Errorf("could not purge: %w", err)
 	}
@@ -104,18 +114,36 @@ func purgeRemoteDumps(repo Repo, dbname string, keep int, limit time.Time) (rv e
 		return files[i].modtime.After(files[j].modtime)
 	})
 
+	dirs := make([]string, 0)
+
 	if keep < len(files) && keep >= 0 {
 		for _, f := range files[keep:] {
 			if f.modtime.Before(limit) {
+				if f.isDir {
+					// remove directory after so that we
+					// have better chances that they are
+					// empty
+					dirs = append(dirs, f.key)
+					continue
+				}
+
 				l.Infoln("removing remote file", f.key)
 				if err := repo.Remove(f.key); err != nil {
-					l.Errorln("could not purge: %w", err)
+					l.Errorf("could not purge %s: %s", f.key, err)
 					rv = err
 				}
 				continue
 			}
 
 			l.Verboseln("keeping remote file", f.key)
+		}
+	}
+
+	for _, d := range dirs {
+		l.Infoln("removing remote directory", d)
+		if err := repo.Remove(d); err != nil {
+			l.Errorf("could not purge %s: %s", d, err)
+			rv = err
 		}
 	}
 

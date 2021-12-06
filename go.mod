@@ -10,6 +10,8 @@ require (
 	github.com/jackc/pgconn v1.8.1 // indirect
 	github.com/jackc/pgtype v1.7.0
 	github.com/jackc/pgx/v4 v4.11.0
+	github.com/pkg/sftp v1.13.4 // indirect
 	github.com/spf13/pflag v1.0.5
+	golang.org/x/crypto v0.0.0-20211202192323-5770296d904e // indirect
 	gopkg.in/ini.v1 v1.62.0
 )

@@ -159,12 +159,21 @@ dumping) are used as shell globs to choose which files to decrypt.
 ### Upload to remote locations
 
 All files produced by a run can be uploaded to a remote location by setting the
-`--upload` option to a value different than `none`. The possible values are `s3` or
-`none`.
+`--upload` option to a value different than `none`. The possible values are
+`s3`, `sftp` or `none`.
 
 When set to `s3`, files are uploaded to AWS S3. The `--s3-*` family of options
 can be used to tweak the access to the bucket. The `--s3-profile` option only reads
 credentials and basic configuration, s3 specific options are not used.
+
+When set to `sftp`, files are uploaded to a remote host using SFTP. The
+`--sftp-*` family of options can be used to setup the access to the host. The
+`PGBK_SSH_PASS` sets the password or decrypts the private key (identity file),
+it is used only when `--sftp-password` is not set (either in the configuration
+file or on the command line). When an identity file is provided, the password
+is used to decrypt it and the password authentication method is not tried with
+the server. The only SSH authentication methods used are password and
+publickey. If an SSH agent is available, it is always used.
 
 The `--purge-remote` option can be set to `yes` to apply the same purge policy
 on the remote location as the local directory.
