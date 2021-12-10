@@ -66,7 +66,8 @@ may be provided with `-c <configfilename>`.
 If the default output directory `/var/backups/postgresql` does not exist or has
 improper ownership for your user, use `-b` to give the path where to store the
 files. The path may contain the `{dbname}` keyword, that would be replaced by
-the name of the database being dumped, this permits to dump.
+the name of the database being dumped, this permits to dump each database in
+its own directory.
 
 To connect to PostgreSQL, use the `-h`, `-p`, `-U` and `-d` options. If you
 need less known connection options such as `sslcert` and `sslkey`, you can give
