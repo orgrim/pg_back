@@ -6,7 +6,9 @@
   over verbose mode.
 * Compute checksum of global and ACL files
 * Encrypt and decrypt produced files
-* Ensure jobs option is greater than or equal to 
+* Ensure jobs option is greater than or equal to 1
+* Upload files to AWS S3
+* Upload files to a remote host with SFTP
 
 ## pg_back 2.0.1
 
