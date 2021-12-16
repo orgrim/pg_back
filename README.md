@@ -24,6 +24,8 @@ options of the PostgreSQL instance.
 * Pre-backup and post-backup hooks
 * Purge based on age and number of dumps to keep
 * Dump from a hot standby by pausing replication replay
+* Encrypt and decrypt dumps and other files
+* Upload dumps to S3, GCS or a remote host with SFTP
 
 ## Install
 
