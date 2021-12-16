@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily PostgreSQL backup
+AssertPathExists=/etc/pg_back/%I/pg_back.conf
+
+[Timer]
+OnCalendar=*-*-* 4:00:00
+AccuracySec=30m
+Persistent=true
+
+[Install]
+WantedBy=postgresql@%i.service

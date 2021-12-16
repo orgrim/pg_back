@@ -1,0 +1,24 @@
+[Unit]
+Wants=postgresql@%i.service
+AssertPathExists=/etc/pg_back/%I/pg_back.conf
+Description=Simple backup for PostgreSQL
+Documentation=https://github.com/orgrim/pg_back
+After=postgresql@%i.service
+RequiresMountsFor=/etc/pg_back/%I /var/lib/postgresql/%I
+
+[Service]
+# Execute pre and post scripts as root, otherwise it does it as User=
+PermissionsStartOnly=true
+ExecStartPre=/usr/bin/install -m 0750 -o postgres -g postgres -d /var/backups/postgresql/%I
+
+ExecStart=/usr/bin/pg_back -c /etc/pg_back/%I/pg_back.conf
+User=postgres
+Group=postgres
+
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+SyslogIdentifier=pg_back@%i
+Type=oneshot
+
+[Install]
+WantedBy=multi-user.target

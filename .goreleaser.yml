@@ -49,6 +49,15 @@ nfpms:
       - src: pg_back.conf
         dst: /etc/pg_back/pg_back.conf
         type: "config|noreplace"
+
+      - src: contrib/systemd/pg_back@.service
+        dst: /lib/systemd/system/pg_back@.service
+        packager: deb
+
+      - src: contrib/systemd/pg_back@.timer
+        dst: /lib/systemd/system/pg_back@.timer
+        packager: deb
+
     overrides:
       deb:
         dependencies:
