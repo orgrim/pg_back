@@ -9,6 +9,8 @@
 * Ensure jobs option is greater than or equal to 1
 * Upload files to AWS S3
 * Upload files to a remote host with SFTP
+* Upload files to Google Cloud Storage (GCS)
+
 
 ## pg_back 2.0.1
 
@@ -17,6 +19,7 @@
 * Force legacy timestamp format on Windows
 * Allow postgresql URIs as connection strings
 * Tell pg_dump and pg_dumpall never to prompt for a password
+
 
 ## pg_back 2.0.0
 

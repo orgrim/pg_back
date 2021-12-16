@@ -26,6 +26,8 @@
 package main
 
 import (
+	"cloud.google.com/go/storage"
+	"context"
 	"errors"
 	"fmt"
 	"github.com/aws/aws-sdk-go/aws"
@@ -37,6 +39,8 @@ import (
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/agent"
 	"golang.org/x/crypto/ssh/knownhosts"
+	"google.golang.org/api/iterator"
+	"google.golang.org/api/option"
 	"io"
 	"net"
 	"os"
@@ -494,6 +498,96 @@ func (r *sftpRepo) List(prefix string) (items []Item, rerr error) {
 func (r *sftpRepo) Remove(path string) error {
 	if err := r.client.Remove(filepath.Join(r.baseDir, path)); err != nil {
 		return err
+	}
+
+	return nil
+}
+
+type gcsRepo struct {
+	bucket  string
+	url     string // Endpoint URL
+	keyFile string
+	client  *storage.Client
+}
+
+func NewGCSRepo(opts options) (*gcsRepo, error) {
+	r := &gcsRepo{
+		bucket:  opts.GCSBucket,
+		url:     opts.GCSEndPoint,
+		keyFile: opts.GCSCredentialsFile,
+	}
+
+	options := make([]option.ClientOption, 0)
+	if r.url != "" {
+		options = append(options, option.WithEndpoint(r.url))
+	}
+
+	if r.keyFile != "" {
+		options = append(options, option.WithCredentialsFile(r.keyFile))
+	}
+
+	client, err := storage.NewClient(context.Background(), options...)
+	if err != nil {
+		return nil, fmt.Errorf("could not create GCS client: %w", err)
+	}
+
+	r.client = client
+
+	return r, nil
+}
+
+func (r *gcsRepo) Close() error {
+	return r.client.Close()
+}
+
+func (r *gcsRepo) Upload(path string, target string) error {
+	file, err := os.Open(path)
+	if err != nil {
+		return fmt.Errorf("upload error: %w", err)
+	}
+	defer file.Close()
+
+	obj := r.client.Bucket(r.bucket).Object(target).NewWriter(context.Background())
+	defer obj.Close()
+
+	l.Infof("uploading %s to GCS bucket %s\n", path, r.bucket)
+	if _, err := io.Copy(obj, file); err != nil {
+		return fmt.Errorf("could not write data to GCS object: %w", err)
+	}
+
+	// The upload is done asynchronously, the error returned by Close()
+	// says if it was successful
+	return obj.Close()
+}
+
+func (r *gcsRepo) List(prefix string) (items []Item, rerr error) {
+	items = make([]Item, 0)
+
+	it := r.client.Bucket(r.bucket).Objects(context.Background(), &storage.Query{Prefix: prefix})
+	for {
+		attrs, err := it.Next()
+		if err == iterator.Done {
+			break
+		}
+
+		if err != nil {
+			l.Warnln("could not list remote file:", err)
+			rerr = err
+			break
+		}
+
+		items = append(items, Item{
+			key:     attrs.Name,
+			modtime: attrs.Updated,
+		})
+	}
+
+	return
+}
+
+func (r *gcsRepo) Remove(path string) error {
+	if err := r.client.Bucket(r.bucket).Object(path).Delete(context.Background()); err != nil {
+		return fmt.Errorf("could not remove %s from GCS bucket %s: %w", path, r.bucket, err)
 	}
 
 	return nil

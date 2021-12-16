@@ -375,7 +375,7 @@ func TestParseCli(t *testing.T) {
 				},
 				false,
 				false,
-				"invalid value for --upload: value not found in [none s3 sftp]",
+				"invalid value for --upload: value not found in [none s3 sftp gcs]",
 				"",
 			},
 		}

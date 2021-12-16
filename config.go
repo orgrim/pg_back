@@ -76,7 +76,7 @@ type options struct {
 	CipherPassphrase string
 	Decrypt          bool
 
-	Upload       string // values are none, s3, sftp
+	Upload       string // values are none, s3, sftp, gcs
 	PurgeRemote  bool
 	S3Region     string
 	S3Bucket     string
@@ -94,6 +94,10 @@ type options struct {
 	SFTPDirectory        string
 	SFTPIdentityFile     string // path to private key
 	SFTPIgnoreKnownHosts bool
+
+	GCSBucket          string
+	GCSEndPoint        string
+	GCSCredentialsFile string
 }
 
 func defaultOptions() options {
@@ -266,6 +270,10 @@ func parseCli(args []string) (options, []string, error) {
 	pflag.StringVar(&opts.SFTPIdentityFile, "sftp-identity", "", "Path to a private key")
 	SFTPIgnoreHostKey := pflag.String("sftp-ignore-hostkey", "no", "Check the target host key against local known hosts")
 
+	pflag.StringVar(&opts.GCSBucket, "gcs-bucket", "", "GCS bucket name")
+	pflag.StringVar(&opts.GCSEndPoint, "gcs-endpoint", "", "GCS endpoint URL")
+	pflag.StringVar(&opts.GCSCredentialsFile, "gcs-keyfile", "", "path to the GCS credentials file")
+
 	pflag.StringVarP(&opts.Host, "host", "h", "", "database server host or socket directory")
 	pflag.IntVarP(&opts.Port, "port", "p", 0, "database server port number")
 	pflag.StringVarP(&opts.Username, "username", "U", "", "connect as specified database user")
@@ -393,7 +401,7 @@ func parseCli(args []string) (options, []string, error) {
 	}
 
 	// Validate upload option
-	stores := []string{"none", "s3", "sftp"}
+	stores := []string{"none", "s3", "sftp", "gcs"}
 	if err := validateEnum(opts.Upload, stores); err != nil {
 		return opts, changed, fmt.Errorf("invalid value for --upload: %s", err)
 	}
@@ -486,6 +494,10 @@ func loadConfigurationFile(path string) (options, error) {
 	opts.SFTPIdentityFile = s.Key("sftp_identity").MustString("")
 	opts.SFTPIgnoreKnownHosts = s.Key("sftp_ignore_hostkey").MustBool(false)
 
+	opts.GCSBucket = s.Key("gcs_bucket").MustString("")
+	opts.GCSEndPoint = s.Key("gcs_endpoint").MustString("")
+	opts.GCSCredentialsFile = s.Key("gcs_keyfile").MustString("")
+
 	// Validate purge keep and time limit
 	keep, err := validatePurgeKeepValue(purgeKeep)
 	if err != nil {
@@ -517,7 +529,7 @@ func loadConfigurationFile(path string) (options, error) {
 	}
 
 	// Validate upload option
-	stores := []string{"none", "s3", "sftp"}
+	stores := []string{"none", "s3", "sftp", "gcs"}
 	if err := validateEnum(opts.Upload, stores); err != nil {
 		return opts, fmt.Errorf("invalid value for upload: %s", err)
 	}
@@ -727,6 +739,13 @@ func mergeCliAndConfigOptions(cliOpts options, configOpts options, onCli []strin
 			opts.SFTPIdentityFile = cliOpts.SFTPIdentityFile
 		case "sftp-ignore-hostkey":
 			opts.SFTPIgnoreKnownHosts = cliOpts.SFTPIgnoreKnownHosts
+
+		case "gcs-bucket":
+			opts.GCSBucket = cliOpts.GCSBucket
+		case "gcs-endpoint":
+			opts.GCSEndPoint = cliOpts.GCSEndPoint
+		case "gcs-keyfile":
+			opts.GCSCredentialsFile = cliOpts.GCSCredentialsFile
 
 		case "host":
 			opts.Host = cliOpts.Host

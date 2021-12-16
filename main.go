@@ -437,6 +437,11 @@ func run() (retVal error) {
 		if err != nil {
 			return fmt.Errorf("failed to prepare upload over SFTP: %w", err)
 		}
+	case "gcs":
+		repo, err = NewGCSRepo(opts)
+		if err != nil {
+			return fmt.Errorf("failed to prepare upload to GCS: %w", err)
+		}
 	}
 
 	for _, dbname := range databases {
@@ -1217,6 +1222,13 @@ func postProcessFiles(inFiles chan sumFileJob, wg *sync.WaitGroup, opts options)
 		repo, err = NewSFTPRepo(opts)
 		if err != nil {
 			l.Errorln("failed to prepare upload over SFTP:", err)
+			ret <- err
+			repo = nil
+		}
+	case "gcs":
+		repo, err = NewGCSRepo(opts)
+		if err != nil {
+			l.Errorln("failed to prepare upload to GCS:", err)
 			ret <- err
 			repo = nil
 		}
