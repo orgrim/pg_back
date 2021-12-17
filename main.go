@@ -197,6 +197,10 @@ func run() (retVal error) {
 		return fmt.Errorf("a bucket is mandatory when upload is s3")
 	}
 
+	if opts.Upload == "gcs" && opts.GCSBucket == "" {
+		return fmt.Errorf("a bucket is mandatory when upload is gcs")
+	}
+
 	// Parse the connection information
 	l.Verboseln("processing input connection parameters")
 	conninfo, err := prepareConnInfo(opts.Host, opts.Port, opts.Username, opts.ConnDb)
