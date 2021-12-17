@@ -98,6 +98,11 @@ type options struct {
 	GCSBucket          string
 	GCSEndPoint        string
 	GCSCredentialsFile string
+
+	AzureContainer string
+	AzureAccount   string
+	AzureKey       string
+	AzureEndpoint  string
 }
 
 func defaultOptions() options {
@@ -119,6 +124,7 @@ func defaultOptions() options {
 		CfgFile:       defaultCfgFile,
 		TimeFormat:    timeFormat,
 		Upload:        "none",
+		AzureEndpoint: "blob.core.windows.net",
 	}
 }
 
@@ -274,6 +280,11 @@ func parseCli(args []string) (options, []string, error) {
 	pflag.StringVar(&opts.GCSEndPoint, "gcs-endpoint", "", "GCS endpoint URL")
 	pflag.StringVar(&opts.GCSCredentialsFile, "gcs-keyfile", "", "path to the GCS credentials file")
 
+	pflag.StringVar(&opts.AzureContainer, "azure-container", "", "Azure Blob Container")
+	pflag.StringVar(&opts.AzureAccount, "azure-account", "", "Azure Blob Storage account")
+	pflag.StringVar(&opts.AzureKey, "azure-key", "", "Azure Blob Storage shared key")
+	pflag.StringVar(&opts.AzureEndpoint, "azure-endpoint", "blob.core.windows.net", "Azure Blob Storage endpoint")
+
 	pflag.StringVarP(&opts.Host, "host", "h", "", "database server host or socket directory")
 	pflag.IntVarP(&opts.Port, "port", "p", 0, "database server port number")
 	pflag.StringVarP(&opts.Username, "username", "U", "", "connect as specified database user")
@@ -401,7 +412,7 @@ func parseCli(args []string) (options, []string, error) {
 	}
 
 	// Validate upload option
-	stores := []string{"none", "s3", "sftp", "gcs"}
+	stores := []string{"none", "s3", "sftp", "gcs", "azure"}
 	if err := validateEnum(opts.Upload, stores); err != nil {
 		return opts, changed, fmt.Errorf("invalid value for --upload: %s", err)
 	}
@@ -498,6 +509,11 @@ func loadConfigurationFile(path string) (options, error) {
 	opts.GCSEndPoint = s.Key("gcs_endpoint").MustString("")
 	opts.GCSCredentialsFile = s.Key("gcs_keyfile").MustString("")
 
+	opts.AzureContainer = s.Key("azure_container").MustString("")
+	opts.AzureAccount = s.Key("azure_account").MustString("")
+	opts.AzureKey = s.Key("azure_key").MustString("")
+	opts.AzureEndpoint = s.Key("azure_endpoint").MustString("blob.core.windows.net")
+
 	// Validate purge keep and time limit
 	keep, err := validatePurgeKeepValue(purgeKeep)
 	if err != nil {
@@ -529,7 +545,7 @@ func loadConfigurationFile(path string) (options, error) {
 	}
 
 	// Validate upload option
-	stores := []string{"none", "s3", "sftp", "gcs"}
+	stores := []string{"none", "s3", "sftp", "gcs", "azure"}
 	if err := validateEnum(opts.Upload, stores); err != nil {
 		return opts, fmt.Errorf("invalid value for upload: %s", err)
 	}
@@ -746,6 +762,15 @@ func mergeCliAndConfigOptions(cliOpts options, configOpts options, onCli []strin
 			opts.GCSEndPoint = cliOpts.GCSEndPoint
 		case "gcs-keyfile":
 			opts.GCSCredentialsFile = cliOpts.GCSCredentialsFile
+
+		case "azure-container":
+			opts.AzureContainer = cliOpts.AzureContainer
+		case "azure-account":
+			opts.AzureAccount = cliOpts.AzureAccount
+		case "azure-key":
+			opts.AzureKey = cliOpts.AzureKey
+		case "azure-endpoint":
+			opts.AzureEndpoint = cliOpts.AzureEndpoint
 
 		case "host":
 			opts.Host = cliOpts.Host

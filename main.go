@@ -201,6 +201,10 @@ func run() (retVal error) {
 		return fmt.Errorf("a bucket is mandatory when upload is gcs")
 	}
 
+	if opts.Upload == "azure" && opts.AzureContainer == "" {
+		return fmt.Errorf("a container is mandatory when upload is azure")
+	}
+
 	// Parse the connection information
 	l.Verboseln("processing input connection parameters")
 	conninfo, err := prepareConnInfo(opts.Host, opts.Port, opts.Username, opts.ConnDb)
@@ -445,6 +449,11 @@ func run() (retVal error) {
 		repo, err = NewGCSRepo(opts)
 		if err != nil {
 			return fmt.Errorf("failed to prepare upload to GCS: %w", err)
+		}
+	case "azure":
+		repo, err = NewAzRepo(opts)
+		if err != nil {
+			return fmt.Errorf("failed to prepare upload to Azure: %w", err)
 		}
 	}
 
@@ -1251,6 +1260,13 @@ func postProcessFiles(inFiles chan sumFileJob, wg *sync.WaitGroup, opts options)
 		repo, err = NewGCSRepo(opts)
 		if err != nil {
 			l.Errorln("failed to prepare upload to GCS:", err)
+			ret <- err
+			repo = nil
+		}
+	case "azure":
+		repo, err = NewAzRepo(opts)
+		if err != nil {
+			l.Errorln("failed to prepare upload to Azure", err)
 			ret <- err
 			repo = nil
 		}

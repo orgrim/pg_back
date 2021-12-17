@@ -163,7 +163,7 @@ dumping) are used as shell globs to choose which files to decrypt.
 
 All files produced by a run can be uploaded to a remote location by setting the
 `--upload` option to a value different than `none`. The possible values are
-`s3`, `sftp` or `none`.
+`s3`, `sftp`, `gcs`, `azure` or `none`.
 
 When set to `s3`, files are uploaded to AWS S3. The `--s3-*` family of options
 can be used to tweak the access to the bucket. The `--s3-profile` option only
@@ -181,6 +181,17 @@ publickey. If an SSH agent is available, it is always used.
 When set to `gcs`, files are uploaded to Google Cloud Storage. The `--gcs-*`
 family of options can be used to setup access to the bucket. When `--gcs-keyfile`
 is empty, `GOOGLE_APPLICATION_CREDENTIALS` environment is used.
+
+When set to `azure`, files are uploaded to Azure Blob Storage. The `--azure-*`
+family of options can be used to setup access to the container. The name of the
+container is mandatory. If the account name is left empty, an anonymous
+connection is used and the endpoint is used directly: this allows the use of a
+full URL to the container with a SAS token. When an account is provided, the
+URL is built by prepending the container name to the endpoint and scheme is
+always `https`. The default endpoint is `blob.core.windows.net`. The
+`AZURE_STORAGE_ACCOUNT` and `AZURE_STORAGE_KEY` are used when `--azure-account`
+and `--azure-key` are not set (on the command line or corresponding options in
+the configuration file).
 
 The `--purge-remote` option can be set to `yes` to apply the same purge policy
 on the remote location as the local directory.

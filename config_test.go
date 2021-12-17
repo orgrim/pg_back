@@ -193,6 +193,7 @@ func TestDefaultOptions(t *testing.T) {
 		CfgFile:       "/etc/pg_back/pg_back.conf",
 		TimeFormat:    timeFormat,
 		Upload:        "none",
+		AzureEndpoint: "blob.core.windows.net",
 	}
 
 	got := defaultOptions()
@@ -236,6 +237,7 @@ func TestParseCli(t *testing.T) {
 					CfgFile:       "/etc/pg_back/pg_back.conf",
 					TimeFormat:    timeFormat,
 					Upload:        "none",
+					AzureEndpoint: "blob.core.windows.net",
 				},
 				false,
 				false,
@@ -258,6 +260,7 @@ func TestParseCli(t *testing.T) {
 					CfgFile:       "/etc/pg_back/pg_back.conf",
 					TimeFormat:    timeFormat,
 					Upload:        "none",
+					AzureEndpoint: "blob.core.windows.net",
 				},
 				false,
 				false,
@@ -304,6 +307,7 @@ func TestParseCli(t *testing.T) {
 					TimeFormat:    timeFormat,
 					Encrypt:       true,
 					Upload:        "none",
+					AzureEndpoint: "blob.core.windows.net",
 				},
 				false,
 				false,
@@ -326,6 +330,7 @@ func TestParseCli(t *testing.T) {
 					TimeFormat:    timeFormat,
 					Encrypt:       true,
 					Upload:        "none",
+					AzureEndpoint: "blob.core.windows.net",
 				},
 				false,
 				false,
@@ -349,6 +354,7 @@ func TestParseCli(t *testing.T) {
 					Encrypt:          true,
 					CipherPassphrase: "testpass",
 					Upload:           "none",
+					AzureEndpoint:    "blob.core.windows.net",
 				},
 				false,
 				false,
@@ -372,10 +378,11 @@ func TestParseCli(t *testing.T) {
 					Encrypt:          true,
 					CipherPassphrase: "testpass",
 					Upload:           "wrong",
+					AzureEndpoint:    "blob.core.windows.net",
 				},
 				false,
 				false,
-				"invalid value for --upload: value not found in [none s3 sftp gcs]",
+				"invalid value for --upload: value not found in [none s3 sftp gcs azure]",
 				"",
 			},
 		}
@@ -461,6 +468,7 @@ func TestParseCliEnv(t *testing.T) {
 					TimeFormat:    timeFormat,
 					Encrypt:       true,
 					Upload:        "none",
+					AzureEndpoint: "blob.core.windows.net",
 				},
 				"cannot use an empty passphrase for encryption",
 				"PGBK_PASSPHRASE=",
@@ -482,6 +490,7 @@ func TestParseCliEnv(t *testing.T) {
 					Encrypt:          true,
 					CipherPassphrase: "testpass",
 					Upload:           "none",
+					AzureEndpoint:    "blob.core.windows.net",
 				},
 				"",
 				"PGBK_PASSPHRASE=testpass",
@@ -503,6 +512,7 @@ func TestParseCliEnv(t *testing.T) {
 					Encrypt:          true,
 					CipherPassphrase: "testpass",
 					Upload:           "none",
+					AzureEndpoint:    "blob.core.windows.net",
 				},
 				"",
 				"PGBK_PASSPHRASE=testenv",
@@ -568,6 +578,7 @@ func TestLoadConfigurationFile(t *testing.T) {
 				CfgFile:       "/etc/pg_back/pg_back.conf",
 				TimeFormat:    timeFormat,
 				Upload:        "none",
+				AzureEndpoint: "blob.core.windows.net",
 			},
 		},
 		{ // ensure comma separated lists work
@@ -587,6 +598,7 @@ func TestLoadConfigurationFile(t *testing.T) {
 				CfgFile:       "/etc/pg_back/pg_back.conf",
 				TimeFormat:    timeFormat,
 				Upload:        "none",
+				AzureEndpoint: "blob.core.windows.net",
 			},
 		},
 		{
@@ -605,6 +617,7 @@ func TestLoadConfigurationFile(t *testing.T) {
 				CfgFile:       "/etc/pg_back/pg_back.conf",
 				TimeFormat:    timeFormat,
 				Upload:        "none",
+				AzureEndpoint: "blob.core.windows.net",
 			},
 		},
 		{
@@ -623,6 +636,7 @@ func TestLoadConfigurationFile(t *testing.T) {
 				CfgFile:       "/etc/pg_back/pg_back.conf",
 				TimeFormat:    "2006-01-02_15-04-05",
 				Upload:        "none",
+				AzureEndpoint: "blob.core.windows.net",
 			},
 		},
 		{
@@ -669,7 +683,8 @@ func TestLoadConfigurationFile(t *testing.T) {
 					PgDumpOpts:    []string{"-O", "-x"},
 					WithBlobs:     1,
 				}},
-				Upload: "none",
+				Upload:        "none",
+				AzureEndpoint: "blob.core.windows.net",
 			},
 		},
 		{
@@ -707,7 +722,8 @@ func TestLoadConfigurationFile(t *testing.T) {
 					PgDumpOpts:    []string{},
 					WithBlobs:     2,
 				}},
-				Upload: "none",
+				Upload:        "none",
+				AzureEndpoint: "blob.core.windows.net",
 			},
 		},
 	}
@@ -772,6 +788,7 @@ func TestMergeCliAndConfigoptions(t *testing.T) {
 		CfgFile:       "/etc/pg_back/pg_back.conf",
 		TimeFormat:    timeFormat,
 		Upload:        "none",
+		AzureEndpoint: "blob.core.windows.net",
 	}
 
 	cliOptList := []string{

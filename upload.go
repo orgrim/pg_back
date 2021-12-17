@@ -30,6 +30,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
@@ -590,5 +591,116 @@ func (r *gcsRepo) Remove(path string) error {
 		return fmt.Errorf("could not remove %s from GCS bucket %s: %w", path, r.bucket, err)
 	}
 
+	return nil
+}
+
+type azRepo struct {
+	container string
+	account   string
+	key       string
+	endpoint  string
+	client    *azblob.ContainerClient
+}
+
+func NewAzRepo(opts options) (*azRepo, error) {
+	r := &azRepo{
+		container: opts.AzureContainer,
+		account:   opts.AzureAccount,
+		key:       opts.AzureKey,
+		endpoint:  opts.AzureEndpoint,
+	}
+
+	var (
+		client azblob.ContainerClient
+		err    error
+	)
+
+	if r.account == "" {
+		r.account = os.Getenv("AZURE_STORAGE_ACCOUNT")
+	}
+
+	if r.key == "" {
+		r.key = os.Getenv("AZURE_STORAGE_KEY")
+	}
+
+	if r.account == "" {
+		client, err = azblob.NewContainerClientWithNoCredential(r.endpoint, nil)
+		if err != nil {
+			return nil, fmt.Errorf("could not create anonymous Azure client: %w", err)
+		}
+	} else {
+		credential, err := azblob.NewSharedKeyCredential(r.account, r.key)
+		if err != nil {
+			return nil, fmt.Errorf("could not setup Azure credentials: %w", err)
+		}
+
+		url := fmt.Sprintf("https://%s.%s/%s", r.account, r.endpoint, r.container)
+
+		client, err = azblob.NewContainerClientWithSharedKey(url, credential, nil)
+		if err != nil {
+			return nil, fmt.Errorf("could not create Azure client: %w", err)
+		}
+	}
+
+	r.client = &client
+
+	return r, nil
+}
+
+func (r *azRepo) Upload(path string, target string) error {
+	file, err := os.Open(path)
+	if err != nil {
+		return fmt.Errorf("upload error: %w", err)
+	}
+	defer file.Close()
+
+	blob := r.client.NewBlockBlobClient(target)
+
+	l.Infof("uploading %s to Azure container %s\n", path, r.container)
+	_, err = blob.UploadFileToBlockBlob(context.Background(), file, azblob.HighLevelUploadToBlockBlobOption{})
+	if err != nil {
+		return fmt.Errorf("could not upload %s to Azure: %w", path, err)
+	}
+
+	return nil
+}
+
+func (r *azRepo) List(prefix string) ([]Item, error) {
+	pager := r.client.ListBlobsFlat(&azblob.ContainerListBlobFlatSegmentOptions{
+		Prefix: &prefix,
+	})
+
+	files := make([]Item, 0)
+	for pager.NextPage(context.Background()) {
+		resp := pager.PageResponse()
+
+		for _, v := range resp.ContainerListBlobFlatSegmentResult.Segment.BlobItems {
+			file := Item{
+				key:     *v.Name,
+				modtime: *v.Properties.LastModified,
+			}
+
+			files = append(files, file)
+		}
+	}
+
+	if err := pager.Err(); err != nil {
+		return nil, fmt.Errorf("could not list files in Azure container %s: %w", r.container, err)
+	}
+
+	return files, nil
+}
+
+func (r *azRepo) Remove(path string) error {
+	blob := r.client.NewBlockBlobClient(path)
+
+	if _, err := blob.Delete(context.Background(), nil); err != nil {
+		return fmt.Errorf("could not remove blob from Azure container %s: %w", r.container, err)
+	}
+
+	return nil
+}
+
+func (r *azRepo) Close() error {
 	return nil
 }

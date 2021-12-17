@@ -5,6 +5,7 @@ go 1.16
 require (
 	cloud.google.com/go/storage v1.18.2 // indirect
 	filippo.io/age v1.0.0 // indirect
+	github.com/Azure/azure-sdk-for-go/sdk/storage/azblob v0.2.0 // indirect
 	github.com/anmitsu/go-shlex v0.0.0-20200514113438-38f4b401e2be
 	github.com/aws/aws-sdk-go v1.42.12 // indirect
 	github.com/google/go-cmp v0.5.6
