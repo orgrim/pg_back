@@ -672,8 +672,26 @@ func relPath(basedir, path string) string {
 	return target
 }
 
+func cleanDBName(dbname string) string {
+	// We do not want a database name starting with a dot to avoid creating hidden files
+	if strings.HasPrefix(dbname, ".") {
+		dbname = "_" + dbname
+	}
+
+	// If there is a path separator in the database name, we do not want to
+	// create the dump in a subdirectory or in a parent directory
+	if strings.ContainsRune(dbname, os.PathSeparator) {
+		dbname = strings.ReplaceAll(dbname, string(os.PathSeparator), "_")
+	}
+
+	return dbname
+}
+
 func formatDumpPath(dir string, timeFormat string, suffix string, dbname string, when time.Time) string {
 	var f, s, d string
+
+	// Avoid attacks on the database name
+	dbname = cleanDBName(dbname)
 
 	d = dir
 	if dbname != "" {

@@ -58,7 +58,7 @@ func purgeDumps(directory string, dbname string, keep int, limit time.Time) erro
 			return fmt.Errorf("could not purge %s: %s", dirpath, err)
 		}
 
-		if strings.HasPrefix(f[0].Name(), dbname+"_") &&
+		if strings.HasPrefix(f[0].Name(), cleanDBName(dbname)+"_") &&
 			(!f[0].IsDir() || strings.HasSuffix(f[0].Name(), ".d")) {
 			dirContents = append(dirContents, f[0])
 		}
@@ -101,7 +101,7 @@ func purgeRemoteDumps(repo Repo, directory string, dbname string, keep int, limi
 	// remote path along with any subdirectory. So we have to include it in
 	// the filter when listing remote files
 	dirpath := filepath.Dir(formatDumpPath(directory, "", "", dbname, time.Time{}))
-	prefix := relPath(directory, filepath.Join(dirpath, dbname))
+	prefix := relPath(directory, filepath.Join(dirpath, cleanDBName(dbname)))
 
 	files, err := repo.List(prefix)
 	if err != nil {
