@@ -82,3 +82,30 @@ func TestRelPath(t *testing.T) {
 		})
 	}
 }
+
+func TestForwardSlashes(t *testing.T) {
+	var tests = []struct {
+		path string
+		want string
+	}{
+		{"/var/truc/dir", "/var/truc/dir"},
+	}
+
+	if runtime.GOOS == "windows" {
+		tests = []struct {
+			path string
+			want string
+		}{
+			{"b1\\dir\\b1.dump", "b1/dir/b1.dump"},
+		}
+	}
+
+	for i, st := range tests {
+		t.Run(fmt.Sprintf("%v", i), func(t *testing.T) {
+			got := forwardSlashes(st.path)
+			if got != st.want {
+				t.Errorf("got: %v, want %v", got, st.want)
+			}
+		})
+	}
+}
