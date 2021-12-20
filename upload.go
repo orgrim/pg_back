@@ -73,6 +73,11 @@ type Item struct {
 	isDir   bool
 }
 
+// Replace any backslashes from windows to forward slashed
+func forwardSlashes(target string) string {
+	return strings.ReplaceAll(target, fmt.Sprintf("%c", os.PathSeparator), "/")
+}
+
 type s3repo struct {
 	region     string
 	bucket     string
@@ -153,7 +158,7 @@ func (r *s3repo) Upload(path string, target string) error {
 	l.Infof("uploading %s to S3 bucket %s\n", path, r.bucket)
 	_, err = uploader.Upload(&s3manager.UploadInput{
 		Bucket: aws.String(r.bucket),
-		Key:    aws.String(target),
+		Key:    aws.String(forwardSlashes(target)),
 		Body:   file,
 	})
 
@@ -174,7 +179,7 @@ func (r *s3repo) List(prefix string) ([]Item, error) {
 	for {
 		resp, err := svc.ListObjectsV2(&s3.ListObjectsV2Input{
 			Bucket:            aws.String(r.bucket),
-			Prefix:            aws.String(prefix),
+			Prefix:            aws.String(forwardSlashes(prefix)),
 			ContinuationToken: contToken,
 		})
 
@@ -206,7 +211,7 @@ func (r *s3repo) Remove(path string) error {
 
 	_, err := svc.DeleteObject(&s3.DeleteObjectInput{
 		Bucket: aws.String(r.bucket),
-		Key:    aws.String(path),
+		Key:    aws.String(forwardSlashes(path)),
 	})
 
 	if err != nil {
@@ -548,7 +553,7 @@ func (r *gcsRepo) Upload(path string, target string) error {
 	}
 	defer file.Close()
 
-	obj := r.client.Bucket(r.bucket).Object(target).NewWriter(context.Background())
+	obj := r.client.Bucket(r.bucket).Object(forwardSlashes(target)).NewWriter(context.Background())
 	defer obj.Close()
 
 	l.Infof("uploading %s to GCS bucket %s\n", path, r.bucket)
@@ -564,7 +569,7 @@ func (r *gcsRepo) Upload(path string, target string) error {
 func (r *gcsRepo) List(prefix string) (items []Item, rerr error) {
 	items = make([]Item, 0)
 
-	it := r.client.Bucket(r.bucket).Objects(context.Background(), &storage.Query{Prefix: prefix})
+	it := r.client.Bucket(r.bucket).Objects(context.Background(), &storage.Query{Prefix: forwardSlashes(prefix)})
 	for {
 		attrs, err := it.Next()
 		if err == iterator.Done {
@@ -587,7 +592,7 @@ func (r *gcsRepo) List(prefix string) (items []Item, rerr error) {
 }
 
 func (r *gcsRepo) Remove(path string) error {
-	if err := r.client.Bucket(r.bucket).Object(path).Delete(context.Background()); err != nil {
+	if err := r.client.Bucket(r.bucket).Object(forwardSlashes(path)).Delete(context.Background()); err != nil {
 		return fmt.Errorf("could not remove %s from GCS bucket %s: %w", path, r.bucket, err)
 	}
 
@@ -654,7 +659,7 @@ func (r *azRepo) Upload(path string, target string) error {
 	}
 	defer file.Close()
 
-	blob := r.client.NewBlockBlobClient(target)
+	blob := r.client.NewBlockBlobClient(forwardSlashes(target))
 
 	l.Infof("uploading %s to Azure container %s\n", path, r.container)
 	_, err = blob.UploadFileToBlockBlob(context.Background(), file, azblob.HighLevelUploadToBlockBlobOption{})
@@ -666,8 +671,9 @@ func (r *azRepo) Upload(path string, target string) error {
 }
 
 func (r *azRepo) List(prefix string) ([]Item, error) {
+	p := forwardSlashes(prefix)
 	pager := r.client.ListBlobsFlat(&azblob.ContainerListBlobFlatSegmentOptions{
-		Prefix: &prefix,
+		Prefix: &p,
 	})
 
 	files := make([]Item, 0)
@@ -692,7 +698,7 @@ func (r *azRepo) List(prefix string) ([]Item, error) {
 }
 
 func (r *azRepo) Remove(path string) error {
-	blob := r.client.NewBlockBlobClient(path)
+	blob := r.client.NewBlockBlobClient(forwardSlashes(path))
 
 	if _, err := blob.Delete(context.Background(), nil); err != nil {
 		return fmt.Errorf("could not remove blob from Azure container %s: %w", r.container, err)
