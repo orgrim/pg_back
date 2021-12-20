@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os/user"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -22,6 +23,19 @@ func TestExpandHomeDir(t *testing.T) {
 		{"./truc/muche", "truc/muche"},
 		{"~/truc/muche/dir", filepath.Clean(filepath.Join(u.HomeDir, "/truc/muche/dir"))},
 		{fmt.Sprintf("~%s/truc/muche", u.Username), filepath.Clean(filepath.Join(u.HomeDir, "/truc/muche"))},
+	}
+
+	if runtime.GOOS == "windows" {
+		tests = []struct {
+			input string
+			want  string
+		}{
+			{"", "."},
+			{"/truc/truc/../muche", "\\truc\\muche"},
+			{"./truc/muche", "truc\\muche"},
+			{"~/truc/muche/dir", filepath.Clean(filepath.Join(u.HomeDir, "/truc/muche/dir"))},
+			{fmt.Sprintf("~%s/truc/muche", u.Username), filepath.Clean(filepath.Join(u.HomeDir, "/truc/muche"))},
+		}
 	}
 
 	for i, st := range tests {
