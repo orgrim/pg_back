@@ -51,3 +51,34 @@ func TestExpandHomeDir(t *testing.T) {
 		})
 	}
 }
+
+func TestRelPath(t *testing.T) {
+	var tests = []struct {
+		basedir string
+		path    string
+		want    string
+	}{
+		{"/var/truc/dir", "/var/truc/dir/dump.d/file", "dump.d/file"},
+		{"/var/{dbname}/dir", "/var/b1/dir/b1.dump", "b1/dir/b1.dump"},
+	}
+
+	if runtime.GOOS == "windows" {
+		tests = []struct {
+			basedir string
+			path    string
+			want    string
+		}{
+			{"C:\\var\\truc\\dir", "C:\\var\\truc\\dir\\dump.d\\file", "dump.d\\file"},
+			{"C:\\var\\{dbname}\\dir", "C:\\var\\b1\\dir\\b1.dump", "b1\\dir\\b1.dump"},
+		}
+	}
+
+	for i, st := range tests {
+		t.Run(fmt.Sprintf("%v", i), func(t *testing.T) {
+			got := relPath(st.basedir, st.path)
+			if got != st.want {
+				t.Errorf("got: %v, want %v", got, st.want)
+			}
+		})
+	}
+}

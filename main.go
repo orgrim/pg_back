@@ -678,8 +678,9 @@ func relPath(basedir, path string) string {
 		target = path
 	}
 
-	for strings.HasPrefix(target, "../") {
-		target = strings.TrimPrefix(target, "../")
+	prefix := fmt.Sprintf("..%c", os.PathSeparator)
+	for strings.HasPrefix(target, prefix) {
+		target = strings.TrimPrefix(target, prefix)
 	}
 
 	return target
