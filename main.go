@@ -158,6 +158,16 @@ func run() (retVal error) {
 	// the command line
 	opts := mergeCliAndConfigOptions(cliOpts, configOpts, cliOptList)
 
+	// Ensure a non-empty passphrase is set when asking for encryption
+	if (opts.Encrypt || opts.Decrypt) && len(opts.CipherPassphrase) == 0 {
+		// Fallback on the environment
+		opts.CipherPassphrase = os.Getenv("PGBK_PASSPHRASE")
+
+		if len(opts.CipherPassphrase) == 0 {
+			return fmt.Errorf("cannot use an empty passphrase for encryption")
+		}
+	}
+
 	// When asked to decrypt the backups, do it here and exit, we have all
 	// required input (passphrase and backup directory)
 	if opts.Decrypt {

@@ -391,26 +391,6 @@ func parseCli(args []string) (options, []string, error) {
 		return opts, changed, fmt.Errorf("options --encrypt and --decrypt are mutually exclusive")
 	}
 
-	// Ensure a non-empty passphrase is set when asking for encryption
-	if (opts.Encrypt || opts.Decrypt) && len(opts.CipherPassphrase) == 0 {
-		oncli := false
-		for _, v := range changed {
-			if v == "cipher-pass" {
-				oncli = true
-				break
-			}
-		}
-
-		// Fallback on the environment
-		if !oncli {
-			opts.CipherPassphrase, _ = os.LookupEnv("PGBK_PASSPHRASE")
-		}
-
-		if len(opts.CipherPassphrase) == 0 {
-			return opts, changed, fmt.Errorf("cannot use an empty passphrase for encryption")
-		}
-	}
-
 	// Validate upload option
 	stores := []string{"none", "s3", "sftp", "gcs", "azure"}
 	if err := validateEnum(opts.Upload, stores); err != nil {
@@ -539,10 +519,6 @@ func loadConfigurationFile(path string) (options, error) {
 		return opts, err
 	}
 	opts.Format = []rune(format)[0]
-
-	if opts.Encrypt && len(opts.CipherPassphrase) == 0 {
-		return opts, fmt.Errorf("cannot use an empty passphrase for encryption")
-	}
 
 	// Validate upload option
 	stores := []string{"none", "s3", "sftp", "gcs", "azure"}

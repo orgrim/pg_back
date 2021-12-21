@@ -34,7 +34,6 @@ import (
 	"io/ioutil"
 	"os"
 	"runtime"
-	"strings"
 	"testing"
 	"time"
 )
@@ -209,8 +208,6 @@ func TestParseCli(t *testing.T) {
 		timeFormat = "2006-01-02_15-04-05"
 	}
 
-	os.Unsetenv("PGBK_PASSPHRASE")
-
 	var (
 		defaults = defaultOptions()
 		tests    = []struct {
@@ -292,76 +289,6 @@ func TestParseCli(t *testing.T) {
 				"some/path",
 			},
 			{
-				[]string{"--encrypt"},
-				options{
-					Directory:     "/var/backups/postgresql",
-					Format:        'c',
-					DirJobs:       1,
-					CompressLevel: -1,
-					Jobs:          1,
-					PauseTimeout:  3600,
-					PurgeInterval: -30 * 24 * time.Hour,
-					PurgeKeep:     0,
-					SumAlgo:       "none",
-					CfgFile:       "/etc/pg_back/pg_back.conf",
-					TimeFormat:    timeFormat,
-					Encrypt:       true,
-					Upload:        "none",
-					AzureEndpoint: "blob.core.windows.net",
-				},
-				false,
-				false,
-				"cannot use an empty passphrase for encryption",
-				"",
-			},
-			{
-				[]string{"--encrypt", "--cipher-pass", ""},
-				options{
-					Directory:     "/var/backups/postgresql",
-					Format:        'c',
-					DirJobs:       1,
-					CompressLevel: -1,
-					Jobs:          1,
-					PauseTimeout:  3600,
-					PurgeInterval: -30 * 24 * time.Hour,
-					PurgeKeep:     0,
-					SumAlgo:       "none",
-					CfgFile:       "/etc/pg_back/pg_back.conf",
-					TimeFormat:    timeFormat,
-					Encrypt:       true,
-					Upload:        "none",
-					AzureEndpoint: "blob.core.windows.net",
-				},
-				false,
-				false,
-				"cannot use an empty passphrase for encryption",
-				"",
-			},
-			{
-				[]string{"--encrypt", "--cipher-pass", "testpass"},
-				options{
-					Directory:        "/var/backups/postgresql",
-					Format:           'c',
-					DirJobs:          1,
-					CompressLevel:    -1,
-					Jobs:             1,
-					PauseTimeout:     3600,
-					PurgeInterval:    -30 * 24 * time.Hour,
-					PurgeKeep:        0,
-					SumAlgo:          "none",
-					CfgFile:          "/etc/pg_back/pg_back.conf",
-					TimeFormat:       timeFormat,
-					Encrypt:          true,
-					CipherPassphrase: "testpass",
-					Upload:           "none",
-					AzureEndpoint:    "blob.core.windows.net",
-				},
-				false,
-				false,
-				"",
-				"",
-			},
-			{
 				[]string{"--upload", "wrong"},
 				options{
 					Directory:        "/var/backups/postgresql",
@@ -426,119 +353,6 @@ func TestParseCli(t *testing.T) {
 						t.Errorf("got %v, want %v for convert legacy config flag\n", errVal.LegacyConfig, st.legacyConf)
 					}
 				} else if st.err != err.Error() {
-					t.Errorf("got error %v, expected %v", st.err, err)
-				}
-			} else {
-				if diff := cmp.Diff(st.want, opts, cmpopts.EquateEmpty()); diff != "" {
-					t.Errorf("ParseCli() mismatch (-want +got):\n%s", diff)
-				}
-			}
-		})
-	}
-}
-
-func TestParseCliEnv(t *testing.T) {
-	timeFormat := time.RFC3339
-	if runtime.GOOS == "windows" {
-		timeFormat = "2006-01-02_15-04-05"
-	}
-
-	os.Unsetenv("PGBK_PASSPHRASE")
-
-	var (
-		tests = []struct {
-			args []string
-			want options
-			err  string
-			env  string
-		}{
-			{
-				[]string{"--encrypt"},
-				options{
-					Directory:     "/var/backups/postgresql",
-					Format:        'c',
-					DirJobs:       1,
-					CompressLevel: -1,
-					Jobs:          1,
-					PauseTimeout:  3600,
-					PurgeInterval: -30 * 24 * time.Hour,
-					PurgeKeep:     0,
-					SumAlgo:       "none",
-					CfgFile:       "/etc/pg_back/pg_back.conf",
-					TimeFormat:    timeFormat,
-					Encrypt:       true,
-					Upload:        "none",
-					AzureEndpoint: "blob.core.windows.net",
-				},
-				"cannot use an empty passphrase for encryption",
-				"PGBK_PASSPHRASE=",
-			},
-			{
-				[]string{"--encrypt"},
-				options{
-					Directory:        "/var/backups/postgresql",
-					Format:           'c',
-					DirJobs:          1,
-					CompressLevel:    -1,
-					Jobs:             1,
-					PauseTimeout:     3600,
-					PurgeInterval:    -30 * 24 * time.Hour,
-					PurgeKeep:        0,
-					SumAlgo:          "none",
-					CfgFile:          "/etc/pg_back/pg_back.conf",
-					TimeFormat:       timeFormat,
-					Encrypt:          true,
-					CipherPassphrase: "testpass",
-					Upload:           "none",
-					AzureEndpoint:    "blob.core.windows.net",
-				},
-				"",
-				"PGBK_PASSPHRASE=testpass",
-			},
-			{
-				[]string{"--encrypt", "--cipher-pass", "testpass"},
-				options{
-					Directory:        "/var/backups/postgresql",
-					Format:           'c',
-					DirJobs:          1,
-					CompressLevel:    -1,
-					Jobs:             1,
-					PauseTimeout:     3600,
-					PurgeInterval:    -30 * 24 * time.Hour,
-					PurgeKeep:        0,
-					SumAlgo:          "none",
-					CfgFile:          "/etc/pg_back/pg_back.conf",
-					TimeFormat:       timeFormat,
-					Encrypt:          true,
-					CipherPassphrase: "testpass",
-					Upload:           "none",
-					AzureEndpoint:    "blob.core.windows.net",
-				},
-				"",
-				"PGBK_PASSPHRASE=testenv",
-			},
-		}
-	)
-	for i, st := range tests {
-		t.Run(fmt.Sprintf("%v", i), func(t *testing.T) {
-			var (
-				opts options
-				err  error
-			)
-
-			// Prepare the environment
-			if st.env != "" {
-				v := strings.Split(st.env, "=")
-				os.Setenv(v[0], v[1])
-			}
-			// reset pflag default flagset between each sub test
-			pflag.CommandLine = pflag.NewFlagSet(os.Args[0], pflag.ContinueOnError)
-
-			// when testing for help or version the usage is output to stderr, discard it with a pipe
-			opts, _, err = parseCli(st.args)
-
-			if err != nil {
-				if st.err != err.Error() {
 					t.Errorf("got error %v, expected %v", st.err, err)
 				}
 			} else {
