@@ -144,7 +144,7 @@ All the files procuded by a run of pg_back can be encrypted using age
 (<https://age-encryption.org/> an easy to use tool that does authenticated
 encryption of files). To keep things simple, encryption is done using a
 passphrase. To encrypt files, use the `--encrypt` option along with the
-`--cipher-pass` option or `PGBK_PASSPHRASE` environment variable to specify the
+`--cipher-pass` option or `PGBK_CIPHER_PASS` environment variable to specify the
 passphrase. When `encrypt` is set to true in the configuration file, the
 `--no-encrypt` option allows to disable encryption on the command line. By
 default, unencrypted source files are removed when they are successfully

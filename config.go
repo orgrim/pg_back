@@ -317,7 +317,7 @@ func parseCli(args []string) (options, []string, error) {
 		changed = append(changed, "with-templates")
 	}
 
-	// To override cipher = true from the config file on the command line,
+	// To override encrypt = true from the config file on the command line,
 	// have MergeCliAndConfigOptions() use the false value
 	if *NoEncrypt {
 		opts.Encrypt = false
@@ -462,7 +462,7 @@ func loadConfigurationFile(path string) (options, error) {
 	opts.PreHook = s.Key("pre_backup_hook").MustString("")
 	opts.PostHook = s.Key("post_backup_hook").MustString("")
 	opts.Encrypt = s.Key("encrypt").MustBool(false)
-	opts.CipherPassphrase = s.Key("cipher_passphrase").MustString("")
+	opts.CipherPassphrase = s.Key("cipher_pass").MustString("")
 	opts.EncryptKeepSrc = s.Key("encrypt_keep_source").MustBool(false)
 
 	opts.Upload = s.Key("upload").MustString("none")
