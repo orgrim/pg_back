@@ -161,7 +161,7 @@ func run() (retVal error) {
 	// Ensure a non-empty passphrase is set when asking for encryption
 	if (opts.Encrypt || opts.Decrypt) && len(opts.CipherPassphrase) == 0 {
 		// Fallback on the environment
-		opts.CipherPassphrase = os.Getenv("PGBK_PASSPHRASE")
+		opts.CipherPassphrase = os.Getenv("PGBK_CIPHER_PASS")
 
 		if len(opts.CipherPassphrase) == 0 {
 			return fmt.Errorf("cannot use an empty passphrase for encryption")
