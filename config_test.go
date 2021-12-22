@@ -31,6 +31,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/spf13/pflag"
+	"gopkg.in/ini.v1"
 	"io/ioutil"
 	"os"
 	"runtime"
@@ -639,5 +640,37 @@ func TestError(t *testing.T) {
 	s := fmt.Sprintf("%s", err)
 	if s != "please exit now" {
 		t.Errorf("func (*parseCliResult) Error() failed")
+	}
+}
+
+func TestValidateConfigurationFile(t *testing.T) {
+	var tests = []struct {
+		input string
+		fails bool
+		err   string
+	}{
+		{"bin_directory = /usr/bin\nbackup_directory = /backups\n", false, ""},
+		{"wrong = fails\n", true, "unknown parameter in configuration file: wrong"},
+		{"bin_directory = /usr/bin\n[b1]\nwith_blobs = true\n\n[b2]\nwrong = fails\n", true, "unknown parameter in configuration file for db b2: wrong"},
+	}
+
+	for i, st := range tests {
+		t.Run(fmt.Sprintf("%v", i), func(t *testing.T) {
+			cfg, err := ini.Load([]byte(st.input))
+			if err != nil {
+				t.Errorf("failed to load input: %q", st.input)
+			}
+
+			got := validateConfigurationFile(cfg)
+			if got == nil && st.fails {
+				t.Errorf("wanted an error got <nil>")
+			}
+
+			if got != nil {
+				if got.Error() != st.err {
+					t.Errorf("got error %q, want %q", got, st.err)
+				}
+			}
+		})
 	}
 }

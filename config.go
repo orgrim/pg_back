@@ -426,6 +426,59 @@ func parseCli(args []string) (options, []string, error) {
 	return opts, changed, nil
 }
 
+func validateConfigurationFile(cfg *ini.File) error {
+	s, _ := cfg.GetSection(ini.DefaultSection)
+	known_globals := []string{
+		"bin_directory", "backup_directory", "timestamp_format", "host", "port", "user",
+		"dbname", "exclude_dbs", "include_dbs", "with_templates", "format",
+		"parallel_backup_jobs", "compress_level", "jobs", "pause_timeout",
+		"purge_older_than", "purge_min_keep", "checksum_algorithm", "pre_backup_hook",
+		"post_backup_hook", "encrypt", "cipher_pass", "encrypt_keep_source",
+		"upload", "purge_remote", "s3_region", "s3_bucket", "s3_endpoint", "s3_profile",
+		"s3_key_id", "s3_secret", "s3_force_path", "s3_tls", "sftp_host",
+		"sftp_port", "sftp_user", "sftp_password", "sftp_directory", "sftp_identity",
+		"sftp_ignore_hostkey", "gcs_bucket", "gcs_endpoint", "gcs_keyfile",
+		"azure_container", "azure_account", "azure_key", "azure_endpoint", "pg_dump_options",
+	}
+
+gkLoop:
+	for _, v := range s.KeyStrings() {
+		for _, c := range known_globals {
+			if v == c {
+				continue gkLoop
+			}
+		}
+
+		return fmt.Errorf("unknown parameter in configuration file: %s", v)
+	}
+
+	subs := cfg.Sections()
+	knonw_perdb := []string{
+		"format", "parallel_backup_jobs", "compress_level", "checksum_algorithm",
+		"purge_older_than", "purge_min_keep", "schemas", "exclude_schemas", "tables",
+		"exclude_tables", "pg_dump_options", "with_blobs",
+	}
+
+	for _, sub := range subs {
+		if sub.Name() == ini.DefaultSection {
+			continue
+		}
+
+	dbkLoop:
+		for _, v := range sub.KeyStrings() {
+			for _, c := range knonw_perdb {
+				if v == c {
+					continue dbkLoop
+				}
+			}
+
+			return fmt.Errorf("unknown parameter in configuration file for db %s: %s", sub.Name(), v)
+		}
+	}
+
+	return nil
+}
+
 func loadConfigurationFile(path string) (options, error) {
 	var format, purgeKeep, purgeInterval string
 
@@ -434,6 +487,10 @@ func loadConfigurationFile(path string) (options, error) {
 	cfg, err := ini.Load(path)
 	if err != nil {
 		return opts, fmt.Errorf("Could load configuration file: %v", err)
+	}
+
+	if err := validateConfigurationFile(cfg); err != nil {
+		return opts, fmt.Errorf("could not validate %s: %w", path, err)
 	}
 
 	s, _ := cfg.GetSection(ini.DefaultSection)
