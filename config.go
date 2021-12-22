@@ -486,6 +486,12 @@ func loadConfigurationFile(path string) (options, error) {
 
 	cfg, err := ini.Load(path)
 	if err != nil {
+		if path == defaultCfgFile && errors.Is(err, os.ErrNotExist) {
+			// Fallback on defaults when the default configuration does not exist
+			l.Verbosef("default configuration file %s does not exist, skipping\n", defaultCfgFile)
+			return opts, nil
+		}
+
 		return opts, fmt.Errorf("Could load configuration file: %v", err)
 	}
 

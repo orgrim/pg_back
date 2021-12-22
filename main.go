@@ -150,7 +150,7 @@ func run() (retVal error) {
 	// Load configuration file and allow the default configuration
 	// file to be absent
 	configOpts, err := loadConfigurationFile(cliOpts.CfgFile)
-	if err != nil && cliOpts.CfgFile != defaultCfgFile {
+	if err != nil {
 		return err
 	}
 
