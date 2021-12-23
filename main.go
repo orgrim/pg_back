@@ -901,7 +901,7 @@ func decryptDirectory(dir string, password string, workers int, globs []string) 
 	// return an error
 	ret := make(chan bool, workers)
 
-	// Start workers than listen for filenames to decrypt until the queue
+	// Start workers that listen for filenames to decrypt until the queue
 	// is closed
 	for i := 0; i < workers; i++ {
 		wg.Add(1)
@@ -938,6 +938,7 @@ func decryptDirectory(dir string, password string, workers int, globs []string) 
 		return fmt.Errorf("unable to read directory %s: %w", dir, err)
 	}
 
+	var c int
 	for _, path := range entries {
 		keep := true
 		if len(globs) > 0 {
@@ -976,6 +977,7 @@ func decryptDirectory(dir string, password string, workers int, globs []string) 
 
 				file := filepath.Join(subdir, subpath.Name())
 				if strings.HasSuffix(file, ".age") {
+					c++
 					fq <- file
 				}
 			}
@@ -984,8 +986,14 @@ func decryptDirectory(dir string, password string, workers int, globs []string) 
 
 		file := filepath.Join(dir, path.Name())
 		if strings.HasSuffix(file, ".age") {
+			c++
 			fq <- file
 		}
+	}
+
+	// Print a warning when no candidate files are found with a hint that the dbname is a glob
+	if c == 0 {
+		l.Warnln("no candidate file found for decryption. Maybe add a wildcard (*) to the patterns?")
 	}
 
 	// Closing the channel will make the workers stop as soon as it is

@@ -253,7 +253,7 @@ func parseCli(args []string) (options, []string, error) {
 	NoEncrypt := pflag.Bool("no-encrypt", false, "do not encrypt the dumps")
 	pflag.BoolVar(&opts.EncryptKeepSrc, "encrypt-keep-src", false, "keep original files when encrypting")
 	NoEncryptKeepSrc := pflag.Bool("no-encrypt-keep-src", false, "do not keep original files when encrypting")
-	pflag.BoolVar(&opts.Decrypt, "decrypt", false, "decrypt files in the backup directory")
+	pflag.BoolVar(&opts.Decrypt, "decrypt", false, "decrypt files in the backup directory instead of dumping. DBNAMEs become\nglobs to select files")
 	pflag.StringVar(&opts.CipherPassphrase, "cipher-pass", "", "cipher passphrase for encryption and decryption\n")
 
 	pflag.StringVar(&opts.Upload, "upload", "none", "upload produced files to target (s3, gcs,..) use \"none\" to override\nconfiguration file and disable upload")
