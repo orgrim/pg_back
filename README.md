@@ -204,6 +204,43 @@ on the remote location as the local directory.
 When files are encrypted and their unencrypted source is kept, only encrypted
 files are uploaded.
 
+## Restoring files
+
+The following files are created:
+
+* `pg_globals_{date}.sql`: definition of roles and tablespaces, dumped with
+  `pg_dumpall -g`. This file is restored with `psql`.
+* `pg_settings_{date}.out`: the list of server parameters found in the
+  configuration files (9.5+) or in the `pg_settings` view. They shall be put
+  back by hand.
+* `ident_file_{date}.out`: the full contents of the `pg_ident.conf` file,
+  usually located in the data directory.
+* `hba_file_{date}.out`: the full contents of the `pg_hba.conf` file, usually
+  located in the data directory.
+* `{dbname}_{date}.createdb.sql`: an SQL file containing the definition of the
+  database and parameters set at the database or "role in database" level. It
+  is mostly useful when using a version of `pg_dump` older than 11. It is
+  restored with `psql`.
+* `{dbname}_{date}.{d,sql,dump,tar}`: the dump of the database, with a suffix
+  depending of its format. If the format is plain, the dump is suffixed with
+  `sql` and must be restored with `psql`. Otherwise, it must be restored with
+  `pg_restore`.
+
+When checksum are computed, for each file described above, a text file of the
+same name with a suffix naming the checksum algorithm is produced.
+
+When files are encrypted, they are suffixed with `age` and must be decrypted
+first, see the [Encryption] section above. When checksums are computed and
+encryption is required, checksum files are encrypted and encrypted files are
+checksummed.
+
+To sum up, when restoring:
+
+1. Create the roles and tablespaces by executing `pg_globals_{date}.sql` with `psql`.
+2. Create the database with `{dbname}_{date}.createdb.sql` if necessary.
+3. Restore the database(s) with `pg_restore` (use `-C` to create the database) or `psql`
+
+
 ## Managing the configuration file
 
 The previous v1 configuration files are not compatible with pg_back v2.
