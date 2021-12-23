@@ -25,7 +25,7 @@ options of the PostgreSQL instance.
 * Purge based on age and number of dumps to keep
 * Dump from a hot standby by pausing replication replay
 * Encrypt and decrypt dumps and other files
-* Upload dumps to S3, GCS or a remote host with SFTP
+* Upload dumps to S3, GCS, Azure or a remote host with SFTP
 
 ## Install
 
@@ -158,6 +158,11 @@ not performed, instead files are decrypted. Files can also be decrypted with
 the `age` tool, independently. Decryption of multiple files can be parallelized
 with the `-j` option. Arguments on the commandline (database names when
 dumping) are used as shell globs to choose which files to decrypt.
+
+**Please note** that files are written on disk unencrypted in the backup directory,
+before encryption and deleted after the encryption operation is complete. This
+means that the host running `pg_back` must secure enough to ensure privacy of the
+backup directory and connections to PostgreSQL.
 
 ### Upload to remote locations
 
