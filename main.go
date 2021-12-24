@@ -434,9 +434,7 @@ func run() (retVal error) {
 
 	// Closing the input channel makes the postprocessing go routine stop,
 	// so it must be done before blocking on the WaitGroup in
-	// stopPostProcess(). The channel would be closed in a defer that check
-	// if retVal is an error, from this point we MUST only use retVal and a
-	// return without value when return from an error
+	// stopPostProcess()
 	close(producedFiles)
 	l.Infoln("waiting for postprocessing to complete")
 	if err := stopPostProcess(&wg, postProcRet); err != nil {
@@ -483,7 +481,7 @@ func run() (retVal error) {
 			retVal = err
 		}
 
-		if opts.PurgeRemote {
+		if opts.PurgeRemote && repo != nil {
 			if err := purgeRemoteDumps(repo, opts.Directory, dbname, o.PurgeKeep, limit); err != nil {
 				retVal = err
 			}
@@ -496,7 +494,7 @@ func run() (retVal error) {
 			retVal = err
 		}
 
-		if opts.PurgeRemote {
+		if opts.PurgeRemote && repo != nil {
 			if err := purgeRemoteDumps(repo, opts.Directory, other, defDbOpts.PurgeKeep, limit); err != nil {
 				retVal = err
 			}
