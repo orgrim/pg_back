@@ -261,7 +261,7 @@ func dumpCreateDBAndACL(db *pg, dbname string, force bool) (string, error) {
 			return "", fmt.Errorf("could not get row: %s", err)
 		}
 
-		if dbname != "template1" && dbname != "postgres" {
+		if dbname != "template0" {
 			s += fmt.Sprintf("--\n-- Database creation\n--\n\n")
 			s += fmt.Sprintf("CREATE DATABASE \"%s\" WITH TEMPLATE = template0 OWNER = \"%s\"", sqlQuoteIdent(dbname), sqlQuoteIdent(owner))
 			s += fmt.Sprintf(" ENCODING = %s", sqlQuoteLiteral(encoding))
