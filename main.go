@@ -359,7 +359,12 @@ func run() (retVal error) {
 		// if it fails once it fails all the time.
 		if canDumpACL {
 			l.Verboseln("dumping create database query and ACL of", dbname)
-			b, err = dumpCreateDBAndACL(db, dbname)
+			force := false
+			if d.Options.Format == 'p' {
+				force = true
+			}
+
+			b, err = dumpCreateDBAndACL(db, dbname, force)
 			var verr *pgVersionError
 			if err != nil {
 				if !errors.As(err, &verr) {
@@ -564,13 +569,6 @@ func (d *dump) dump(fc chan<- sumFileJob) error {
 		} else {
 			args = append(args, "-j", fmt.Sprintf("%d", d.Options.Jobs))
 		}
-	}
-
-	// It is recommended to use --create with the plain format
-	// from PostgreSQL 11 to get the ACL and configuration of the
-	// database
-	if d.PgDumpVersion >= 110000 && fileEnd == "sql" {
-		args = append(args, "--create")
 	}
 
 	// Included and excluded schemas and table

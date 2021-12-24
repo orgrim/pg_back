@@ -208,14 +208,15 @@ func (e *pgVersionError) Error() string {
 }
 
 // pg_dumpacl stuff
-func dumpCreateDBAndACL(db *pg, dbname string) (string, error) {
+func dumpCreateDBAndACL(db *pg, dbname string, force bool) (string, error) {
 	var s string
 
 	if dbname == "" {
 		return "", fmt.Errorf("empty input dbname")
 	}
 
-	// this query only work from 9.0, where datcollate and datctype were added to pg_database
+	// this query only work from 9.0, where datcollate and datctype were
+	// added to pg_database
 	if db.version < 90000 {
 		return "", &pgVersionError{s: "cluster version is older than 9.0, not dumping ACL"}
 	}
@@ -223,7 +224,7 @@ func dumpCreateDBAndACL(db *pg, dbname string) (string, error) {
 	// this is no longer necessary after 11. Dumping ACL is the
 	// job of pg_dump so we have to check its version, not the
 	// server
-	if pgToolVersion("pg_dump") >= 110000 {
+	if pgToolVersion("pg_dump") >= 110000 && !force {
 		l.Verboseln("no need to dump create database query and database ACL with pg_dump from >=11")
 		return "", nil
 	}

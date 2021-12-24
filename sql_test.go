@@ -280,7 +280,7 @@ func TestDumpCreateDBAndACL(t *testing.T) {
 
 	for _, st := range tests {
 		t.Run(fmt.Sprintf("%s", st.db), func(t *testing.T) {
-			got, err := dumpCreateDBAndACL(testdb, st.db)
+			got, err := dumpCreateDBAndACL(testdb, st.db, false)
 			if err != nil {
 				t.Errorf("expected non nil error, got %q", err)
 			}
