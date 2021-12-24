@@ -32,6 +32,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -558,7 +559,7 @@ func (d *dump) dump(fc chan<- sumFileJob) error {
 	file := formatDumpPath(d.Directory, d.TimeFormat, fileEnd, dbname, d.When)
 	formatOpt := fmt.Sprintf("-F%c", d.Options.Format)
 
-	command := filepath.Join(binDir, "pg_dump")
+	command := execPath("pg_dump")
 	args := []string{formatOpt, "-f", file, "-w"}
 
 	if fileEnd == "d" && d.Options.Jobs > 1 {
@@ -692,6 +693,14 @@ func relPath(basedir, path string) string {
 	return target
 }
 
+func execPath(prog string) string {
+	if binDir != "" && runtime.GOOS == "windows" {
+		return filepath.Join(binDir, fmt.Sprintf("%s.exe", prog))
+	}
+
+	return prog
+}
+
 func cleanDBName(dbname string) string {
 	// We do not want a database name starting with a dot to avoid creating hidden files
 	if strings.HasPrefix(dbname, ".") {
@@ -737,7 +746,7 @@ func formatDumpPath(dir string, timeFormat string, suffix string, dbname string,
 }
 
 func pgToolVersion(tool string) int {
-	vs, err := exec.Command(filepath.Join(binDir, tool), "--version").Output()
+	vs, err := exec.Command(execPath(tool), "--version").Output()
 	if err != nil {
 		l.Warnf("failed to retrieve version of %s: %s", tool, err)
 		return 0
@@ -766,7 +775,7 @@ func pgToolVersion(tool string) int {
 }
 
 func dumpGlobals(dir string, timeFormat string, conninfo *ConnInfo, fc chan<- sumFileJob) error {
-	command := filepath.Join(binDir, "pg_dumpall")
+	command := execPath("pg_dumpall")
 	args := []string{"-g", "-w"}
 
 	// pg_dumpall only connects to another database if it is given
