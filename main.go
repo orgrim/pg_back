@@ -713,6 +713,11 @@ func cleanDBName(dbname string) string {
 		dbname = strings.ReplaceAll(dbname, string(os.PathSeparator), "_")
 	}
 
+	// Always remove slashes to avoid issues with filenames on windows
+	if strings.ContainsRune(dbname, '/') {
+		dbname = strings.ReplaceAll(dbname, "/", "_")
+	}
+
 	return dbname
 }
 
