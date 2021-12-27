@@ -453,9 +453,16 @@ func (r *sftpRepo) Upload(path string, target string) error {
 	defer src.Close()
 
 	rpath := filepath.Join(r.baseDir, target)
+	targetDir := filepath.Dir(rpath)
+
+	// sftp requires slash as path separator
+	if os.PathSeparator != '/' {
+		rpath = strings.ReplaceAll(rpath, string(os.PathSeparator), "/")
+		targetDir = strings.ReplaceAll(targetDir, string(os.PathSeparator), "/")
+	}
+	l.Verboseln("sftp remote path is:", rpath)
 
 	// Target directory must be created first
-	targetDir := filepath.Dir(rpath)
 	if targetDir != "." && targetDir != "/" {
 		if err := r.client.MkdirAll(targetDir); err != nil {
 			return fmt.Errorf("sftp: could not create parent directory of %s: %w", rpath, err)
@@ -469,7 +476,7 @@ func (r *sftpRepo) Upload(path string, target string) error {
 	defer dst.Close()
 
 	if _, err := io.Copy(dst, src); err != nil {
-		return fmt.Errorf("sftp: could not open send data with sftp: %s", err)
+		return fmt.Errorf("sftp: could not send data with sftp: %s", err)
 	}
 
 	return nil
@@ -477,7 +484,14 @@ func (r *sftpRepo) Upload(path string, target string) error {
 
 func (r *sftpRepo) List(prefix string) (items []Item, rerr error) {
 	items = make([]Item, 0)
-	w := r.client.Walk(r.baseDir)
+
+	// sftp requires slash as path separator
+	baseDir := r.baseDir
+	if os.PathSeparator != '/' {
+		baseDir = strings.ReplaceAll(baseDir, string(os.PathSeparator), "/")
+	}
+
+	w := r.client.Walk(baseDir)
 	for w.Step() {
 		if err := w.Err(); err != nil {
 			l.Warnln("could not list remote file:", err)
@@ -485,7 +499,12 @@ func (r *sftpRepo) List(prefix string) (items []Item, rerr error) {
 			continue
 		}
 
-		path := relPath(r.baseDir, w.Path())
+		// relPath() makes use of functions of the filepath std module
+		// that take care of putting back the proper os.PathSeparator
+		// if it find some slashes, so we can compare paths without
+		// worrying about path separators
+		path := relPath(baseDir, w.Path())
+
 		if !strings.HasPrefix(path, prefix) {
 			continue
 		}
@@ -502,7 +521,14 @@ func (r *sftpRepo) List(prefix string) (items []Item, rerr error) {
 }
 
 func (r *sftpRepo) Remove(path string) error {
-	if err := r.client.Remove(filepath.Join(r.baseDir, path)); err != nil {
+	rpath := filepath.Join(r.baseDir, path)
+
+	// sftp requires slash as path separator
+	if os.PathSeparator != '/' {
+		rpath = strings.ReplaceAll(rpath, string(os.PathSeparator), "/")
+	}
+
+	if err := r.client.Remove(rpath); err != nil {
 		return err
 	}
 
