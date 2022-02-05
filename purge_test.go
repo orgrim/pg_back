@@ -104,21 +104,33 @@ func TestPurgeDumps(t *testing.T) {
 
 	// time and keep limits
 	var tests = []struct {
-		keep  int
-		limit time.Time
-		want  int
+		keep   int
+		limit  time.Time
+		format string
+		want   int
 	}{
-		{0, time.Time{}, 3},
-		{1, time.Time{}, 3},
-		{0, time.Now().Add(-time.Minute * time.Duration(90)), 1},
-		{1, time.Now().Add(-time.Minute * time.Duration(90)), 1},
-		{2, time.Now().Add(-time.Minute * time.Duration(90)), 2},
-		{3, time.Now().Add(-time.Minute * time.Duration(90)), 3},
-		{-1, time.Now(), 3},
+		{0, time.Time{}, "2006-01-02_15-04-05", 3},
+		{1, time.Time{}, "2006-01-02_15-04-05", 3},
+		{0, time.Now().Add(-time.Minute * time.Duration(90)), "2006-01-02_15-04-05", 1},
+		{1, time.Now().Add(-time.Minute * time.Duration(90)), "2006-01-02_15-04-05", 1},
+		{2, time.Now().Add(-time.Minute * time.Duration(90)), "2006-01-02_15-04-05", 2},
+		{3, time.Now().Add(-time.Minute * time.Duration(90)), "2006-01-02_15-04-05", 3},
+		{-1, time.Now(), "2006-01-02_15-04-05", 3},
+		{0, time.Time{}, time.RFC3339, 3},
+		{1, time.Time{}, time.RFC3339, 3},
+		{0, time.Now().Add(-time.Minute * time.Duration(90)), time.RFC3339, 1},
+		{1, time.Now().Add(-time.Minute * time.Duration(90)), time.RFC3339, 1},
+		{2, time.Now().Add(-time.Minute * time.Duration(90)), time.RFC3339, 2},
+		{3, time.Now().Add(-time.Minute * time.Duration(90)), time.RFC3339, 3},
+		{-1, time.Now(), time.RFC3339, 3},
 	}
 
 	for i, st := range tests {
 		t.Run(fmt.Sprintf("%v", i), func(t *testing.T) {
+			if runtime.GOOS == "windows" && st.format == time.RFC3339 {
+				t.Skip("testing on windows")
+			}
+
 			// create 3 files, 1 per hour
 			wd = filepath.Join(dir, "wd")
 			if err := os.MkdirAll(wd, 0755); err != nil {
@@ -126,7 +138,7 @@ func TestPurgeDumps(t *testing.T) {
 			}
 			for i := 1; i <= 3; i++ {
 				when := time.Now().Add(-time.Hour * time.Duration(i))
-				tf = formatDumpPath(wd, "2006-01-02_15-04-05", "dump", "db", when)
+				tf = formatDumpPath(wd, st.format, "dump", "db", when)
 				ioutil.WriteFile(tf, []byte("truc\n"), 0644)
 				os.Chtimes(tf, when, when)
 			}
@@ -148,9 +160,9 @@ func TestPurgeDumps(t *testing.T) {
 			if len(fi) != st.want {
 				var info string
 				for _, f := range fi {
-					info += fmt.Sprintf("%s\n", f.Name())
+					info += fmt.Sprintf("%s %v\n", f.Name(), f.ModTime())
 				}
-				t.Errorf("expected %d files in dir, found %d\n%slimit: %v", st.want, len(fi), info, st.limit)
+				t.Errorf("expected %d files in dir, found %d\n%slimit: %v, keep: %v", st.want, len(fi), info, st.limit, st.keep)
 			}
 
 			os.RemoveAll(wd)

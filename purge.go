@@ -31,12 +31,99 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
 )
 
+type purgeJob struct {
+	datetime time.Time
+	dirs     []string
+	files    []string
+}
+
+func genPurgeJobs(items []Item, dbname string) []purgeJob {
+	jobs := make(map[string]purgeJob)
+
+	// The files to purge must be grouped by date. depending on the options
+	// there can be up to 6 files for a database or output
+	reExt := regexp.MustCompile(`^(sql|d|dump|tar|out|createdb\.sql)(?:\.(sha\d{1,3}|age))?(?:\.(sha\d{1,3}|age))?(?:\.(sha\d{1,3}))?`)
+
+	for _, item := range items {
+		if strings.HasPrefix(item.key, cleanDBName(dbname)+"_") {
+			dateNExt := strings.TrimPrefix(item.key, cleanDBName(dbname)+"_")
+			parts := strings.SplitN(dateNExt, ".", 2)
+
+			var (
+				date   time.Time
+				parsed bool
+			)
+
+			// We match the file using every timestamp format
+			// possible so that the format can be changed without
+			// breaking the purge
+			for _, layout := range []string{"2006-01-02_15-04-05", time.RFC3339} {
+
+				// Parse the format to a time in the local
+				// timezone when the timezone is not part of
+				// the string, otherwise it uses to timezone
+				// written in the string. We do this because
+				// the limit is in the local timezone.
+				date, _ = time.ParseInLocation(layout, parts[0], time.Local)
+				if !date.IsZero() {
+					parsed = true
+					break
+				}
+			}
+
+			if !parsed {
+				// the file does not match the time format, skip it
+				continue
+			}
+
+			// Identify the kind of file based on the dot separated
+			// strings at the end of its name
+			matches := reExt.FindStringSubmatch(parts[1])
+			if len(matches) == 5 {
+				job := jobs[parts[0]]
+
+				if job.datetime.IsZero() {
+					job.datetime = date
+				}
+
+				if date.Before(job.datetime) {
+					job.datetime = date
+				}
+
+				if item.isDir {
+					job.dirs = append(job.dirs, item.key)
+				} else {
+					job.files = append(job.files, item.key)
+				}
+
+				jobs[parts[0]] = job
+				continue
+			}
+		}
+	}
+
+	// The output is a list of jobs, sorted by date, youngest first
+	jobList := make([]purgeJob, 0)
+	for _, j := range jobs {
+		jobList = append(jobList, j)
+	}
+
+	sort.Slice(jobList, func(i, j int) bool {
+		return jobList[i].datetime.After(jobList[j].datetime)
+	})
+
+	return jobList
+}
+
 func purgeDumps(directory string, dbname string, keep int, limit time.Time) error {
+	l.Verboseln("purge:", dbname, "limit:", limit, "keep:", keep)
+
 	// The dbname can be put in the path of the backup directory, so we
 	// have to compute it first. This is why a dbname is required to purge
 	// old dumps
@@ -46,106 +133,163 @@ func purgeDumps(directory string, dbname string, keep int, limit time.Time) erro
 		return fmt.Errorf("could not purge %s: %s", dirpath, err)
 	}
 	defer dir.Close()
-	dirContents := make([]os.FileInfo, 0)
+
+	files := make([]Item, 0)
 	for {
 		var f []os.FileInfo
 		f, err = dir.Readdir(1)
-		if errors.Is(err, io.EOF) {
-			// reset to avoid returning is.EOF at the end
-			err = nil
-			break
-		} else if err != nil {
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				// reset to avoid returning is.EOF at the end
+				err = nil
+				break
+			}
 			return fmt.Errorf("could not purge %s: %s", dirpath, err)
 		}
 
-		if strings.HasPrefix(f[0].Name(), cleanDBName(dbname)+"_") &&
-			(!f[0].IsDir() || strings.HasSuffix(f[0].Name(), ".d")) {
-			dirContents = append(dirContents, f[0])
-		}
+		files = append(files, Item{key: f[0].Name(), modtime: f[0].ModTime(), isDir: f[0].IsDir()})
 	}
 
-	// Sort the list of filenames by date, youngest first,
-	// so that we can slice it easily to keep backups
-	sort.Slice(dirContents, func(i, j int) bool {
-		return dirContents[i].ModTime().After(dirContents[j].ModTime())
-	})
+	// Parse and group by date. We remove groups of files produced by
+	// the same run (including checksums, encrypted files, etc)
+	jobs := genPurgeJobs(files, dbname)
 
-	if keep < len(dirContents) && keep >= 0 {
-		for _, f := range dirContents[keep:] {
-			file := filepath.Join(dirpath, f.Name())
-			if f.ModTime().Before(limit) {
-				l.Infoln("removing", file)
-				if f.IsDir() {
-					if err = os.RemoveAll(file); err != nil {
+	if keep < len(jobs) && keep >= 0 {
+		// Show the files kept in verbose mode
+		for _, j := range jobs[:keep] {
+			for _, f := range j.files {
+				l.Verboseln("keeping (count)", filepath.Join(dirpath, f))
+			}
+
+			for _, d := range j.dirs {
+				l.Verboseln("keeping (count)", filepath.Join(dirpath, d))
+			}
+		}
+
+		// Purge the older files that after excluding the one we need
+		// to keep
+		for _, j := range jobs[keep:] {
+			if j.datetime.Before(limit) {
+				for _, f := range j.files {
+					path := filepath.Join(dirpath, f)
+					l.Infoln("removing", path)
+					if err = os.Remove(path); err != nil {
 						l.Errorln(err)
 					}
-				} else {
-					if err = os.Remove(file); err != nil {
+				}
+
+				for _, d := range j.dirs {
+					path := filepath.Join(dirpath, d)
+					l.Infoln("removing", path)
+					if err = os.RemoveAll(path); err != nil {
 						l.Errorln(err)
 					}
 				}
 			} else {
-				l.Verboseln("keeping", file)
+				for _, f := range j.files {
+					l.Verboseln("keeping (age)", filepath.Join(dirpath, f))
+				}
+
+				for _, d := range j.dirs {
+					l.Verboseln("keeping (age)", filepath.Join(dirpath, d))
+				}
 			}
 		}
 	}
+
 	if err != nil {
 		return fmt.Errorf("could not purge %s: %s", dirpath, err)
 	}
+
 	return nil
 }
 
-func purgeRemoteDumps(repo Repo, directory string, dbname string, keep int, limit time.Time) (rv error) {
+func purgeRemoteDumps(repo Repo, directory string, dbname string, keep int, limit time.Time) error {
+	l.Verboseln("remote purge:", dbname, "limit:", limit, "keep:", keep)
+
 	// The dbname can be put in the directory tree of the dump, in this
-	// case the directory containing dbname in its name is kept on the
+	// case the directory containing {dbname} in its name is kept on the
 	// remote path along with any subdirectory. So we have to include it in
 	// the filter when listing remote files
 	dirpath := filepath.Dir(formatDumpPath(directory, "", "", dbname, time.Time{}))
 	prefix := relPath(directory, filepath.Join(dirpath, cleanDBName(dbname)))
 
-	files, err := repo.List(prefix)
+	// Get the list of files from the repository, this includes the
+	// contents of dumps in the directory format.
+	remoteFiles, err := repo.List(prefix)
 	if err != nil {
 		return fmt.Errorf("could not purge: %w", err)
 	}
 
-	// Sort the list of filenames by date, youngest first,
-	// so that we can slice it easily to keep backups
-	sort.Slice(files, func(i, j int) bool {
-		return files[i].modtime.After(files[j].modtime)
-	})
+	// We are going to parse the filename, we need to remove any posible
+	// parent dir before the name of the dump
+	parentDir := filepath.Dir(prefix)
+	if parentDir == "." || parentDir == "/" {
+		parentDir = ""
+	}
 
-	dirs := make([]string, 0)
+	files := make([]Item, 0)
+	for _, i := range remoteFiles {
+		f, err := filepath.Rel(parentDir, i.key)
+		if err != nil {
+			l.Warnf("could not process remote file %s: %s", i.key, err)
+			continue
+		}
 
-	if keep < len(files) && keep >= 0 {
-		for _, f := range files[keep:] {
-			if f.modtime.Before(limit) {
-				if f.isDir {
-					// remove directory after so that we
-					// have better chances that they are
-					// empty
-					dirs = append(dirs, f.key)
-					continue
-				}
+		files = append(files, Item{key: f, modtime: i.modtime, isDir: i.isDir})
+	}
 
-				l.Infoln("removing remote file", f.key)
-				if err := repo.Remove(f.key); err != nil {
-					l.Errorf("could not purge %s: %s", f.key, err)
-					rv = err
-				}
-				continue
+	// Parse and group by date. We remove groups of files produced by
+	// the same run (including checksums, encrypted files, etc)
+	jobs := genPurgeJobs(files, dbname)
+
+	if keep < len(jobs) && keep >= 0 {
+		// Show the files kept in verbose mode
+		for _, j := range jobs[:keep] {
+			for _, f := range j.files {
+				l.Verboseln("keeping remote (count)", filepath.Join(parentDir, f))
 			}
 
-			l.Verboseln("keeping remote file", f.key)
+			for _, d := range j.dirs {
+				l.Verboseln("keeping remote (count)", filepath.Join(parentDir, d))
+			}
+		}
+
+		// Purge the older files that after excluding the one we need
+		// to keep
+		for _, j := range jobs[keep:] {
+			if j.datetime.Before(limit) {
+				for _, f := range j.files {
+					path := filepath.Join(parentDir, f)
+					l.Infoln("removing remote", path)
+					if err = repo.Remove(path); err != nil {
+						l.Errorln(err)
+					}
+				}
+
+				for _, d := range j.dirs {
+					path := filepath.Join(parentDir, d)
+					l.Infoln("removing remote", path)
+					if err = repo.Remove(path); err != nil {
+						l.Errorln(err)
+					}
+				}
+
+			} else {
+				for _, f := range j.files {
+					l.Verboseln("keeping remote (age)", filepath.Join(parentDir, f))
+				}
+
+				for _, d := range j.dirs {
+					l.Verboseln("keeping remote (age)", filepath.Join(parentDir, d))
+				}
+			}
 		}
 	}
 
-	for _, d := range dirs {
-		l.Infoln("removing remote directory", d)
-		if err := repo.Remove(d); err != nil {
-			l.Errorf("could not purge %s: %s", d, err)
-			rv = err
-		}
+	if err != nil {
+		return fmt.Errorf("could not purge: %w", err)
 	}
 
-	return
+	return nil
 }
