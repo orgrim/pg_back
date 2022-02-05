@@ -190,9 +190,11 @@ func run() (retVal error) {
 		return nil
 	}
 
-	// Remember when we start so that a purge interval of 0s won't remove the dumps we
-	// are taking
-	now := time.Now()
+	// Remember when we start so that a purge interval of 0s won't remove
+	// the dumps we are taking. We truncate the time to the second because
+	// the purge parses the date in the name of the file and its resolution
+	// is the second, thus the parsing truncates to the second.
+	now := time.Now().Truncate(time.Second)
 
 	if opts.BinDirectory != "" {
 		binDir = opts.BinDirectory
