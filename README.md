@@ -62,7 +62,7 @@ databases, you only need to give the proper connection options to the PostgreSQL
 instance and the path to a writable directory to store the dump files.
 
 If default and command line options are not enough, a configuration file
-may be provided with `-c <configfilename>`.
+may be provided with `-c <configfilename>` (see [pg_back.conf](pg_back.conf)).
 (Note: see below to convert configuration files from version 1.)
 
 If the default output directory `/var/backups/postgresql` does not exist or has
