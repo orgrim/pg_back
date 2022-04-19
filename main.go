@@ -696,11 +696,16 @@ func relPath(basedir, path string) string {
 }
 
 func execPath(prog string) string {
-	if binDir != "" && runtime.GOOS == "windows" {
-		return filepath.Join(binDir, fmt.Sprintf("%s.exe", prog))
+	binFile := prog
+	if runtime.GOOS == "windows" {
+		binFile = fmt.Sprintf("%s.exe", prog)
 	}
 
-	return prog
+	if binDir != "" {
+		return filepath.Join(binDir, binFile)
+	}
+
+	return binFile
 }
 
 func cleanDBName(dbname string) string {
