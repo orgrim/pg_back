@@ -217,6 +217,19 @@ func validateEnum(s string, candidates []string) error {
 	return nil
 }
 
+func validateDirectory(s string) error {
+	fi, err := os.Stat(s)
+	if err != nil {
+		return err
+	}
+
+	if !fi.IsDir() {
+		return fmt.Errorf("not a directory")
+	}
+
+	return nil
+}
+
 func parseCli(args []string) (options, []string, error) {
 	var format, purgeKeep, purgeInterval string
 
@@ -389,6 +402,12 @@ func parseCli(args []string) (options, []string, error) {
 
 	if opts.Encrypt && opts.Decrypt {
 		return opts, changed, fmt.Errorf("options --encrypt and --decrypt are mutually exclusive")
+	}
+
+	if opts.BinDirectory != "" {
+		if err := validateDirectory(opts.BinDirectory); err != nil {
+			return opts, changed, fmt.Errorf("bin directory (-B) must be an existing directory")
+		}
 	}
 
 	// Validate upload option
@@ -582,6 +601,12 @@ func loadConfigurationFile(path string) (options, error) {
 		return opts, err
 	}
 	opts.Format = []rune(format)[0]
+
+	if opts.BinDirectory != "" {
+		if err := validateDirectory(opts.BinDirectory); err != nil {
+			return opts, fmt.Errorf("bin_directory must be an existing directory")
+		}
+	}
 
 	// Validate upload option
 	stores := []string{"none", "s3", "sftp", "gcs", "azure"}
