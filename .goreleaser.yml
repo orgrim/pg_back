@@ -1,4 +1,4 @@
-# .goreleaser.yml created by: goreleaser version 0.156.2
+# .goreleaser.yml created for goreleaser version v1.16.1
 # Documentation at http://goreleaser.com
 before:
   hooks:
@@ -11,14 +11,11 @@ builds:
       - linux
       - windows
       - darwin
+    goarch:
+      - amd64
+      - arm64
 archives:
-  - replacements:
-      darwin: Darwin
-      linux: Linux
-      windows: Windows
-      386: i386
-      amd64: x86_64
-    format_overrides:
+  - format_overrides:
       - goos: windows
         format: zip
 checksum:
@@ -34,7 +31,8 @@ changelog:
 source:
   enabled: true
 nfpms:
-  - homepage: https://github.com/orgrim/pg_back/
+  - package_name: pg-back
+    homepage: https://github.com/orgrim/pg_back/
     maintainer: Nicolas Thauvin <nico@orgrim.net>
     description: |
       pg_back uses pg_dumpall to dump roles and tablespaces, pg_dump to dump
@@ -57,15 +55,17 @@ nfpms:
       - src: contrib/systemd/pg_back@.timer
         dst: /lib/systemd/system/pg_back@.timer
         packager: deb
-
+    replaces:
+      - pg_back
     overrides:
       deb:
         dependencies:
           - postgresql-client
       rpm:
-        replacements:
-          amd64: x86_64
-        file_name_template: "{{ .ProjectName }}-{{ .Version }}-{{ .Arch }}"
+        file_name_template: >-
+          {{ .PackageName }}-{{ .Version }}-
+          {{- if eq .Arch "amd64" }}x86_64
+          {{- else }}{{ .Arch }}{{ end }}
         dependencies:
           - postgresql
     rpm:
