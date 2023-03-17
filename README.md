@@ -36,16 +36,17 @@ The binary only needs `pg_dumpall` and `pg_dump`.
 ## Install from source
 
 ```
-go get -u github.com/orgrim/pg_back
+go install github.com/orgrim/pg_back@latest
 ```
 
-Use `make` to build and install from source (you need go 1.16 or above).
+Use `make` to build and install from source (you need go 1.20 or above).
 
 As an alternative, the following *docker* command downloads, compiles and puts `pg_back`
 in the current directory:
 
 ```
-docker run --rm -v "$PWD":/go/bin golang:1.16 go get github.com/orgrim/pg_back
+docker run -u $(id -u) --rm -v "$PWD":/go/bin golang:1.20 -v "$PWD/.cache":/.cache \
+    go install github.com/orgrim/pg_back@latest
 ```
 
 ## Minimum versions
