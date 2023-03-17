@@ -1,5 +1,12 @@
 # Changelog
 
+## pg_back 2.1.1
+
+* Fix exec path expansion when binDir is set
+* Validate if the path given to -B is an existing directory
+* Replace _ with - in the Debian package name, to make it a valid name
+* Build with go 1.20 and update dependencies for security fixes
+
 ## pg_back 2.1.0
 
 * Add quiet mode with the commnad line option -q/--quiet. It takes precedence
