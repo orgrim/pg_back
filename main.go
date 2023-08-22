@@ -397,7 +397,7 @@ func run() (retVal error) {
 		// Write ACL and configuration to an SQL file
 		if len(b) > 0 || len(c) > 0 {
 
-			aclpath := formatDumpPath(d.Directory, d.TimeFormat, "createdb.sql", dbname, d.When)
+			aclpath := formatDumpPath(d.Directory, d.TimeFormat, "createdb.sql", dbname, d.When, 0)
 			if err := os.MkdirAll(filepath.Dir(aclpath), 0755); err != nil {
 				l.Errorln(err)
 				exitCode = 1
@@ -530,7 +530,7 @@ func (d *dump) dump(fc chan<- sumFileJob) error {
 	// dump to prevent stacking pg_back processes if pg_dump last
 	// longer than a schedule of pg_back. If the lock cannot be
 	// acquired, skip the dump and exit with an error.
-	lock := formatDumpPath(d.Directory, d.TimeFormat, "lock", dbname, time.Time{})
+	lock := formatDumpPath(d.Directory, d.TimeFormat, "lock", dbname, time.Time{}, 0)
 	flock, locked, err := lockPath(lock)
 	if err != nil {
 		return fmt.Errorf("unable to lock %s: %s", lock, err)
@@ -558,7 +558,7 @@ func (d *dump) dump(fc chan<- sumFileJob) error {
 		fileEnd = "d"
 	}
 
-	file := formatDumpPath(d.Directory, d.TimeFormat, fileEnd, dbname, d.When)
+	file := formatDumpPath(d.Directory, d.TimeFormat, fileEnd, dbname, d.When, d.Options.CompressLevel)
 	formatOpt := fmt.Sprintf("-F%c", d.Options.Format)
 
 	command := execPath("pg_dump")
@@ -597,9 +597,9 @@ func (d *dump) dump(fc chan<- sumFileJob) error {
 		}
 	}
 
-	// Add compression level option only if not dumping in the plain format
+	// Add compression level option only if not dumping in the tar format
 	if d.Options.CompressLevel >= 0 {
-		if d.Options.Format != 'p' && d.Options.Format != 't' {
+		if d.Options.Format != 't' {
 			args = append(args, "-Z", fmt.Sprintf("%d", d.Options.CompressLevel))
 		} else {
 			l.Warnln("compression level is not supported by the target format")
@@ -728,7 +728,7 @@ func cleanDBName(dbname string) string {
 	return dbname
 }
 
-func formatDumpPath(dir string, timeFormat string, suffix string, dbname string, when time.Time) string {
+func formatDumpPath(dir string, timeFormat string, suffix string, dbname string, when time.Time, compressLevel int) string {
 	var f, s, d string
 
 	// Avoid attacks on the database name
@@ -752,6 +752,10 @@ func formatDumpPath(dir string, timeFormat string, suffix string, dbname string,
 		f = fmt.Sprintf("%s.%s", dbname, s)
 	} else {
 		f = fmt.Sprintf("%s_%s.%s", dbname, when.Format(timeFormat), s)
+	}
+
+	if suffix == "sql" && compressLevel > 0 {
+		f = f + ".gz"
 	}
 
 	return filepath.Join(d, f)
@@ -808,7 +812,7 @@ func dumpGlobals(dir string, timeFormat string, conninfo *ConnInfo, fc chan<- su
 		args = append(args, "-d", conninfo.String())
 	}
 
-	file := formatDumpPath(dir, timeFormat, "sql", "pg_globals", time.Now())
+	file := formatDumpPath(dir, timeFormat, "sql", "pg_globals", time.Now(), 0)
 	args = append(args, "-f", file)
 
 	if err := os.MkdirAll(filepath.Dir(file), 0755); err != nil {
@@ -846,7 +850,7 @@ func dumpGlobals(dir string, timeFormat string, conninfo *ConnInfo, fc chan<- su
 
 func dumpSettings(dir string, timeFormat string, db *pg, fc chan<- sumFileJob) error {
 
-	file := formatDumpPath(dir, timeFormat, "out", "pg_settings", time.Now())
+	file := formatDumpPath(dir, timeFormat, "out", "pg_settings", time.Now(), 0)
 
 	if err := os.MkdirAll(filepath.Dir(file), 0755); err != nil {
 		return err
@@ -876,7 +880,7 @@ func dumpSettings(dir string, timeFormat string, db *pg, fc chan<- sumFileJob) e
 
 func dumpConfigFiles(dir string, timeFormat string, db *pg, fc chan<- sumFileJob) error {
 	for _, param := range []string{"hba_file", "ident_file"} {
-		file := formatDumpPath(dir, timeFormat, "out", param, time.Now())
+		file := formatDumpPath(dir, timeFormat, "out", param, time.Now(), 0)
 
 		if err := os.MkdirAll(filepath.Dir(file), 0755); err != nil {
 			return err
