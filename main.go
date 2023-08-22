@@ -148,16 +148,23 @@ func run() (retVal error) {
 	// Enable verbose mode or quiet mode as soon as possible
 	l.SetVerbosity(cliOpts.Verbose, cliOpts.Quiet)
 
-	// Load configuration file and allow the default configuration
-	// file to be absent
-	configOpts, err := loadConfigurationFile(cliOpts.CfgFile)
-	if err != nil {
-		return err
+	var cliOptions options
+
+	if cliOpts.NoConfigFile {
+		l.Infoln("*** Skipping reading config file")
+		cliOptions = defaultOptions()
+	} else {
+		// Load configuration file and allow the default configuration
+		// file to be absent
+		cliOptions, err = loadConfigurationFile(cliOpts.CfgFile)
+		if err != nil {
+			return err
+		}
 	}
 
 	// override options from the configuration file with ones from
 	// the command line
-	opts := mergeCliAndConfigOptions(cliOpts, configOpts, cliOptList)
+	opts := mergeCliAndConfigOptions(cliOpts, cliOptions, cliOptList)
 
 	// Ensure a non-empty passphrase is set when asking for encryption
 	if (opts.Encrypt || opts.Decrypt) && len(opts.CipherPassphrase) == 0 {

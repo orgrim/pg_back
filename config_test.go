@@ -28,15 +28,16 @@ package main
 import (
 	"errors"
 	"fmt"
-	"github.com/google/go-cmp/cmp"
-	"github.com/google/go-cmp/cmp/cmpopts"
-	"github.com/spf13/pflag"
-	"gopkg.in/ini.v1"
 	"io/ioutil"
 	"os"
 	"runtime"
 	"testing"
 	"time"
+
+	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
+	"github.com/spf13/pflag"
+	"gopkg.in/ini.v1"
 )
 
 func TestValidateDumpFormat(t *testing.T) {
