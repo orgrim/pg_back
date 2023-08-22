@@ -28,7 +28,6 @@ package main
 import (
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -405,7 +404,7 @@ func run() (retVal error) {
 		if len(b) > 0 || len(c) > 0 {
 
 			aclpath := formatDumpPath(d.Directory, d.TimeFormat, "createdb.sql", dbname, d.When, 0)
-			if err := os.MkdirAll(filepath.Dir(aclpath), 0755); err != nil {
+			if err := os.MkdirAll(filepath.Dir(aclpath), 0700); err != nil {
 				l.Errorln(err)
 				exitCode = 1
 				continue
@@ -422,6 +421,10 @@ func run() (retVal error) {
 			fmt.Fprintf(f, "%s", c)
 
 			f.Close()
+
+			if err := os.Chmod(aclpath, 0600); err != nil {
+				return fmt.Errorf("could not chmod to more secure permission for ACL %s: %s", dbname, err)
+			}
 
 			// Have its checksum computed
 			producedFiles <- sumFileJob{
@@ -671,6 +674,11 @@ func (d *dump) dump(fc chan<- sumFileJob) error {
 
 	d.Path = file
 	d.ExitCode = 0
+
+	if err := os.Chmod(file, 0600); err != nil {
+		return fmt.Errorf("could not chmod to more secure permission for %s: %s", dbname, err)
+	}
+
 	return nil
 }
 
@@ -822,7 +830,7 @@ func dumpGlobals(dir string, timeFormat string, conninfo *ConnInfo, fc chan<- su
 	file := formatDumpPath(dir, timeFormat, "sql", "pg_globals", time.Now(), 0)
 	args = append(args, "-f", file)
 
-	if err := os.MkdirAll(filepath.Dir(file), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(file), 0700); err != nil {
 		return err
 	}
 
@@ -846,6 +854,10 @@ func dumpGlobals(dir string, timeFormat string, conninfo *ConnInfo, fc chan<- su
 		}
 	}
 
+	if err := os.Chmod(file, 0600); err != nil {
+		return fmt.Errorf("could not chmod to more secure permission for pg_globals: %s", err)
+	}
+
 	if fc != nil {
 		fc <- sumFileJob{
 			Path: file,
@@ -859,7 +871,7 @@ func dumpSettings(dir string, timeFormat string, db *pg, fc chan<- sumFileJob) e
 
 	file := formatDumpPath(dir, timeFormat, "out", "pg_settings", time.Now(), 0)
 
-	if err := os.MkdirAll(filepath.Dir(file), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(file), 0700); err != nil {
 		return err
 	}
 
@@ -871,7 +883,7 @@ func dumpSettings(dir string, timeFormat string, db *pg, fc chan<- sumFileJob) e
 	// Use a Buffer to avoid creating an empty file
 	if len(s) > 0 {
 		l.Verboseln("writing settings to:", file)
-		if err := ioutil.WriteFile(file, []byte(s), 0644); err != nil {
+		if err := os.WriteFile(file, []byte(s), 0600); err != nil {
 			return err
 		}
 
@@ -889,7 +901,7 @@ func dumpConfigFiles(dir string, timeFormat string, db *pg, fc chan<- sumFileJob
 	for _, param := range []string{"hba_file", "ident_file"} {
 		file := formatDumpPath(dir, timeFormat, "out", param, time.Now(), 0)
 
-		if err := os.MkdirAll(filepath.Dir(file), 0755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(file), 0700); err != nil {
 			return err
 		}
 
@@ -901,7 +913,7 @@ func dumpConfigFiles(dir string, timeFormat string, db *pg, fc chan<- sumFileJob
 		// Use a Buffer to avoid creating an empty file
 		if len(s) > 0 {
 			l.Verbosef("writing contents of '%s' to: %s", param, file)
-			if err := ioutil.WriteFile(file, []byte(s), 0644); err != nil {
+			if err := os.WriteFile(file, []byte(s), 0600); err != nil {
 				return err
 			}
 
