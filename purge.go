@@ -127,7 +127,7 @@ func purgeDumps(directory string, dbname string, keep int, limit time.Time) erro
 	// The dbname can be put in the path of the backup directory, so we
 	// have to compute it first. This is why a dbname is required to purge
 	// old dumps
-	dirpath := filepath.Dir(formatDumpPath(directory, "", "", dbname, time.Time{}))
+	dirpath := filepath.Dir(formatDumpPath(directory, "", "", dbname, time.Time{}, 0))
 	dir, err := os.Open(dirpath)
 	if err != nil {
 		return fmt.Errorf("could not purge %s: %s", dirpath, err)
@@ -211,7 +211,7 @@ func purgeRemoteDumps(repo Repo, directory string, dbname string, keep int, limi
 	// case the directory containing {dbname} in its name is kept on the
 	// remote path along with any subdirectory. So we have to include it in
 	// the filter when listing remote files
-	dirpath := filepath.Dir(formatDumpPath(directory, "", "", dbname, time.Time{}))
+	dirpath := filepath.Dir(formatDumpPath(directory, "", "", dbname, time.Time{}, 0))
 	prefix := relPath(directory, filepath.Join(dirpath, cleanDBName(dbname)))
 
 	// Get the list of files from the repository, this includes the
