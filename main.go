@@ -65,6 +65,9 @@ type dump struct {
 	// Cipher passphrase, when not empty cipher the file
 	CipherPassphrase string
 
+	// AGE public key used for encryption; in Bech32 encoding starting with "age1"
+	CipherPublicKey string
+
 	// Keep original files after encryption
 	EncryptKeepSrc bool
 
@@ -159,14 +162,9 @@ func run() (retVal error) {
 	// the command line
 	opts := mergeCliAndConfigOptions(cliOpts, configOpts, cliOptList)
 
-	// Ensure a non-empty passphrase is set when asking for encryption
-	if (opts.Encrypt || opts.Decrypt) && len(opts.CipherPassphrase) == 0 {
-		// Fallback on the environment
-		opts.CipherPassphrase = os.Getenv("PGBK_CIPHER_PASS")
-
-		if len(opts.CipherPassphrase) == 0 {
-			return fmt.Errorf("cannot use an empty passphrase for encryption")
-		}
+	err = ensureCipherParamsPresent(opts)
+	if err != nil {
+		return fmt.Errorf("required cipher parameters not present: %w", err)
 	}
 
 	// When asked to decrypt the backups, do it here and exit, we have all
@@ -183,7 +181,8 @@ func run() (retVal error) {
 			}
 		}
 
-		if err := decryptDirectory(opts.Directory, opts.CipherPassphrase, opts.Jobs, globs); err != nil {
+		params := decryptParams{PrivateKey: opts.CipherPrivateKey, Passphrase: opts.CipherPassphrase}
+		if err := decryptDirectory(opts.Directory, params, opts.Jobs, globs); err != nil {
 			return err
 		}
 
@@ -314,9 +313,10 @@ func run() (retVal error) {
 
 	defDbOpts := defaultDbOpts(opts)
 
-	var passphrase string
+	var passphrase, publicKey string
 	if opts.Encrypt {
 		passphrase = opts.CipherPassphrase
+		publicKey = opts.CipherPublicKey
 	}
 
 	// feed the database
@@ -333,6 +333,7 @@ func run() (retVal error) {
 			TimeFormat:       opts.TimeFormat,
 			ConnString:       conninfo,
 			CipherPassphrase: passphrase,
+			CipherPublicKey:  publicKey,
 			EncryptKeepSrc:   opts.EncryptKeepSrc,
 			ExitCode:         -1,
 			PgDumpVersion:    pgDumpVersion,
@@ -680,6 +681,27 @@ func dumper(id int, jobs <-chan *dump, results chan<- *dump, fc chan<- sumFileJo
 	}
 }
 
+func ensureCipherParamsPresent(opts options) error {
+	// Nothing needs to be done if we are not encrypting or decrypting
+	if !opts.Encrypt && !opts.Decrypt {
+		return nil
+	}
+
+	// If we are encrypting or decrypting, make sure we either have a public/private key or a passphrase
+	needEncryptParams := opts.Encrypt && len(opts.CipherPublicKey) == 0 && len(opts.CipherPassphrase) == 0
+	needDecryptParams := opts.Decrypt && len(opts.CipherPrivateKey) == 0 && len(opts.CipherPassphrase) == 0
+
+	if needEncryptParams || needDecryptParams { // Fallback on the environment
+		opts.CipherPassphrase = os.Getenv("PGBK_CIPHER_PASS")
+
+		if len(opts.CipherPassphrase) == 0 {
+			return fmt.Errorf("cannot use an empty passphrase for encryption")
+		}
+	}
+
+	return nil
+}
+
 func relPath(basedir, path string) string {
 	target, err := filepath.Rel(basedir, path)
 	if err != nil {
@@ -906,7 +928,7 @@ func dumpConfigFiles(dir string, timeFormat string, db *pg, fc chan<- sumFileJob
 	return nil
 }
 
-func decryptDirectory(dir string, password string, workers int, globs []string) error {
+func decryptDirectory(dir string, params decryptParams, workers int, globs []string) error {
 
 	// Run a pool of workers to decrypt concurrently
 	var wg sync.WaitGroup
@@ -932,7 +954,7 @@ func decryptDirectory(dir string, password string, workers int, globs []string) 
 				}
 
 				l.Verbosef("[%d] processing: %s\n", id, file)
-				if err := decryptFile(file, password); err != nil {
+				if err := decryptFile(file, params); err != nil {
 					l.Errorln(err)
 					failed = true
 				}
@@ -1041,12 +1063,30 @@ type sumFileJob struct {
 	SumAlgo string
 }
 
+type encryptParams struct {
+	// Encrypt with a passphrase
+	Passphrase string
+
+	// Encrypt with an AGE public key encoded in Bech32
+	PublicKey string
+}
+
+type decryptParams struct {
+	// A passphrase to use for decryption
+	Passphrase string
+
+	// An AGE private key encoded in Bech32
+	PrivateKey string
+}
+
 type encryptFileJob struct {
 	// Path of the file or directory to checksum
 	Path string
 
-	Passphrase string
-	KeepSrc    bool
+	// How to encrypt the file
+	Params encryptParams
+
+	KeepSrc bool
 
 	// Store the checksum algo here to pass it to sumEncryptFileJob jobs
 	SumAlgo string
@@ -1125,10 +1165,13 @@ func postProcessFiles(inFiles chan sumFileJob, wg *sync.WaitGroup, opts options)
 					// send the checksum file to encryption or upload
 					if opts.Encrypt {
 						encIn <- encryptFileJob{
-							Path:       p,
-							Passphrase: opts.CipherPassphrase,
-							KeepSrc:    opts.EncryptKeepSrc,
-							SumAlgo:    j.SumAlgo,
+							Path: p,
+							Params: encryptParams{
+								Passphrase: opts.CipherPassphrase,
+								PublicKey:  opts.CipherPublicKey,
+							},
+							KeepSrc: opts.EncryptKeepSrc,
+							SumAlgo: j.SumAlgo,
 						}
 					} else if opts.Upload != "none" {
 						// upload the checksum file only if it won't be encrypted
@@ -1142,10 +1185,13 @@ func postProcessFiles(inFiles chan sumFileJob, wg *sync.WaitGroup, opts options)
 				// send the file to the next step, encryption or upload
 				if opts.Encrypt {
 					encIn <- encryptFileJob{
-						Path:       j.Path,
-						Passphrase: opts.CipherPassphrase,
-						KeepSrc:    opts.EncryptKeepSrc,
-						SumAlgo:    j.SumAlgo,
+						Path: j.Path,
+						Params: encryptParams{
+							Passphrase: opts.CipherPassphrase,
+							PublicKey:  opts.CipherPublicKey,
+						},
+						KeepSrc: opts.EncryptKeepSrc,
+						SumAlgo: j.SumAlgo,
 					}
 				} else if opts.Upload != "none" {
 					// upload the file only if it won't be encrypted
@@ -1201,7 +1247,7 @@ func postProcessFiles(inFiles chan sumFileJob, wg *sync.WaitGroup, opts options)
 
 				if opts.Encrypt {
 					l.Infoln("encrypting", j.Path)
-					encFiles, err := encryptFile(j.Path, j.Passphrase, j.KeepSrc)
+					encFiles, err := encryptFile(j.Path, j.Params, j.KeepSrc)
 					if err != nil {
 						l.Errorln("encryption failed:", err)
 						if !failed {

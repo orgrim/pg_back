@@ -28,15 +28,16 @@ package main
 import (
 	"errors"
 	"fmt"
-	"github.com/google/go-cmp/cmp"
-	"github.com/google/go-cmp/cmp/cmpopts"
-	"github.com/spf13/pflag"
-	"gopkg.in/ini.v1"
 	"io/ioutil"
 	"os"
 	"runtime"
 	"testing"
 	"time"
+
+	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
+	"github.com/spf13/pflag"
+	"gopkg.in/ini.v1"
 )
 
 func TestValidateDumpFormat(t *testing.T) {
@@ -311,6 +312,102 @@ func TestParseCli(t *testing.T) {
 				false,
 				false,
 				"invalid value for --upload: value not found in [none s3 sftp gcs azure]",
+				"",
+			},
+			{
+				[]string{"--decrypt", "--encrypt"},
+				defaults,
+				false,
+				false,
+				"options --encrypt and --decrypt are mutually exclusive",
+				"",
+			},
+			{
+				[]string{"--cipher-pass", "mypass"},
+				options{
+					Directory:        "/var/backups/postgresql",
+					Format:           'c',
+					DirJobs:          1,
+					CompressLevel:    -1,
+					Jobs:             1,
+					PauseTimeout:     3600,
+					PurgeInterval:    -30 * 24 * time.Hour,
+					PurgeKeep:        0,
+					SumAlgo:          "none",
+					CfgFile:          "/etc/pg_back/pg_back.conf",
+					TimeFormat:       timeFormat,
+					Decrypt:          false,
+					CipherPassphrase: "mypass",
+					Upload:           "none",
+					AzureEndpoint:    "blob.core.windows.net",
+				},
+				false,
+				false,
+				"",
+				"",
+			},
+			{
+				[]string{"--cipher-private-key", "mykey"},
+				options{
+					Directory:        "/var/backups/postgresql",
+					Format:           'c',
+					DirJobs:          1,
+					CompressLevel:    -1,
+					Jobs:             1,
+					PauseTimeout:     3600,
+					PurgeInterval:    -30 * 24 * time.Hour,
+					PurgeKeep:        0,
+					SumAlgo:          "none",
+					CfgFile:          "/etc/pg_back/pg_back.conf",
+					TimeFormat:       timeFormat,
+					Decrypt:          false,
+					CipherPrivateKey: "mykey",
+					Upload:           "none",
+					AzureEndpoint:    "blob.core.windows.net",
+				},
+				false,
+				false,
+				"",
+				"",
+			},
+			{
+				[]string{"--cipher-public-key", "fakepubkey"},
+				options{
+					Directory:       "/var/backups/postgresql",
+					Format:          'c',
+					DirJobs:         1,
+					CompressLevel:   -1,
+					Jobs:            1,
+					PauseTimeout:    3600,
+					PurgeInterval:   -30 * 24 * time.Hour,
+					PurgeKeep:       0,
+					SumAlgo:         "none",
+					CfgFile:         "/etc/pg_back/pg_back.conf",
+					TimeFormat:      timeFormat,
+					Decrypt:         false,
+					CipherPublicKey: "fakepubkey",
+					Upload:          "none",
+					AzureEndpoint:   "blob.core.windows.net",
+				},
+				false,
+				false,
+				"",
+				"",
+			},
+			{
+				[]string{"--cipher-pass", "whee", "--cipher-private-key", "anotherkey"},
+				defaults,
+				false,
+				false,
+				"only one of --cipher-pass or --cipher-private-key allowed",
+				"",
+			},
+			{
+				[]string{"--cipher-pass", "wahoo", "--cipher-public-key", "thisisakey"},
+				defaults,
+				false,
+				false,
+				"only one of --cipher-pass or --cipher-public-key allowed",
 				"",
 			},
 		}
