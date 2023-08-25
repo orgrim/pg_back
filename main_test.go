@@ -68,3 +68,53 @@ func TestExecPath(t *testing.T) {
 		})
 	}
 }
+
+func TestEnsureCipherParamsPresent_NoEncryptNoDecrypt_NoParams_ReturnsNil(t *testing.T) {
+	opts := options{}
+
+	err := ensureCipherParamsPresent(&opts)
+	if err != nil {
+		t.Errorf("should not return error")
+	}
+}
+
+func TestEnsureCipherParamsPresent_NoEncryptNoDecrypt_HasParams_ReturnsNil(t *testing.T) {
+	opts := options{
+		CipherPublicKey:  "foo1",
+		CipherPrivateKey: "bar99",
+		CipherPassphrase: "secretwords",
+	}
+
+	err := ensureCipherParamsPresent(&opts)
+	if err != nil {
+		t.Errorf("should not return error")
+	}
+}
+
+func TestEnsureCipherParamsPresent_Encrypt_NoParams_Failure(t *testing.T) {
+	opts := options{
+		Encrypt:          true,
+		CipherPrivateKey: "bar99",
+	}
+
+	err := ensureCipherParamsPresent(&opts)
+	if err == nil {
+		t.Errorf("should have error about not finding passphrase")
+	}
+}
+
+func TestEnsureCipherParamsPresent_Encrypt_NoParamsButEnv_Success(t *testing.T) {
+	opts := options{
+		Encrypt: true,
+	}
+	t.Setenv("PGBK_CIPHER_PASS", "works")
+
+	err := ensureCipherParamsPresent(&opts)
+	if err != nil {
+		t.Errorf("should have read environment variable")
+	}
+
+	if opts.CipherPassphrase != "works" {
+		t.Errorf("passphrase was not read correctly from environment")
+	}
+}

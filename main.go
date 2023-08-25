@@ -168,7 +168,7 @@ func run() (retVal error) {
 	// the command line
 	opts := mergeCliAndConfigOptions(cliOpts, cliOptions, cliOptList)
 
-	err = ensureCipherParamsPresent(opts)
+	err = ensureCipherParamsPresent(&opts)
 	if err != nil {
 		return fmt.Errorf("required cipher parameters not present: %w", err)
 	}
@@ -696,7 +696,7 @@ func dumper(id int, jobs <-chan *dump, results chan<- *dump, fc chan<- sumFileJo
 	}
 }
 
-func ensureCipherParamsPresent(opts options) error {
+func ensureCipherParamsPresent(opts *options) error {
 	// Nothing needs to be done if we are not encrypting or decrypting
 	if !opts.Encrypt && !opts.Decrypt {
 		return nil
