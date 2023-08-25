@@ -27,21 +27,47 @@ package main
 
 import (
 	"errors"
-	"filippo.io/age"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"filippo.io/age"
 )
 
-func ageEncrypt(src io.Reader, dst io.Writer, password string) error {
-	// Age encrypt to a recipient, Scrypt allow to create a key from a passphrase
-	recipient, err := age.NewScryptRecipient(password)
-	if err != nil {
-		return fmt.Errorf("failed to create recipient from password: %w", err)
+func ageEncrypt(src io.Reader, dst io.Writer, params encryptParams) error {
+	if params.PublicKey != "" {
+		return ageEncryptPublicKey(src, dst, params.PublicKey)
 	}
 
+	if params.Passphrase != "" {
+		return ageEncryptPassphrase(src, dst, params.Passphrase)
+	}
+
+	return fmt.Errorf("Unexpected condition: no public key or passphrase")
+}
+
+func ageEncryptPassphrase(src io.Reader, dst io.Writer, passphrase string) error {
+	// Age encrypt to a recipient, Scrypt allow to create a key from a passphrase
+	recipient, err := age.NewScryptRecipient(passphrase)
+	if err != nil {
+		return fmt.Errorf("failed to create recipient from passphrase: %w", err)
+	}
+
+	return ageEncryptInternal(src, dst, recipient)
+}
+
+func ageEncryptPublicKey(src io.Reader, dst io.Writer, publicKey string) error {
+	recipient, err := age.ParseX25519Recipient(publicKey)
+	if err != nil {
+		return fmt.Errorf("failed to create recipient from public key: %w", err)
+	}
+
+	return ageEncryptInternal(src, dst, recipient)
+}
+
+func ageEncryptInternal(src io.Reader, dst io.Writer, recipient age.Recipient) error {
 	w, err := age.Encrypt(dst, recipient)
 	if err != nil {
 		return fmt.Errorf("failed to create encrypted file: %w", err)
@@ -57,18 +83,42 @@ func ageEncrypt(src io.Reader, dst io.Writer, password string) error {
 	return nil
 }
 
-func ageDecrypt(src io.Reader, dst io.Writer, password string) error {
-
-	identity, err := age.NewScryptIdentity(password)
-	if err != nil {
-		return fmt.Errorf("failed to create identity from password: %w", err)
+func ageDecrypt(src io.Reader, dst io.Writer, params decryptParams) error {
+	if params.PrivateKey != "" {
+		return ageDecryptPrivateKey(src, dst, params.PrivateKey)
 	}
 
+	if params.Passphrase != "" {
+		return ageDecryptPassphrase(src, dst, params.Passphrase)
+	}
+
+	return fmt.Errorf("No private key or passphrase specified")
+}
+
+func ageDecryptPrivateKey(src io.Reader, dst io.Writer, privateKey string) error {
+	identity, err := age.ParseX25519Identity(privateKey)
+	if err != nil {
+		return fmt.Errorf("failed to parse AGE private key: %w", err)
+	}
+
+	return ageDecryptInternal(src, dst, identity)
+}
+
+func ageDecryptPassphrase(src io.Reader, dst io.Writer, passphrase string) error {
+	identity, err := age.NewScryptIdentity(passphrase)
+	if err != nil {
+		return fmt.Errorf("failed to create identity from passphrase: %w", err)
+	}
+
+	return ageDecryptInternal(src, dst, identity)
+}
+
+func ageDecryptInternal(src io.Reader, dst io.Writer, identity age.Identity) error {
 	r, err := age.Decrypt(src, identity)
 	if err != nil {
 		var badpass *age.NoIdentityMatchError
 		if errors.As(err, &badpass) {
-			return fmt.Errorf("invalid passphrase")
+			return fmt.Errorf("invalid key or passphrase")
 		}
 		return fmt.Errorf("failed to initiate decryption: %w", err)
 	}
@@ -80,7 +130,7 @@ func ageDecrypt(src io.Reader, dst io.Writer, password string) error {
 	return nil
 }
 
-func encryptFile(path string, password string, keep bool) ([]string, error) {
+func encryptFile(path string, params encryptParams, keep bool) ([]string, error) {
 	encrypted := make([]string, 0)
 
 	i, err := os.Stat(path)
@@ -112,7 +162,7 @@ func encryptFile(path string, password string, keep bool) ([]string, error) {
 				}
 				defer dst.Close()
 
-				if err := ageEncrypt(src, dst, password); err != nil {
+				if err := ageEncrypt(src, dst, params); err != nil {
 					dst.Close()
 					os.Remove(dstFile)
 					return fmt.Errorf("could not encrypt %s: %s", path, err)
@@ -153,7 +203,7 @@ func encryptFile(path string, password string, keep bool) ([]string, error) {
 
 		defer dst.Close()
 
-		if err := ageEncrypt(src, dst, password); err != nil {
+		if err := ageEncrypt(src, dst, params); err != nil {
 			dst.Close()
 			os.Remove(dstFile)
 			return encrypted, fmt.Errorf("could not encrypt %s: %s", path, err)
@@ -173,7 +223,7 @@ func encryptFile(path string, password string, keep bool) ([]string, error) {
 	return encrypted, nil
 }
 
-func decryptFile(path string, password string) error {
+func decryptFile(path string, params decryptParams) error {
 	l.Infoln("decrypting", path)
 
 	src, err := os.Open(path)
@@ -191,7 +241,7 @@ func decryptFile(path string, password string) error {
 
 	defer dst.Close()
 
-	if err := ageDecrypt(src, dst, password); err != nil {
+	if err := ageDecrypt(src, dst, params); err != nil {
 		dst.Close()
 		os.Remove(dstFile)
 		return fmt.Errorf("could not decrypt %s: %s", path, err)

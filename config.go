@@ -76,6 +76,8 @@ type options struct {
 	Encrypt          bool
 	EncryptKeepSrc   bool
 	CipherPassphrase string
+	CipherPublicKey  string
+	CipherPrivateKey string
 	Decrypt          bool
 
 	Upload       string // values are none, s3, sftp, gcs
@@ -272,6 +274,8 @@ func parseCli(args []string) (options, []string, error) {
 	NoEncryptKeepSrc := pflag.Bool("no-encrypt-keep-src", false, "do not keep original files when encrypting")
 	pflag.BoolVar(&opts.Decrypt, "decrypt", false, "decrypt files in the backup directory instead of dumping. DBNAMEs become\nglobs to select files")
 	pflag.StringVar(&opts.CipherPassphrase, "cipher-pass", "", "cipher passphrase for encryption and decryption\n")
+	pflag.StringVar(&opts.CipherPublicKey, "cipher-public-key", "", "AGE public key for encryption; in Bech32 encoding starting with 'age1'\n")
+	pflag.StringVar(&opts.CipherPrivateKey, "cipher-private-key", "", "AGE private key for decryption; in Bech32 encoding starting with 'AGE-SECRET-KEY-1'\n")
 
 	pflag.StringVar(&opts.Upload, "upload", "none", "upload produced files to target (s3, gcs,..) use \"none\" to override\nconfiguration file and disable upload")
 	purgeRemote := pflag.String("purge-remote", "no", "purge the file on remote location after upload, with the same rules\nas the local directory")
@@ -406,6 +410,14 @@ func parseCli(args []string) (options, []string, error) {
 
 	if opts.Encrypt && opts.Decrypt {
 		return opts, changed, fmt.Errorf("options --encrypt and --decrypt are mutually exclusive")
+	}
+
+	if opts.CipherPassphrase != "" && opts.CipherPublicKey != "" {
+		return opts, changed, fmt.Errorf("only one of --cipher-pass or --cipher-public-key allowed")
+	}
+
+	if opts.CipherPassphrase != "" && opts.CipherPrivateKey != "" {
+		return opts, changed, fmt.Errorf("only one of --cipher-pass or --cipher-private-key allowed")
 	}
 
 	if opts.BinDirectory != "" {
@@ -549,6 +561,8 @@ func loadConfigurationFile(path string) (options, error) {
 	opts.PostHook = s.Key("post_backup_hook").MustString("")
 	opts.Encrypt = s.Key("encrypt").MustBool(false)
 	opts.CipherPassphrase = s.Key("cipher_pass").MustString("")
+	opts.CipherPublicKey = s.Key("cipher_public_key").MustString("")
+	opts.CipherPrivateKey = s.Key("cipher_private_key").MustString("")
 	opts.EncryptKeepSrc = s.Key("encrypt_keep_source").MustBool(false)
 
 	opts.Upload = s.Key("upload").MustString("none")
@@ -784,6 +798,10 @@ func mergeCliAndConfigOptions(cliOpts options, configOpts options, onCli []strin
 			opts.EncryptKeepSrc = cliOpts.EncryptKeepSrc
 		case "cipher-pass":
 			opts.CipherPassphrase = cliOpts.CipherPassphrase
+		case "cipher-public-key":
+			opts.CipherPublicKey = cliOpts.CipherPublicKey
+		case "cipher-private-key":
+			opts.CipherPrivateKey = cliOpts.CipherPrivateKey
 		case "decrypt":
 			opts.Decrypt = cliOpts.Decrypt
 
