@@ -1,0 +1,55 @@
+---
+# This assumes you have created Kubernetes secrets. Below is an example for
+# MinIO endpoint. It is using the https://age-encryption.org/ public key
+# encryption which may be generated using the "age-keygen" command.
+#
+#   kubectl create secret generic backup-secret \
+#     --from-literal=BACKUP_PUBLIC_KEY=age1foobar
+#
+#   kubectl create secret generic postgres-secret \
+#     --from-literal=PGHOST=postgres \
+#     --from-literal=PGUSER=myapp \
+#     --from-literal=PGPASSWORD=mysecret
+#
+#   kubectl create secret generic s3-secret \
+#     --from-literal=S3_ENDPOINT=https://minio:9000/ \
+#     --from-literal=S3_REGION=us-east-1 \
+#     --from-literal=S3_BUCKET=my-backup-bucket \
+#     --from-literal=S3_KEYID=nizcifWuAmKaidJivCaf \
+#     --from-literal=S3_SECRET=irmOajchefyikIajHebvocguWodShuchvibAtLev
+
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: backup
+spec:
+  schedule: "0 2 * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+            - name: backup
+              image: ghcr.io/orgrim/pg_back:latest
+              imagePullPolicy: Always
+              envFrom:
+                - secretRef:
+                    name: backup-secret
+                - secretRef:
+                    name: postgres-secret
+                - secretRef:
+                    name: s3-secret
+              args:
+                - "--encrypt"
+                - "--cipher-public-key"
+                - "$(BACKUP_PUBLIC_KEY)"
+                - "--s3-bucket"
+                - "$(S3_BUCKET)"
+                - "--s3-endpoint"
+                - "$(S3_ENDPOINT)"
+                - "--s3-key-id"
+                - "$(S3_KEYID)"
+                - "--s3-secret"
+                - "$(S3_SECRET)"
+                - "--s3-region"
+                - "$(S3_REGION)"
