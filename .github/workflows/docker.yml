@@ -15,6 +15,25 @@ env:
   IMAGE_NAME: pg_back
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        pg_version: [12, 13, 14, 15]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3.5.3
+
+      - name: Test Docker container
+        uses: adambirds/docker-compose-action@v1.3.0
+        env:
+          PG_VERSION: ${{ matrix.pg_version }}
+        with:
+          compose-file: ./docker/compose.test.yml
+          up-flags: --abort-on-container-exit --exit-code-from pg_back
+          down-flags: --volumes
+
   buildx:
     runs-on: ubuntu-latest
     permissions:
