@@ -61,7 +61,7 @@ func TestPurgeDumps(t *testing.T) {
 
 	// empty dbname
 	when := time.Now().Add(-time.Hour)
-	tf := formatDumpPath(wd, "2006-01-02_15-04-05", "dump", "", when)
+	tf := formatDumpPath(wd, "2006-01-02_15-04-05", "dump", "", when, 0)
 	f, err := os.Create(tf)
 	if err != nil {
 		t.Errorf("could not create temp file %s: %s", tf, err)
@@ -80,7 +80,7 @@ func TestPurgeDumps(t *testing.T) {
 
 	// file without write perms
 	if runtime.GOOS != "windows" {
-		tf = formatDumpPath(wd, time.RFC3339, "dump", "db", time.Now().Add(-time.Hour))
+		tf = formatDumpPath(wd, time.RFC3339, "dump", "db", time.Now().Add(-time.Hour), 0)
 		ioutil.WriteFile(tf, []byte("truc\n"), 0644)
 		os.Chmod(filepath.Dir(tf), 0555)
 
@@ -91,7 +91,7 @@ func TestPurgeDumps(t *testing.T) {
 		os.Chmod(filepath.Dir(tf), 0755)
 
 		// dir without write perms
-		tf = formatDumpPath(wd, time.RFC3339, "d", "db", time.Now().Add(-time.Hour))
+		tf = formatDumpPath(wd, time.RFC3339, "d", "db", time.Now().Add(-time.Hour), 0)
 		os.MkdirAll(tf, 0755)
 		os.Chmod(filepath.Dir(tf), 0555)
 
@@ -138,7 +138,7 @@ func TestPurgeDumps(t *testing.T) {
 			}
 			for i := 1; i <= 3; i++ {
 				when := time.Now().Add(-time.Hour * time.Duration(i))
-				tf = formatDumpPath(wd, st.format, "dump", "db", when)
+				tf = formatDumpPath(wd, st.format, "dump", "db", when, 0)
 				ioutil.WriteFile(tf, []byte("truc\n"), 0644)
 				os.Chtimes(tf, when, when)
 			}

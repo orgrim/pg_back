@@ -29,14 +29,15 @@ import (
 	_ "embed"
 	"errors"
 	"fmt"
-	"github.com/anmitsu/go-shlex"
-	"github.com/spf13/pflag"
-	"gopkg.in/ini.v1"
 	"os"
 	"runtime"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/anmitsu/go-shlex"
+	"github.com/spf13/pflag"
+	"gopkg.in/ini.v1"
 )
 
 var defaultCfgFile = "/etc/pg_back/pg_back.conf"
@@ -46,6 +47,7 @@ var defaultCfg string
 
 // options struct holds command line and configuration file options
 type options struct {
+	NoConfigFile     bool
 	BinDirectory     string
 	Directory        string
 	Host             string
@@ -112,6 +114,7 @@ func defaultOptions() options {
 	}
 
 	return options{
+		NoConfigFile:  false,
 		Directory:     "/var/backups/postgresql",
 		Format:        'c',
 		DirJobs:       1,
@@ -245,6 +248,7 @@ func parseCli(args []string) (options, []string, error) {
 		pflag.PrintDefaults()
 	}
 
+	pflag.BoolVar(&opts.NoConfigFile, "no-config-file", false, "skip reading config file\n")
 	pflag.StringVarP(&opts.BinDirectory, "bin-directory", "B", "", "PostgreSQL binaries directory. Empty to search $PATH")
 	pflag.StringVarP(&opts.Directory, "backup-directory", "b", "/var/backups/postgresql", "store dump files there")
 	pflag.StringVarP(&opts.CfgFile, "config", "c", defaultCfgFile, "alternate config file")
