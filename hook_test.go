@@ -23,6 +23,8 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
 // THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+//go:build !windows
+
 package main
 
 import (
@@ -42,7 +44,7 @@ func TestHookCommand(t *testing.T) {
 	}{
 		{"echo 'a'", `^\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} INFO: test: a\n$`},
 		{"echo a'", `^\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} ERROR: unable to parse hook command: No closing quotation\n$`},
-		{"echo 'a\nb'", `^\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} INFO: test: a\n\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} INFO: test: b\n$`},
+		{"echo 'a\r\nb'", `^\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} INFO: test: a\n\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} INFO: test: b\n$`},
 		{"", `^\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} ERROR: unable to run an empty command\n$`},
 		{"/nothingBLA a", `^\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} ERROR: .*/nothingBLA.*\n$`},
 		{"sh -c 'echo test; exit 1'", `^\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} ERROR: test: test\n\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} ERROR: exit status 1\n$`},
