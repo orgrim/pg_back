@@ -699,7 +699,7 @@ func loadConfigurationFile(path string) (options, error) {
 		o.Schemas = parseIdentifierList(s.Key("schemas").String())
 		o.ExcludedSchemas = parseIdentifierList(s.Key("exclude_schemas").String())
 		o.Tables = parseIdentifierList(s.Key("tables").String())
-		o.ExcludedTables = parseIdentifierList(s.Key("exclude_tables").String())
+		o.ExcludedTables = s.Key("exclude_tables").Strings(",")
 
 		if s.HasKey("pg_dump_options") {
 			words, err := shlex.Split(s.Key("pg_dump_options").String(), true)
