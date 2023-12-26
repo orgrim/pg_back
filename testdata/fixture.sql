@@ -15,9 +15,13 @@ GRANT CONNECT ON DATABASE b2 TO u2;
 SET ROLE u1;
 CREATE TABLE t1 AS SELECT generate_series(0, 9) i;
 CREATE TABLE t2 AS SELECT generate_series(10, 19) j;
+CREATE TABLE t3 AS SELECT generate_series(0, 9) i;
+CREATE TABLE t4 AS SELECT generate_series(10, 19) j;
 
 \c b2
 
 SET ROLE u2;
 CREATE TABLE t1 AS SELECT generate_series(0, 9) i;
 CREATE TABLE t2 AS SELECT generate_series(10, 19) j;
+CREATE TABLE t3 AS SELECT generate_series(0, 9) i;
+CREATE TABLE t4 AS SELECT generate_series(10, 19) j;

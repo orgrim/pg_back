@@ -696,9 +696,9 @@ func loadConfigurationFile(path string) (options, error) {
 		}
 		o.Format = []rune(dbFormat)[0]
 
-		o.Schemas = parseIdentifierList(s.Key("schemas").String())
-		o.ExcludedSchemas = parseIdentifierList(s.Key("exclude_schemas").String())
-		o.Tables = parseIdentifierList(s.Key("tables").String())
+		o.Schemas = s.Key("schemas").Strings(",")
+		o.ExcludedSchemas = s.Key("exclude_schemas").Strings(",")
+		o.Tables = s.Key("tables").Strings(",")
 		o.ExcludedTables = s.Key("exclude_tables").Strings(",")
 
 		if s.HasKey("pg_dump_options") {
@@ -725,16 +725,6 @@ func loadConfigurationFile(path string) (options, error) {
 	}
 
 	return opts, nil
-}
-
-func parseIdentifierList(rawList string) []string {
-	ids := make([]string, 0)
-	if len(strings.TrimSpace(rawList)) > 0 {
-		for _, t := range strings.Split(rawList, ";") {
-			ids = append(ids, strings.TrimSpace(t))
-		}
-	}
-	return ids
 }
 
 func mergeCliAndConfigOptions(cliOpts options, configOpts options, onCli []string) options {
