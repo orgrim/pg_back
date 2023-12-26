@@ -1,5 +1,15 @@
 # Changelog
 
+## pg_back 2.2.0
+
+* Support compression in plain format
+* Add option to skip loading config file
+* Harden file permissions of output files
+* Add Dockerfile and an example docker compose config
+* Add an example configuration for Kubernetes
+* Support AGE public keys for encryption
+* Fix inclusion and excusion lists parsing in per db configs
+
 ## pg_back 2.1.1
 
 * Fix exec path expansion when binDir is set

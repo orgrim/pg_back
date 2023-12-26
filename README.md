@@ -143,22 +143,27 @@ post backup hook is executed when present.
 
 All the files procuded by a run of pg_back can be encrypted using age
 (<https://age-encryption.org/> an easy to use tool that does authenticated
-encryption of files). To keep things simple, encryption is done using a
-passphrase. To encrypt files, use the `--encrypt` option along with the
-`--cipher-pass` option or `PGBK_CIPHER_PASS` environment variable to specify the
-passphrase. When `encrypt` is set to true in the configuration file, the
+encryption of files). Encryption can be done with a passphrase or a key pair.
+
+To encrypt files with a passphrase, use the `--encrypt` option along with the
+`--cipher-pass` option or `PGBK_CIPHER_PASS` environment variable to specify
+the passphrase. When `encrypt` is set to true in the configuration file, the
 `--no-encrypt` option allows to disable encryption on the command line. By
 default, unencrypted source files are removed when they are successfully
 encrypted. Use the `--encrypt-keep-src` option to keep them or
 `--no-encrypt-keep-src` to force remove them and override the configuration
 file. If required, checksum of encrypted files are computed.
 
-Encrypted files can be decrypted with the correct passphrase and the
-`--decrypt` option. When `--decrypt` is present on the command line, dumps are
-not performed, instead files are decrypted. Files can also be decrypted with
-the `age` tool, independently. Decryption of multiple files can be parallelized
-with the `-j` option. Arguments on the commandline (database names when
-dumping) are used as shell globs to choose which files to decrypt.
+When using keys, use `--cipher-public-key` to encrypt and
+`--cipher-private-key` to decrypt. The value are passed as strings in Bech32
+encoding. The easiest way to create them is to use the `age` tool.
+
+Encrypted files can be decrypted with the correct passphrase or the private key
+and the `--decrypt` option. When `--decrypt` is present on the command line,
+dumps are not performed, instead files are decrypted. Files can also be
+decrypted with the `age` tool, independently. Decryption of multiple files can
+be parallelized with the `-j` option. Arguments on the commandline (database
+names when dumping) are used as shell globs to choose which files to decrypt.
 
 **Please note** that files are written on disk unencrypted in the backup directory,
 before encryption and deleted after the encryption operation is complete. This
