@@ -270,21 +270,37 @@ func run() (retVal error) {
 	// so it must be done before blocking on the WaitGroup in stopPostProcess()
 	defer close(producedFiles)
 
-	l.Infoln("dumping globals")
-	if err := dumpGlobals(opts.Directory, opts.TimeFormat, conninfo, producedFiles); err != nil {
-		return fmt.Errorf("pg_dumpall -g failed: %w", err)
-	}
-
+	// Connect before running pg_dumpall so that we know if the user is superuser
 	db, err := dbOpen(conninfo)
 	if err != nil {
 		return fmt.Errorf("connection to PostgreSQL failed: %w", err)
 	}
 	defer db.Close()
 
+	if !db.superuser {
+		l.Infoln("connection user is not superuser, some information will not be dumped")
+	}
+
+	// Then we can implicitely avoid dumping role password when using a
+	// regular user
+	dumpRolePasswords := opts.WithRolePasswords && db.superuser
+	if dumpRolePasswords {
+		l.Infoln("dumping globals")
+	} else {
+		l.Infoln("dumping globals without role passwords")
+	}
+	if err := dumpGlobals(opts.Directory, opts.TimeFormat, dumpRolePasswords, conninfo, producedFiles); err != nil {
+		return fmt.Errorf("pg_dumpall of globals failed: %w", err)
+	}
+
 	l.Infoln("dumping instance configuration")
-	var verr *pgVersionError
+	var (
+		verr *pgVersionError
+		perr *pgPrivError
+	)
+
 	if err := dumpSettings(opts.Directory, opts.TimeFormat, db, producedFiles); err != nil {
-		if errors.As(err, &verr) {
+		if errors.As(err, &verr) || errors.As(err, &perr) {
 			l.Warnln(err)
 		} else {
 			return fmt.Errorf("could not dump configuration parameters: %w", err)
@@ -827,7 +843,7 @@ func pgToolVersion(tool string) int {
 	return numver
 }
 
-func dumpGlobals(dir string, timeFormat string, conninfo *ConnInfo, fc chan<- sumFileJob) error {
+func dumpGlobals(dir string, timeFormat string, withRolePasswords bool, conninfo *ConnInfo, fc chan<- sumFileJob) error {
 	command := execPath("pg_dumpall")
 	args := []string{"-g", "-w"}
 
@@ -842,11 +858,21 @@ func dumpGlobals(dir string, timeFormat string, conninfo *ConnInfo, fc chan<- su
 	// information
 	var env []string
 
-	if pgToolVersion("pg_dumpall") < 90300 {
+	pgDumpallVersion := pgToolVersion("pg_dumpall")
+	if pgDumpallVersion < 90300 {
 		env = os.Environ()
 		env = append(env, conninfo.MakeEnv()...)
 	} else {
 		args = append(args, "-d", conninfo.String())
+	}
+
+	// The --no-role-passwords option was added to pg_dumpall from 10
+	if !withRolePasswords {
+		if pgDumpallVersion < 100000 {
+			return fmt.Errorf("pg_dumpall does not support --no-role-passwords, use pg_dumpall >= 10")
+		}
+
+		args = append(args, "--no-role-passwords")
 	}
 
 	file := formatDumpPath(dir, timeFormat, "sql", "pg_globals", time.Now(), 0)

@@ -39,6 +39,7 @@ type pg struct {
 	conn      *sql.DB
 	version   int
 	xlogOrWal string
+	superuser bool
 }
 
 func pgGetVersionNum(db *sql.DB) (int, error) {
@@ -52,6 +53,19 @@ func pgGetVersionNum(db *sql.DB) (int, error) {
 	}
 
 	return version, nil
+}
+
+func pgAmISuperuser(db *sql.DB) (bool, error) {
+	var isSuper bool
+
+	query := "select rolsuper from pg_roles where rolname = current_user"
+	l.Verboseln("executing SQL query:", query)
+	err := db.QueryRow(query).Scan(&isSuper)
+	if err != nil {
+		return false, fmt.Errorf("could not check if db user is superuser: %s", err)
+	}
+
+	return isSuper, nil
 }
 
 func dbOpen(conninfo *ConnInfo) (*pg, error) {
@@ -81,6 +95,12 @@ func dbOpen(conninfo *ConnInfo) (*pg, error) {
 		newDB.xlogOrWal = "wal"
 	} else {
 		newDB.xlogOrWal = "xlog"
+	}
+
+	newDB.superuser, err = pgAmISuperuser(db)
+	if err != nil {
+		db.Close()
+		return nil, err
 	}
 
 	return newDB, nil
@@ -207,6 +227,14 @@ func (e *pgVersionError) Error() string {
 	return e.s
 }
 
+type pgPrivError struct {
+	s string
+}
+
+func (e *pgPrivError) Error() string {
+	return e.s
+}
+
 // pg_dumpacl stuff
 func dumpCreateDBAndACL(db *pg, dbname string, force bool) (string, error) {
 	var s string
@@ -231,12 +259,12 @@ func dumpCreateDBAndACL(db *pg, dbname string, force bool) (string, error) {
 
 	l.Infoln("dumping database creation and ACL commands of", dbname)
 
-	query := "SELECT coalesce(rolname, (select rolname from pg_authid where oid=(select datdba from pg_database where datname='template0'))), " +
+	query := "SELECT coalesce(rolname, (select rolname from pg_roles where oid=(select datdba from pg_database where datname='template0'))), " +
 		"  pg_encoding_to_char(d.encoding), " +
 		"  datcollate, datctype, datistemplate, datacl, datconnlimit, " +
 		"  (SELECT spcname FROM pg_tablespace t WHERE t.oid = d.dattablespace) AS dattablespace " +
 		"FROM pg_database d" +
-		"  LEFT JOIN pg_authid u ON (datdba = u.oid) " +
+		"  LEFT JOIN pg_roles u ON (datdba = u.oid) " +
 		"WHERE datallowconn AND datname = $1"
 	l.Verboseln("executing SQL query:", query)
 	rows, err := db.conn.Query(query, dbname)
@@ -454,6 +482,10 @@ func showSettings(db *pg) (string, error) {
 
 	if db.version < 80400 {
 		return "", &pgVersionError{s: "cluster version is older than 8.4, not dumping configuration"}
+	}
+
+	if !db.superuser {
+		return "", &pgPrivError{s: "current user is not superuser, not dumping configuration"}
 	}
 
 	if db.version >= 90500 {
