@@ -270,9 +270,13 @@ func run() (retVal error) {
 	// so it must be done before blocking on the WaitGroup in stopPostProcess()
 	defer close(producedFiles)
 
-	l.Infoln("dumping globals")
-	if err := dumpGlobals(opts.Directory, opts.TimeFormat, conninfo, producedFiles); err != nil {
-		return fmt.Errorf("pg_dumpall -g failed: %w", err)
+	if opts.WithRolePasswords {
+		l.Infoln("dumping globals")
+	} else {
+		l.Infoln("dumping globals without role passwords")
+	}
+	if err := dumpGlobals(opts.Directory, opts.TimeFormat, opts.WithRolePasswords, conninfo, producedFiles); err != nil {
+		return fmt.Errorf("pg_dumpall of globals failed: %w", err)
 	}
 
 	db, err := dbOpen(conninfo)
@@ -827,7 +831,7 @@ func pgToolVersion(tool string) int {
 	return numver
 }
 
-func dumpGlobals(dir string, timeFormat string, conninfo *ConnInfo, fc chan<- sumFileJob) error {
+func dumpGlobals(dir string, timeFormat string, withRolePasswords bool, conninfo *ConnInfo, fc chan<- sumFileJob) error {
 	command := execPath("pg_dumpall")
 	args := []string{"-g", "-w"}
 
@@ -842,11 +846,21 @@ func dumpGlobals(dir string, timeFormat string, conninfo *ConnInfo, fc chan<- su
 	// information
 	var env []string
 
-	if pgToolVersion("pg_dumpall") < 90300 {
+	pgDumpallVersion := pgToolVersion("pg_dumpall")
+	if pgDumpallVersion < 90300 {
 		env = os.Environ()
 		env = append(env, conninfo.MakeEnv()...)
 	} else {
 		args = append(args, "-d", conninfo.String())
+	}
+
+	// The --no-role-passwords option was added to pg_dumpall from 10
+	if !withRolePasswords {
+		if pgDumpallVersion < 100000 {
+			return fmt.Errorf("pg_dumpall does not support --no-role-passwords, use pg_dumpall >= 10")
+		}
+
+		args = append(args, "--no-role-passwords")
 	}
 
 	file := formatDumpPath(dir, timeFormat, "sql", "pg_globals", time.Now(), 0)

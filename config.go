@@ -47,38 +47,39 @@ var defaultCfg string
 
 // options struct holds command line and configuration file options
 type options struct {
-	NoConfigFile     bool
-	BinDirectory     string
-	Directory        string
-	Host             string
-	Port             int
-	Username         string
-	ConnDb           string
-	ExcludeDbs       []string
-	Dbnames          []string
-	WithTemplates    bool
-	Format           rune
-	DirJobs          int
-	CompressLevel    int
-	Jobs             int
-	PauseTimeout     int
-	PurgeInterval    time.Duration
-	PurgeKeep        int
-	SumAlgo          string
-	PreHook          string
-	PostHook         string
-	PgDumpOpts       []string
-	PerDbOpts        map[string]*dbOpts
-	CfgFile          string
-	TimeFormat       string
-	Verbose          bool
-	Quiet            bool
-	Encrypt          bool
-	EncryptKeepSrc   bool
-	CipherPassphrase string
-	CipherPublicKey  string
-	CipherPrivateKey string
-	Decrypt          bool
+	NoConfigFile      bool
+	BinDirectory      string
+	Directory         string
+	Host              string
+	Port              int
+	Username          string
+	ConnDb            string
+	ExcludeDbs        []string
+	Dbnames           []string
+	WithTemplates     bool
+	Format            rune
+	DirJobs           int
+	CompressLevel     int
+	Jobs              int
+	PauseTimeout      int
+	PurgeInterval     time.Duration
+	PurgeKeep         int
+	SumAlgo           string
+	PreHook           string
+	PostHook          string
+	PgDumpOpts        []string
+	PerDbOpts         map[string]*dbOpts
+	CfgFile           string
+	TimeFormat        string
+	Verbose           bool
+	Quiet             bool
+	Encrypt           bool
+	EncryptKeepSrc    bool
+	CipherPassphrase  string
+	CipherPublicKey   string
+	CipherPrivateKey  string
+	Decrypt           bool
+	WithRolePasswords bool
 
 	Upload       string // values are none, s3, sftp, gcs
 	PurgeRemote  bool
@@ -116,20 +117,21 @@ func defaultOptions() options {
 	}
 
 	return options{
-		NoConfigFile:  false,
-		Directory:     "/var/backups/postgresql",
-		Format:        'c',
-		DirJobs:       1,
-		CompressLevel: -1,
-		Jobs:          1,
-		PauseTimeout:  3600,
-		PurgeInterval: -30 * 24 * time.Hour,
-		PurgeKeep:     0,
-		SumAlgo:       "none",
-		CfgFile:       defaultCfgFile,
-		TimeFormat:    timeFormat,
-		Upload:        "none",
-		AzureEndpoint: "blob.core.windows.net",
+		NoConfigFile:      false,
+		Directory:         "/var/backups/postgresql",
+		Format:            'c',
+		DirJobs:           1,
+		CompressLevel:     -1,
+		Jobs:              1,
+		PauseTimeout:      3600,
+		PurgeInterval:     -30 * 24 * time.Hour,
+		PurgeKeep:         0,
+		SumAlgo:           "none",
+		CfgFile:           defaultCfgFile,
+		TimeFormat:        timeFormat,
+		WithRolePasswords: true,
+		Upload:            "none",
+		AzureEndpoint:     "blob.core.windows.net",
 	}
 }
 
@@ -257,6 +259,8 @@ func parseCli(args []string) (options, []string, error) {
 	pflag.StringSliceVarP(&opts.ExcludeDbs, "exclude-dbs", "D", []string{}, "list of databases to exclude")
 	pflag.BoolVarP(&opts.WithTemplates, "with-templates", "t", false, "include templates")
 	WithoutTemplates := pflag.Bool("without-templates", false, "force exclude templates")
+	pflag.BoolVar(&opts.WithRolePasswords, "with-role-passwords", true, "dump globals with role passwords")
+	WithoutRolePasswords := pflag.Bool("without-role-passwords", false, "do not dump passwords of roles")
 	pflag.IntVarP(&opts.PauseTimeout, "pause-timeout", "T", 3600, "abort if replication cannot be paused after this number\nof seconds")
 	pflag.IntVarP(&opts.Jobs, "jobs", "j", 1, "dump this many databases concurrently")
 	pflag.StringVarP(&format, "format", "F", "custom", "database dump format: plain, custom, tar or directory")
@@ -336,6 +340,12 @@ func parseCli(args []string) (options, []string, error) {
 	if *WithoutTemplates {
 		opts.WithTemplates = false
 		changed = append(changed, "with-templates")
+	}
+
+	// Same for dump_role_passwords
+	if *WithoutRolePasswords {
+		opts.WithRolePasswords = false
+		changed = append(changed, "with-role-passwords")
 	}
 
 	// To override encrypt = true from the config file on the command line,
@@ -474,6 +484,7 @@ func validateConfigurationFile(cfg *ini.File) error {
 		"sftp_port", "sftp_user", "sftp_password", "sftp_directory", "sftp_identity",
 		"sftp_ignore_hostkey", "gcs_bucket", "gcs_endpoint", "gcs_keyfile",
 		"azure_container", "azure_account", "azure_key", "azure_endpoint", "pg_dump_options",
+		"dump_role_passwords",
 	}
 
 gkLoop:
@@ -549,6 +560,7 @@ func loadConfigurationFile(path string) (options, error) {
 	opts.ExcludeDbs = s.Key("exclude_dbs").Strings(",")
 	opts.Dbnames = s.Key("include_dbs").Strings(",")
 	opts.WithTemplates = s.Key("with_templates").MustBool(false)
+	opts.WithRolePasswords = s.Key("dump_role_passwords").MustBool(true)
 	format = s.Key("format").MustString("custom")
 	opts.DirJobs = s.Key("parallel_backup_jobs").MustInt(1)
 	opts.CompressLevel = s.Key("compress_level").MustInt(-1)
@@ -744,6 +756,8 @@ func mergeCliAndConfigOptions(cliOpts options, configOpts options, onCli []strin
 			opts.Dbnames = cliOpts.Dbnames
 		case "with-templates":
 			opts.WithTemplates = cliOpts.WithTemplates
+		case "with-role-passwords":
+			opts.WithRolePasswords = cliOpts.WithRolePasswords
 		case "pause-timeout":
 			opts.PauseTimeout = cliOpts.PauseTimeout
 		case "jobs":
