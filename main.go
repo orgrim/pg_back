@@ -153,7 +153,7 @@ func run() (retVal error) {
 	var cliOptions options
 
 	if cliOpts.NoConfigFile {
-		l.Infoln("*** Skipping reading config file")
+		l.Infoln("Skipping reading config file")
 		cliOptions = defaultOptions()
 	} else {
 		// Load configuration file and allow the default configuration
@@ -277,38 +277,40 @@ func run() (retVal error) {
 	}
 	defer db.Close()
 
-	if !db.superuser {
-		l.Infoln("connection user is not superuser, some information will not be dumped")
-	}
-
-	// Then we can implicitely avoid dumping role password when using a
-	// regular user
-	dumpRolePasswords := opts.WithRolePasswords && db.superuser
-	if dumpRolePasswords {
-		l.Infoln("dumping globals")
-	} else {
-		l.Infoln("dumping globals without role passwords")
-	}
-	if err := dumpGlobals(opts.Directory, opts.TimeFormat, dumpRolePasswords, conninfo, producedFiles); err != nil {
-		return fmt.Errorf("pg_dumpall of globals failed: %w", err)
-	}
-
-	l.Infoln("dumping instance configuration")
-	var (
-		verr *pgVersionError
-		perr *pgPrivError
-	)
-
-	if err := dumpSettings(opts.Directory, opts.TimeFormat, db, producedFiles); err != nil {
-		if errors.As(err, &verr) || errors.As(err, &perr) {
-			l.Warnln(err)
-		} else {
-			return fmt.Errorf("could not dump configuration parameters: %w", err)
+	if !opts.DumpOnly {
+		if !db.superuser {
+			l.Infoln("connection user is not superuser, some information will not be dumped")
 		}
-	}
 
-	if err := dumpConfigFiles(opts.Directory, opts.TimeFormat, db, producedFiles); err != nil {
-		return fmt.Errorf("could not dump configuration files: %w", err)
+		// Then we can implicitely avoid dumping role password when using a
+		// regular user
+		dumpRolePasswords := opts.WithRolePasswords && db.superuser
+		if dumpRolePasswords {
+			l.Infoln("dumping globals")
+		} else {
+			l.Infoln("dumping globals without role passwords")
+		}
+		if err := dumpGlobals(opts.Directory, opts.TimeFormat, dumpRolePasswords, conninfo, producedFiles); err != nil {
+			return fmt.Errorf("pg_dumpall of globals failed: %w", err)
+		}
+
+		l.Infoln("dumping instance configuration")
+		var (
+			verr *pgVersionError
+			perr *pgPrivError
+		)
+
+		if err := dumpSettings(opts.Directory, opts.TimeFormat, db, producedFiles); err != nil {
+			if errors.As(err, &verr) || errors.As(err, &perr) {
+				l.Warnln(err)
+			} else {
+				return fmt.Errorf("could not dump configuration parameters: %w", err)
+			}
+		}
+
+		if err := dumpConfigFiles(opts.Directory, opts.TimeFormat, db, producedFiles); err != nil {
+			return fmt.Errorf("could not dump configuration files: %w", err)
+		}
 	}
 
 	databases, err := listDatabases(db, opts.WithTemplates, opts.ExcludeDbs, opts.Dbnames)
@@ -367,6 +369,15 @@ func run() (retVal error) {
 
 	canDumpACL := true
 	canDumpConfig := true
+
+	// When asked to only dump database, exclude ACL and config even if
+	// this can lead of missing info on restore when pg_dump is older than
+	// 11
+	if opts.DumpOnly {
+		canDumpACL = false
+		canDumpConfig = false
+	}
+
 	// collect the result of the jobs
 	for j := 0; j < numJobs; j++ {
 		var b, c string
@@ -407,6 +418,7 @@ func run() (retVal error) {
 			l.Verboseln("dumping configuration of", dbname)
 			c, err = dumpDBConfig(db, dbname)
 			if err != nil {
+				var verr *pgVersionError
 				if !errors.As(err, &verr) {
 					l.Errorln(err)
 					exitCode = 1
