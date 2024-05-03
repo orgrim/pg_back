@@ -80,6 +80,7 @@ type options struct {
 	CipherPrivateKey  string
 	Decrypt           bool
 	WithRolePasswords bool
+	DumpOnly          bool
 
 	Upload       string // values are none, s3, sftp, gcs
 	PurgeRemote  bool
@@ -261,6 +262,7 @@ func parseCli(args []string) (options, []string, error) {
 	WithoutTemplates := pflag.Bool("without-templates", false, "force exclude templates")
 	pflag.BoolVar(&opts.WithRolePasswords, "with-role-passwords", true, "dump globals with role passwords")
 	WithoutRolePasswords := pflag.Bool("without-role-passwords", false, "do not dump passwords of roles")
+	pflag.BoolVar(&opts.DumpOnly, "dump-only", false, "only dump databases, excluding configuration and globals")
 	pflag.IntVarP(&opts.PauseTimeout, "pause-timeout", "T", 3600, "abort if replication cannot be paused after this number\nof seconds")
 	pflag.IntVarP(&opts.Jobs, "jobs", "j", 1, "dump this many databases concurrently")
 	pflag.StringVarP(&format, "format", "F", "custom", "database dump format: plain, custom, tar or directory")
@@ -484,7 +486,7 @@ func validateConfigurationFile(cfg *ini.File) error {
 		"sftp_port", "sftp_user", "sftp_password", "sftp_directory", "sftp_identity",
 		"sftp_ignore_hostkey", "gcs_bucket", "gcs_endpoint", "gcs_keyfile",
 		"azure_container", "azure_account", "azure_key", "azure_endpoint", "pg_dump_options",
-		"dump_role_passwords",
+		"dump_role_passwords", "dump_only",
 	}
 
 gkLoop:
@@ -561,6 +563,7 @@ func loadConfigurationFile(path string) (options, error) {
 	opts.Dbnames = s.Key("include_dbs").Strings(",")
 	opts.WithTemplates = s.Key("with_templates").MustBool(false)
 	opts.WithRolePasswords = s.Key("dump_role_passwords").MustBool(true)
+	opts.DumpOnly = s.Key("dump_only").MustBool(false)
 	format = s.Key("format").MustString("custom")
 	opts.DirJobs = s.Key("parallel_backup_jobs").MustInt(1)
 	opts.CompressLevel = s.Key("compress_level").MustInt(-1)
@@ -758,6 +761,8 @@ func mergeCliAndConfigOptions(cliOpts options, configOpts options, onCli []strin
 			opts.WithTemplates = cliOpts.WithTemplates
 		case "with-role-passwords":
 			opts.WithRolePasswords = cliOpts.WithRolePasswords
+		case "dump-only":
+			opts.DumpOnly = cliOpts.DumpOnly
 		case "pause-timeout":
 			opts.PauseTimeout = cliOpts.PauseTimeout
 		case "jobs":
