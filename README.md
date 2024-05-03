@@ -204,6 +204,9 @@ always `https`. The default endpoint is `blob.core.windows.net`. The
 and `--azure-key` are not set (on the command line or corresponding options in
 the configuration file).
 
+WARNING: Azure support is not guaranted because there are no free solutions for
+testing on it
+
 The `--purge-remote` option can be set to `yes` to apply the same purge policy
 on the remote location as the local directory.
 

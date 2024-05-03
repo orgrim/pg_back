@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # Build the application from source
-FROM --platform=${BUILDPLATFORM:-linux/amd64} golang:1.20 AS build-stage
+FROM --platform=${BUILDPLATFORM:-linux/amd64} golang:1.21 AS build-stage
 
 ARG TARGETPLATFORM
 ARG BUILDPLATFORM
@@ -18,7 +18,7 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -ldflags="-w -s" -o /go/bin/pg_back
 
 # Deploy the application binary into a lean image
-FROM --platform=${TARGETPLATFORM:-linux/amd64} alpine:3.18 AS build-release-stage
+FROM --platform=${TARGETPLATFORM:-linux/amd64} alpine:latest AS build-release-stage
 
 WORKDIR /app
 

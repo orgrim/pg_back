@@ -630,7 +630,7 @@ type azRepo struct {
 	account   string
 	key       string
 	endpoint  string
-	client    *azblob.ContainerClient
+	client    *azblob.Client
 }
 
 func NewAzRepo(opts options) (*azRepo, error) {
@@ -642,7 +642,7 @@ func NewAzRepo(opts options) (*azRepo, error) {
 	}
 
 	var (
-		client azblob.ContainerClient
+		client *azblob.Client
 		err    error
 	)
 
@@ -655,7 +655,7 @@ func NewAzRepo(opts options) (*azRepo, error) {
 	}
 
 	if r.account == "" {
-		client, err = azblob.NewContainerClientWithNoCredential(r.endpoint, nil)
+		client, err = azblob.NewClientWithNoCredential(r.endpoint, nil)
 		if err != nil {
 			return nil, fmt.Errorf("could not create anonymous Azure client: %w", err)
 		}
@@ -667,13 +667,13 @@ func NewAzRepo(opts options) (*azRepo, error) {
 
 		url := fmt.Sprintf("https://%s.%s/%s", r.account, r.endpoint, r.container)
 
-		client, err = azblob.NewContainerClientWithSharedKey(url, credential, nil)
+		client, err = azblob.NewClientWithSharedKeyCredential(url, credential, nil)
 		if err != nil {
 			return nil, fmt.Errorf("could not create Azure client: %w", err)
 		}
 	}
 
-	r.client = &client
+	r.client = client
 
 	return r, nil
 }
@@ -685,10 +685,8 @@ func (r *azRepo) Upload(path string, target string) error {
 	}
 	defer file.Close()
 
-	blob := r.client.NewBlockBlobClient(forwardSlashes(target))
-
 	l.Infof("uploading %s to Azure container %s\n", path, r.container)
-	_, err = blob.UploadFileToBlockBlob(context.Background(), file, azblob.HighLevelUploadToBlockBlobOption{})
+	_, err = r.client.UploadFile(context.Background(), r.container, path, file, nil)
 	if err != nil {
 		return fmt.Errorf("could not upload %s to Azure: %w", path, err)
 	}
@@ -698,15 +696,18 @@ func (r *azRepo) Upload(path string, target string) error {
 
 func (r *azRepo) List(prefix string) ([]Item, error) {
 	p := forwardSlashes(prefix)
-	pager := r.client.ListBlobsFlat(&azblob.ContainerListBlobFlatSegmentOptions{
+	pager := r.client.NewListBlobsFlatPager(r.container, &azblob.ListBlobsFlatOptions{
 		Prefix: &p,
 	})
 
 	files := make([]Item, 0)
-	for pager.NextPage(context.Background()) {
-		resp := pager.PageResponse()
+	for pager.More() {
+		resp, err := pager.NextPage(context.Background())
+		if err != nil {
+			return nil, fmt.Errorf("could not fully list Azure container %s: %w", r.container, err)
+		}
 
-		for _, v := range resp.ContainerListBlobFlatSegmentResult.Segment.BlobItems {
+		for _, v := range resp.Segment.BlobItems {
 			file := Item{
 				key:     *v.Name,
 				modtime: *v.Properties.LastModified,
@@ -716,17 +717,12 @@ func (r *azRepo) List(prefix string) ([]Item, error) {
 		}
 	}
 
-	if err := pager.Err(); err != nil {
-		return nil, fmt.Errorf("could not list files in Azure container %s: %w", r.container, err)
-	}
-
 	return files, nil
 }
 
 func (r *azRepo) Remove(path string) error {
-	blob := r.client.NewBlockBlobClient(forwardSlashes(path))
 
-	if _, err := blob.Delete(context.Background(), nil); err != nil {
+	if _, err := r.client.DeleteBlob(context.Background(), r.container, forwardSlashes(path), nil); err != nil {
 		return fmt.Errorf("could not remove blob from Azure container %s: %w", r.container, err)
 	}
 
