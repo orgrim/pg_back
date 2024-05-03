@@ -704,7 +704,14 @@ func (d *dump) dump(fc chan<- sumFileJob) error {
 	d.Path = file
 	d.ExitCode = 0
 
-	if err := os.Chmod(file, 0600); err != nil {
+	var mode os.FileMode = 0600
+	if d.Options.Format == 'd' {
+		// The hardening of permissions only apply to the top level
+		// directory, this won't make the contents executable
+		mode = 0700
+	}
+
+	if err := os.Chmod(file, mode); err != nil {
 		return fmt.Errorf("could not chmod to more secure permission for %s: %s", dbname, err)
 	}
 
