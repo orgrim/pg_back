@@ -56,6 +56,9 @@ type Repo interface {
 	// Upload a path to the remote naming it target
 	Upload(path string, target string) error
 
+	// Download target from the remote and store it into path
+	Download(target string, path string) error
+
 	// List remote files starting with a prefix. the prefix can be empty to
 	// list all files
 	List(prefix string) ([]Item, error)
@@ -76,6 +79,38 @@ type Item struct {
 // Replace any backslashes from windows to forward slashed
 func forwardSlashes(target string) string {
 	return strings.ReplaceAll(target, fmt.Sprintf("%c", os.PathSeparator), "/")
+}
+
+func NewRepo(kind string, opts options) (Repo, error) {
+	var (
+		repo Repo
+		err  error
+	)
+
+	switch kind {
+	case "s3":
+		repo, err = NewS3Repo(opts)
+		if err != nil {
+			return nil, fmt.Errorf("failed to prepare S3 repo: %w", err)
+		}
+	case "sftp":
+		repo, err = NewSFTPRepo(opts)
+		if err != nil {
+			return nil, fmt.Errorf("failed to prepare sftp repo: %w", err)
+		}
+	case "gcs":
+		repo, err = NewGCSRepo(opts)
+		if err != nil {
+			return nil, fmt.Errorf("failed to prepare CGS repo: %w", err)
+		}
+	case "azure":
+		repo, err = NewAzRepo(opts)
+		if err != nil {
+			return nil, fmt.Errorf("failed to prepare Azure repo: %w", err)
+		}
+	}
+
+	return repo, nil
 }
 
 type s3repo struct {
@@ -164,6 +199,28 @@ func (r *s3repo) Upload(path string, target string) error {
 
 	if err != nil {
 		return fmt.Errorf("unable to upload %q to %q: %w", path, r.bucket, err)
+	}
+
+	return nil
+}
+
+func (r *s3repo) Download(target string, path string) error {
+	file, err := os.Create(path)
+	if err != nil {
+		return fmt.Errorf("download error: %w", err)
+	}
+	defer file.Close()
+
+	downloader := s3manager.NewDownloader(r.session)
+
+	l.Infof("downloading %s from S3 bucket %s to %s\n", target, r.bucket, path)
+	_, err = downloader.Download(file, &s3.GetObjectInput{
+		Bucket: aws.String(r.bucket),
+		Key:    aws.String(forwardSlashes(target)),
+	})
+
+	if err != nil {
+		return fmt.Errorf("unable to download %q from %q: %w", target, r.bucket, err)
 	}
 
 	return nil
@@ -482,6 +539,36 @@ func (r *sftpRepo) Upload(path string, target string) error {
 	return nil
 }
 
+func (r *sftpRepo) Download(target string, path string) error {
+	l.Infof("downloading %s from %s:%s using sftp\n", target, r.host, r.baseDir)
+
+	dst, err := os.Create(path)
+	if err != nil {
+		return fmt.Errorf("sftp: could not open or create %s: %w", path, err)
+	}
+	defer dst.Close()
+
+	rpath := filepath.Join(r.baseDir, target)
+
+	// sftp requires slash as path separator
+	if os.PathSeparator != '/' {
+		rpath = strings.ReplaceAll(rpath, string(os.PathSeparator), "/")
+	}
+	l.Verboseln("sftp remote path is:", rpath)
+
+	src, err := r.client.Open(rpath)
+	if err != nil {
+		return fmt.Errorf("sftp: could not open %s on %s: %w", rpath, r.host, err)
+	}
+	defer src.Close()
+
+	if _, err := io.Copy(dst, src); err != nil {
+		return fmt.Errorf("sftp: could not receive data with sftp: %s", err)
+	}
+
+	return nil
+}
+
 func (r *sftpRepo) List(prefix string) (items []Item, rerr error) {
 	items = make([]Item, 0)
 
@@ -592,6 +679,27 @@ func (r *gcsRepo) Upload(path string, target string) error {
 	return obj.Close()
 }
 
+func (r *gcsRepo) Download(target string, path string) error {
+	file, err := os.Create(path)
+	if err != nil {
+		return fmt.Errorf("download error: %w", err)
+	}
+	defer file.Close()
+
+	obj, err := r.client.Bucket(r.bucket).Object(forwardSlashes(target)).NewReader(context.Background())
+	if err != nil {
+		return fmt.Errorf("download error: %w", err)
+	}
+	defer obj.Close()
+
+	l.Infof("downloading %s from GCS bucket %s to %s\n", target, r.bucket, path)
+	if _, err := io.Copy(file, obj); err != nil {
+		return fmt.Errorf("could not read data from GCS object: %w", err)
+	}
+
+	return obj.Close()
+}
+
 func (r *gcsRepo) List(prefix string) (items []Item, rerr error) {
 	items = make([]Item, 0)
 
@@ -689,6 +797,22 @@ func (r *azRepo) Upload(path string, target string) error {
 	_, err = r.client.UploadFile(context.Background(), r.container, path, file, nil)
 	if err != nil {
 		return fmt.Errorf("could not upload %s to Azure: %w", path, err)
+	}
+
+	return nil
+}
+
+func (r *azRepo) Download(target string, path string) error {
+	file, err := os.Create(path)
+	if err != nil {
+		return fmt.Errorf("download error: %w", err)
+	}
+	defer file.Close()
+
+	l.Infof("downloading %s from Azure container %s\n", target, r.container)
+	_, err = r.client.DownloadFile(context.Background(), r.container, target, file, nil)
+	if err != nil {
+		return fmt.Errorf("could not download %s from Azure: %w", target, err)
 	}
 
 	return nil
