@@ -25,7 +25,7 @@ options of the PostgreSQL instance.
 * Purge based on age and number of dumps to keep
 * Dump from a hot standby by pausing replication replay
 * Encrypt and decrypt dumps and other files
-* Upload dumps to S3, GCS, Azure or a remote host with SFTP
+* Upload and download dumps to S3, GCS, Azure or a remote host with SFTP
 
 ## Install
 
@@ -212,6 +212,20 @@ on the remote location as the local directory.
 
 When files are encrypted and their unencrypted source is kept, only encrypted
 files are uploaded.
+
+### Downloading from remote locations
+
+Previously uploaded files can be downloaded using the `--download` option with
+a value different than `none`, similarly to `--upload`. The options to setup
+the remote access are the same as `--upload`.
+
+When downloading files, dumps are not performed. Arguments on the commandline
+(database names when dumping) are used as shell globs to choose which files to
+the backup directory.
+
+If `--download` is used at the same time as `--decrypt`, files are downloaded
+first, then files matching globs are decrypted.
+
 
 ## Restoring files
 

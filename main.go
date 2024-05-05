@@ -173,9 +173,21 @@ func run() (retVal error) {
 		return fmt.Errorf("required cipher parameters not present: %w", err)
 	}
 
-	// When asked to decrypt the backups, do it here and exit, we have all
+	if (opts.Upload == "s3" || opts.Download == "s3") && opts.S3Bucket == "" {
+		return fmt.Errorf("a bucket is mandatory with s3")
+	}
+
+	if (opts.Upload == "gcs" || opts.Download == "gcs") && opts.GCSBucket == "" {
+		return fmt.Errorf("a bucket is mandatory with gcs")
+	}
+
+	if (opts.Upload == "azure" || opts.Download == "azure") && opts.AzureContainer == "" {
+		return fmt.Errorf("a container is mandatory with azure")
+	}
+
+	// When asked to download or decrypt the backups, do it here and exit, we have all
 	// required input (passphrase and backup directory)
-	if opts.Decrypt {
+	if opts.Decrypt || opts.Download != "none" {
 		// Avoid getting wrong globs from the config file since we are
 		// using the remaining args from the command line that are
 		// usually as a list of databases to dump
@@ -187,9 +199,17 @@ func run() (retVal error) {
 			}
 		}
 
-		params := decryptParams{PrivateKey: opts.CipherPrivateKey, Passphrase: opts.CipherPassphrase}
-		if err := decryptDirectory(opts.Directory, params, opts.Jobs, globs); err != nil {
-			return err
+		if opts.Download != "none" {
+			if err := downloadFiles(opts.Download, opts, opts.Directory, globs); err != nil {
+				return err
+			}
+		}
+
+		if opts.Decrypt {
+			params := decryptParams{PrivateKey: opts.CipherPrivateKey, Passphrase: opts.CipherPassphrase}
+			if err := decryptDirectory(opts.Directory, params, opts.Jobs, globs); err != nil {
+				return err
+			}
 		}
 
 		return nil
@@ -209,18 +229,6 @@ func run() (retVal error) {
 	pgDumpVersion := pgToolVersion("pg_dump")
 	if pgDumpVersion < 80400 {
 		return fmt.Errorf("provided pg_dump is older than 8.4, unable use it.")
-	}
-
-	if opts.Upload == "s3" && opts.S3Bucket == "" {
-		return fmt.Errorf("a bucket is mandatory when upload is s3")
-	}
-
-	if opts.Upload == "gcs" && opts.GCSBucket == "" {
-		return fmt.Errorf("a bucket is mandatory when upload is gcs")
-	}
-
-	if opts.Upload == "azure" && opts.AzureContainer == "" {
-		return fmt.Errorf("a container is mandatory when upload is azure")
 	}
 
 	// Parse the connection information
@@ -996,6 +1004,60 @@ func dumpConfigFiles(dir string, timeFormat string, db *pg, fc chan<- sumFileJob
 	return nil
 }
 
+func downloadFiles(repoName string, opts options, dir string, globs []string) error {
+	repo, err := NewRepo(repoName, opts)
+	if err != nil {
+		return err
+	}
+
+	// Without globs, there is nothing to download
+	if len(globs) == 0 {
+		return fmt.Errorf("no filter given to download files, use globs as command line arguments")
+	}
+
+	remoteFiles, err := repo.List("")
+	if err != nil {
+		return fmt.Errorf("could not list contents of remote location: %w", err)
+	}
+
+	for _, i := range remoteFiles {
+		keep := false
+		for _, glob := range globs {
+			keep, err = filepath.Match(glob, i.key)
+			if err != nil {
+				return fmt.Errorf("bad patern: %w", err)
+			}
+
+			if keep {
+				break
+			}
+		}
+
+		if !keep {
+			l.Verboseln("skipping:", i.key)
+			continue
+		}
+
+		if i.isDir {
+			l.Warnf("%s is a directory, append %c* to the filter to download its contents", i.key, os.PathSeparator)
+			continue
+		}
+
+		// Create any parent directory under target dir
+		path := filepath.Join(dir, i.key)
+		parent := filepath.Dir(path)
+		if err := os.MkdirAll(parent, 0700); err != nil {
+			return fmt.Errorf("could not create directory %s: %w", parent, err)
+		}
+
+		if err := repo.Download(i.key, path); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 func decryptDirectory(dir string, params decryptParams, workers int, globs []string) error {
 
 	// Run a pool of workers to decrypt concurrently
@@ -1386,40 +1448,11 @@ func postProcessFiles(inFiles chan sumFileJob, wg *sync.WaitGroup, opts options)
 		}(i)
 	}
 
-	var (
-		repo Repo
-		err  error
-	)
-
-	switch opts.Upload {
-	case "s3":
-		repo, err = NewS3Repo(opts)
-		if err != nil {
-			l.Errorln("failed to prepare upload to S3:", err)
-			ret <- err
-			repo = nil
-		}
-	case "sftp":
-		repo, err = NewSFTPRepo(opts)
-		if err != nil {
-			l.Errorln("failed to prepare upload over SFTP:", err)
-			ret <- err
-			repo = nil
-		}
-	case "gcs":
-		repo, err = NewGCSRepo(opts)
-		if err != nil {
-			l.Errorln("failed to prepare upload to GCS:", err)
-			ret <- err
-			repo = nil
-		}
-	case "azure":
-		repo, err = NewAzRepo(opts)
-		if err != nil {
-			l.Errorln("failed to prepare upload to Azure", err)
-			ret <- err
-			repo = nil
-		}
+	repo, err := NewRepo(opts.Upload, opts)
+	if err != nil {
+		l.Errorln(err)
+		ret <- err
+		repo = nil
 	}
 
 	for i := 0; i < opts.Jobs; i++ {
