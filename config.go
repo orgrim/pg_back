@@ -84,6 +84,7 @@ type options struct {
 
 	Upload       string // values are none, s3, sftp, gcs
 	Download     string // values are none, s3, sftp, gcs
+	ListRemote   string // values are none, s3, sftp, gcs
 	PurgeRemote  bool
 	S3Region     string
 	S3Bucket     string
@@ -134,6 +135,7 @@ func defaultOptions() options {
 		WithRolePasswords: true,
 		Upload:            "none",
 		Download:          "none",
+		ListRemote:        "none",
 		AzureEndpoint:     "blob.core.windows.net",
 	}
 }
@@ -287,6 +289,7 @@ func parseCli(args []string) (options, []string, error) {
 
 	pflag.StringVar(&opts.Upload, "upload", "none", "upload produced files to target (s3, gcs,..) use \"none\" to override\nconfiguration file and disable upload")
 	pflag.StringVar(&opts.Download, "download", "none", "download files from target (s3, gcs,..) instead of dumping. DBNAMEs become\nglobs to select files")
+	pflag.StringVar(&opts.ListRemote, "list-remote", "none", "list the remote files on s3, gcs, sftp, azure instead of dumping. DBNAMEs become\nglobs to select files")
 	purgeRemote := pflag.String("purge-remote", "no", "purge the file on remote location after upload, with the same rules\nas the local directory")
 
 	pflag.StringVar(&opts.S3Region, "s3-region", "", "S3 region")
@@ -451,12 +454,16 @@ func parseCli(args []string) (options, []string, error) {
 		return opts, changed, fmt.Errorf("invalid value for --download: %s", err)
 	}
 
+	if err := validateEnum(opts.ListRemote, stores); err != nil {
+		return opts, changed, fmt.Errorf("invalid value for --list-remote: %s", err)
+	}
+
 	opts.PurgeRemote, err = validateYesNoOption(*purgeRemote)
 	if err != nil {
 		return opts, changed, fmt.Errorf("invalid value for --purge-remote: %s", err)
 	}
 
-	for _, o := range []string{opts.Upload, opts.Download} {
+	for _, o := range []string{opts.Upload, opts.Download, opts.ListRemote} {
 		switch o {
 		case "s3":
 			// Validate S3 options
@@ -827,6 +834,8 @@ func mergeCliAndConfigOptions(cliOpts options, configOpts options, onCli []strin
 			opts.Upload = cliOpts.Upload
 		case "download":
 			opts.Download = cliOpts.Download
+		case "list-remote":
+			opts.ListRemote = cliOpts.ListRemote
 		case "purge-remote":
 			opts.PurgeRemote = cliOpts.PurgeRemote
 

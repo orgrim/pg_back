@@ -173,32 +173,42 @@ func run() (retVal error) {
 		return fmt.Errorf("required cipher parameters not present: %w", err)
 	}
 
-	if (opts.Upload == "s3" || opts.Download == "s3") && opts.S3Bucket == "" {
+	if (opts.Upload == "s3" || opts.Download == "s3" || opts.ListRemote == "s3") && opts.S3Bucket == "" {
 		return fmt.Errorf("a bucket is mandatory with s3")
 	}
 
-	if (opts.Upload == "gcs" || opts.Download == "gcs") && opts.GCSBucket == "" {
+	if (opts.Upload == "gcs" || opts.Download == "gcs" || opts.ListRemote == "gcs") && opts.GCSBucket == "" {
 		return fmt.Errorf("a bucket is mandatory with gcs")
 	}
 
-	if (opts.Upload == "azure" || opts.Download == "azure") && opts.AzureContainer == "" {
+	if (opts.Upload == "azure" || opts.Download == "azure" || opts.ListRemote == "azure") && opts.AzureContainer == "" {
 		return fmt.Errorf("a container is mandatory with azure")
+	}
+
+	// Run actions that won't dump databases first, in that case the list
+	// of databases become file globs.  Avoid getting wrong globs from the
+	// config file since we are using the remaining args from the command
+	// line that are usually as a list of databases to dump
+	globs := []string{}
+	for _, v := range cliOptList {
+		if v == "include-dbs" {
+			globs = opts.Dbnames
+			break
+		}
+	}
+
+	// Listing remote files take priority over the other options that won't dump databases
+	if opts.ListRemote != "none" {
+		if err := listRemoteFiles(opts.ListRemote, opts, globs); err != nil {
+			return err
+		}
+
+		return nil
 	}
 
 	// When asked to download or decrypt the backups, do it here and exit, we have all
 	// required input (passphrase and backup directory)
 	if opts.Decrypt || opts.Download != "none" {
-		// Avoid getting wrong globs from the config file since we are
-		// using the remaining args from the command line that are
-		// usually as a list of databases to dump
-		globs := []string{}
-		for _, v := range cliOptList {
-			if v == "include-dbs" {
-				globs = opts.Dbnames
-				break
-			}
-		}
-
 		if opts.Download != "none" {
 			if err := downloadFiles(opts.Download, opts, opts.Directory, globs); err != nil {
 				return err
@@ -1001,6 +1011,44 @@ func dumpConfigFiles(dir string, timeFormat string, db *pg, fc chan<- sumFileJob
 			}
 		}
 	}
+	return nil
+}
+
+func listRemoteFiles(repoName string, opts options, globs []string) error {
+	repo, err := NewRepo(repoName, opts)
+	if err != nil {
+		return err
+	}
+
+	remoteFiles, err := repo.List("")
+	if err != nil {
+		return fmt.Errorf("could not list contents of remote location: %w", err)
+	}
+
+	for _, i := range remoteFiles {
+		keep := false
+		if len(globs) == 0 {
+			keep = true
+		}
+
+		for _, glob := range globs {
+			keep, err = filepath.Match(glob, i.key)
+			if err != nil {
+				return fmt.Errorf("bad patern: %w", err)
+			}
+
+			if keep {
+				break
+			}
+		}
+
+		if !keep {
+			continue
+		}
+
+		fmt.Println(i.key)
+	}
+
 	return nil
 }
 
