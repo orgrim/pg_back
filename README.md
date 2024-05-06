@@ -219,9 +219,12 @@ Previously uploaded files can be downloaded using the `--download` option with
 a value different than `none`, similarly to `--upload`. The options to setup
 the remote access are the same as `--upload`.
 
-When downloading files, dumps are not performed. Arguments on the commandline
-(database names when dumping) are used as shell globs to choose which files to
-the backup directory.
+It is possible to only list remote files with `--list-remote` with a value
+different than `none`, similarly to `--upload` and `--download`.
+
+When listing or downloading files, dumps are not performed. Arguments on the
+commandline (database names when dumping) are used as shell globs to
+select/filter files.
 
 If `--download` is used at the same time as `--decrypt`, files are downloaded
 first, then files matching globs are decrypted.
