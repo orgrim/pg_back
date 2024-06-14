@@ -1,5 +1,9 @@
 # Changelog
 
+## pg_back 2.3.1
+
+* Fix cipher_public_key and cipher_private_key not allowed in config file
+
 ## pg_back 2.3.0
 
 * Add options to avoid dumping hash passwords with pg_dumpall
