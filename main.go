@@ -542,7 +542,7 @@ func run() (retVal error) {
 		}
 
 		if opts.PurgeRemote && repo != nil {
-			if err := purgeRemoteDumps(repo, opts.Directory, dbname, o.PurgeKeep, limit); err != nil {
+			if err := purgeRemoteDumps(repo, opts.UploadPrefix, opts.Directory, dbname, o.PurgeKeep, limit); err != nil {
 				retVal = err
 			}
 		}
@@ -555,7 +555,7 @@ func run() (retVal error) {
 		}
 
 		if opts.PurgeRemote && repo != nil {
-			if err := purgeRemoteDumps(repo, opts.Directory, other, defDbOpts.PurgeKeep, limit); err != nil {
+			if err := purgeRemoteDumps(repo, opts.UploadPrefix, opts.Directory, other, defDbOpts.PurgeKeep, limit); err != nil {
 				retVal = err
 			}
 		}
@@ -1518,7 +1518,8 @@ func postProcessFiles(inFiles chan sumFileJob, wg *sync.WaitGroup, opts options)
 				}
 
 				if opts.Upload != "none" && repo != nil {
-					if err := repo.Upload(j.Path, relPath(opts.Directory, j.Path)); err != nil {
+					// Prepend the global prefix to the relative path of the dump
+					if err := repo.Upload(j.Path, filepath.Join(opts.UploadPrefix, relPath(opts.Directory, j.Path))); err != nil {
 						l.Errorln(err)
 						if !failed {
 							ret <- err

@@ -207,6 +207,10 @@ the configuration file).
 WARNING: Azure support is not guaranted because there are no free solutions for
 testing on it
 
+The `--upload-prefix` option can be used to place the files in a remote
+directory, as most cloud storage treat prefix as directories. The filename and
+the prefix is separated by a / in the remote location.
+
 The `--purge-remote` option can be set to `yes` to apply the same purge policy
 on the remote location as the local directory.
 

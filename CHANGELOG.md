@@ -1,5 +1,9 @@
 # Changelog
 
+## pg_back 2.3.2
+
+* Add the --upload-prefix option to put files under this remote directory
+
 ## pg_back 2.3.1
 
 * Fix cipher_public_key and cipher_private_key not allowed in config file

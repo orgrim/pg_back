@@ -204,7 +204,7 @@ func purgeDumps(directory string, dbname string, keep int, limit time.Time) erro
 	return nil
 }
 
-func purgeRemoteDumps(repo Repo, directory string, dbname string, keep int, limit time.Time) error {
+func purgeRemoteDumps(repo Repo, uploadPrefix string, directory string, dbname string, keep int, limit time.Time) error {
 	l.Verboseln("remote purge:", dbname, "limit:", limit, "keep:", keep)
 
 	// The dbname can be put in the directory tree of the dump, in this
@@ -212,7 +212,9 @@ func purgeRemoteDumps(repo Repo, directory string, dbname string, keep int, limi
 	// remote path along with any subdirectory. So we have to include it in
 	// the filter when listing remote files
 	dirpath := filepath.Dir(formatDumpPath(directory, "", "", dbname, time.Time{}, 0))
-	prefix := relPath(directory, filepath.Join(dirpath, cleanDBName(dbname)))
+	prefix := filepath.Join(uploadPrefix, relPath(directory, filepath.Join(dirpath, cleanDBName(dbname))))
+
+	l.Verboseln("remote file prefix:", prefix)
 
 	// Get the list of files from the repository, this includes the
 	// contents of dumps in the directory format.

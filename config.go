@@ -83,6 +83,7 @@ type options struct {
 	DumpOnly          bool
 
 	Upload       string // values are none, s3, sftp, gcs
+	UploadPrefix string
 	Download     string // values are none, s3, sftp, gcs
 	ListRemote   string // values are none, s3, sftp, gcs
 	PurgeRemote  bool
@@ -288,6 +289,7 @@ func parseCli(args []string) (options, []string, error) {
 	pflag.StringVar(&opts.CipherPrivateKey, "cipher-private-key", "", "AGE private key for decryption; in Bech32 encoding starting with 'AGE-SECRET-KEY-1'\n")
 
 	pflag.StringVar(&opts.Upload, "upload", "none", "upload produced files to target (s3, gcs,..) use \"none\" to override\nconfiguration file and disable upload")
+	pflag.StringVar(&opts.UploadPrefix, "upload-prefix", "", "add this prefix to uploaded files, similar to a target directory")
 	pflag.StringVar(&opts.Download, "download", "none", "download files from target (s3, gcs,..) instead of dumping. DBNAMEs become\nglobs to select files")
 	pflag.StringVar(&opts.ListRemote, "list-remote", "none", "list the remote files on s3, gcs, sftp, azure instead of dumping. DBNAMEs become\nglobs to select files")
 	purgeRemote := pflag.String("purge-remote", "no", "purge the file on remote location after upload, with the same rules\nas the local directory")
@@ -502,7 +504,7 @@ func validateConfigurationFile(cfg *ini.File) error {
 		"sftp_port", "sftp_user", "sftp_password", "sftp_directory", "sftp_identity",
 		"sftp_ignore_hostkey", "gcs_bucket", "gcs_endpoint", "gcs_keyfile",
 		"azure_container", "azure_account", "azure_key", "azure_endpoint", "pg_dump_options",
-		"dump_role_passwords", "dump_only",
+		"dump_role_passwords", "dump_only", "upload_prefix",
 	}
 
 gkLoop:
@@ -597,6 +599,7 @@ func loadConfigurationFile(path string) (options, error) {
 	opts.EncryptKeepSrc = s.Key("encrypt_keep_source").MustBool(false)
 
 	opts.Upload = s.Key("upload").MustString("none")
+	opts.UploadPrefix = s.Key("upload_prefix").MustString("")
 	opts.PurgeRemote = s.Key("purge_remote").MustBool(false)
 
 	opts.S3Region = s.Key("s3_region").MustString("")
@@ -832,6 +835,8 @@ func mergeCliAndConfigOptions(cliOpts options, configOpts options, onCli []strin
 
 		case "upload":
 			opts.Upload = cliOpts.Upload
+		case "upload-prefix":
+			opts.UploadPrefix = cliOpts.UploadPrefix
 		case "download":
 			opts.Download = cliOpts.Download
 		case "list-remote":
