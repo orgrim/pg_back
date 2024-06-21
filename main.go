@@ -548,15 +548,17 @@ func run() (retVal error) {
 		}
 	}
 
-	for _, other := range []string{"pg_globals", "pg_settings", "hba_file", "ident_file"} {
-		limit := now.Add(defDbOpts.PurgeInterval)
-		if err := purgeDumps(opts.Directory, other, defDbOpts.PurgeKeep, limit); err != nil {
-			retVal = err
-		}
-
-		if opts.PurgeRemote && repo != nil {
-			if err := purgeRemoteDumps(repo, opts.UploadPrefix, opts.Directory, other, defDbOpts.PurgeKeep, limit); err != nil {
+	if !opts.DumpOnly {
+		for _, other := range []string{"pg_globals", "pg_settings", "hba_file", "ident_file"} {
+			limit := now.Add(defDbOpts.PurgeInterval)
+			if err := purgeDumps(opts.Directory, other, defDbOpts.PurgeKeep, limit); err != nil {
 				retVal = err
+			}
+
+			if opts.PurgeRemote && repo != nil {
+				if err := purgeRemoteDumps(repo, opts.UploadPrefix, opts.Directory, other, defDbOpts.PurgeKeep, limit); err != nil {
+					retVal = err
+				}
 			}
 		}
 	}

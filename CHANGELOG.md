@@ -3,6 +3,7 @@
 ## pg_back 2.3.2
 
 * Add the --upload-prefix option to put files under this remote directory
+* Do not try to purge global files when --dump-only is enabled
 
 ## pg_back 2.3.1
 
