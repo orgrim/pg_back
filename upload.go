@@ -773,7 +773,7 @@ func NewAzRepo(opts options) (*azRepo, error) {
 			return nil, fmt.Errorf("could not setup Azure credentials: %w", err)
 		}
 
-		url := fmt.Sprintf("https://%s.%s/%s", r.account, r.endpoint, r.container)
+		url := fmt.Sprintf("https://%s.%s", r.account, r.endpoint)
 
 		client, err = azblob.NewClientWithSharedKeyCredential(url, credential, nil)
 		if err != nil {
