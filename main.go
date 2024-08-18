@@ -177,6 +177,10 @@ func run() (retVal error) {
 		return fmt.Errorf("a bucket is mandatory with s3")
 	}
 
+	if (opts.Upload == "b2" || opts.Download == "b2" || opts.ListRemote == "b2") && opts.B2Bucket == "" {
+		return fmt.Errorf("a bucket is mandatory with B2")
+	}
+
 	if (opts.Upload == "gcs" || opts.Download == "gcs" || opts.ListRemote == "gcs") && opts.GCSBucket == "" {
 		return fmt.Errorf("a bucket is mandatory with gcs")
 	}
@@ -512,6 +516,11 @@ func run() (retVal error) {
 		repo, err = NewS3Repo(opts)
 		if err != nil {
 			return fmt.Errorf("failed to prepare upload to S3: %w", err)
+		}
+	case "b2":
+		repo, err = NewB2Repo(opts)
+		if err != nil {
+			return fmt.Errorf("failed to prepare upload to B2: %w", err)
 		}
 	case "sftp":
 		repo, err = NewSFTPRepo(opts)

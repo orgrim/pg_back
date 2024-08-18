@@ -49,6 +49,7 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"github.com/Backblaze/blazer/b2"
 )
 
 // A Repo is a remote service where we can upload files
@@ -93,6 +94,11 @@ func NewRepo(kind string, opts options) (Repo, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to prepare S3 repo: %w", err)
 		}
+	case "b2":
+		repo, err = NewB2Repo(opts)
+		if err != nil {
+			return nil, fmt.Errorf("failed to prepare B2 repo: %w", err)
+		}
 	case "sftp":
 		repo, err = NewSFTPRepo(opts)
 		if err != nil {
@@ -113,6 +119,19 @@ func NewRepo(kind string, opts options) (Repo, error) {
 	return repo, nil
 }
 
+type b2repo struct {
+	appKey            string
+	b2Bucket          *b2.Bucket
+	b2Client          *b2.Client
+	bucket            string
+	concurrentUploads int
+	ctx               context.Context
+	endpoint          string
+	forcePath         bool
+	keyID             string
+	region            string
+}
+
 type s3repo struct {
 	region     string
 	bucket     string
@@ -123,6 +142,118 @@ type s3repo struct {
 	forcePath  bool
 	disableSSL bool
 	session    *session.Session
+}
+
+func NewB2Repo(opts options) (*b2repo, error) {
+	r := &b2repo{
+		appKey:            opts.B2AppKey,
+		bucket:            opts.B2Bucket,
+		concurrentUploads: opts.B2ConcurrentUploads,
+		ctx:               context.Background(),
+		endpoint:          opts.B2Endpoint,
+		forcePath:         opts.B2ForcePath,
+		keyID:             opts.B2KeyID,
+		region:            opts.B2Region,
+	}
+	
+	l.Verbosef("starting b2 client with %d connections to %s %s \n", r.concurrentUploads, r.endpoint, r.bucket)
+	client, err := b2.NewClient(r.ctx, r.keyID, r.appKey)
+
+	if err != nil {
+		return nil, fmt.Errorf("could not create B2 session: %w", err)
+	}
+
+	r.b2Client = client
+
+	bucket, err := r.b2Client.Bucket(r.ctx, r.bucket)
+
+	if err != nil {
+		return nil, fmt.Errorf("could not connect to B2 bucket: %w", err)
+	}
+
+	r.b2Bucket = bucket
+
+	return r, nil
+}
+
+func (r *b2repo) Upload(path string, target string) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	w := r.b2Bucket.Object(target).NewWriter(r.ctx)
+	w.ConcurrentUploads = r.concurrentUploads
+
+	l.Infof("uploading %s to B2 bucket %s\n", path, r.bucket)
+	if _, err := io.Copy(w, f); err != nil {
+		w.Close()
+		return err
+	}
+
+	return w.Close()
+}
+
+func (r *b2repo) Download(target string, path string) error {
+
+	file, err := os.Create(path)
+	if err != nil {
+		return fmt.Errorf("download error: %w", err)
+	}
+	defer file.Close()
+
+	bucket := r.b2Bucket
+
+	remoteFile := bucket.Object(path).NewReader(r.ctx)
+	defer remoteFile.Close()
+
+	localFile, err := os.Create(target)
+	if err != nil {
+		return err
+	}
+
+	if _, err := io.Copy(file, remoteFile); err != nil {
+		localFile.Close()
+		return err
+	}
+	return localFile.Close()
+}
+
+func (r *b2repo) Close() error {
+	return nil
+}
+
+func (r *b2repo) List(prefix string) ([]Item, error) {
+
+	files := make([]Item, 0)
+
+	i := r.b2Bucket.List(r.ctx, b2.ListPrefix(prefix))
+	for i.Next() {
+		obj := i.Object()
+
+		attributes, err := obj.Attrs(r.ctx)
+
+		if err != nil {
+			return nil, err
+		}
+
+		files = append(files, Item{
+			key:     obj.Name(),
+			modtime: attributes.LastModified,
+		},
+		)
+	}
+
+	return files, i.Err()
+}
+
+func (r *b2repo) Remove(path string) error {
+	ctx, cancel := context.WithCancel(r.ctx)
+
+	defer cancel()
+
+	return r.b2Bucket.Object(path).Delete(ctx)
 }
 
 func NewS3Repo(opts options) (*s3repo, error) {
