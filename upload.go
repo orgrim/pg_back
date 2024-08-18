@@ -26,11 +26,20 @@
 package main
 
 import (
-	"cloud.google.com/go/storage"
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"net"
+	"os"
+	"os/user"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"cloud.google.com/go/storage"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
+	"github.com/Backblaze/blazer/b2"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
@@ -42,14 +51,6 @@ import (
 	"golang.org/x/crypto/ssh/knownhosts"
 	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
-	"io"
-	"net"
-	"os"
-	"os/user"
-	"path/filepath"
-	"strings"
-	"time"
-	"github.com/Backblaze/blazer/b2"
 )
 
 // A Repo is a remote service where we can upload files
@@ -120,16 +121,14 @@ func NewRepo(kind string, opts options) (Repo, error) {
 }
 
 type b2repo struct {
-	appKey            string
-	b2Bucket          *b2.Bucket
-	b2Client          *b2.Client
-	bucket            string
-	concurrentUploads int
-	ctx               context.Context
-	endpoint          string
-	forcePath         bool
-	keyID             string
-	region            string
+	appKey                string
+	b2Bucket              *b2.Bucket
+	b2Client              *b2.Client
+	bucket                string
+	concurrentConnections int
+	ctx                   context.Context
+	forcePath             bool
+	keyID                 string
 }
 
 type s3repo struct {
@@ -146,17 +145,15 @@ type s3repo struct {
 
 func NewB2Repo(opts options) (*b2repo, error) {
 	r := &b2repo{
-		appKey:            opts.B2AppKey,
-		bucket:            opts.B2Bucket,
-		concurrentUploads: opts.B2ConcurrentUploads,
-		ctx:               context.Background(),
-		endpoint:          opts.B2Endpoint,
-		forcePath:         opts.B2ForcePath,
-		keyID:             opts.B2KeyID,
-		region:            opts.B2Region,
+		appKey:                opts.B2AppKey,
+		bucket:                opts.B2Bucket,
+		concurrentConnections: opts.B2ConcurrentConnections,
+		ctx:                   context.Background(),
+		forcePath:             opts.B2ForcePath,
+		keyID:                 opts.B2KeyID,
 	}
-	
-	l.Verbosef("starting b2 client with %d connections to %s %s \n", r.concurrentUploads, r.endpoint, r.bucket)
+
+	l.Verbosef("starting b2 client with %d connections to endpoint to bucket %s \n", r.concurrentConnections, r.bucket)
 	client, err := b2.NewClient(r.ctx, r.keyID, r.appKey)
 
 	if err != nil {
@@ -184,40 +181,42 @@ func (r *b2repo) Upload(path string, target string) error {
 	defer f.Close()
 
 	w := r.b2Bucket.Object(target).NewWriter(r.ctx)
-	w.ConcurrentUploads = r.concurrentUploads
+	defer w.Close()
+
+	w.ConcurrentUploads = r.concurrentConnections
 
 	l.Infof("uploading %s to B2 bucket %s\n", path, r.bucket)
 	if _, err := io.Copy(w, f); err != nil {
-		w.Close()
 		return err
 	}
 
-	return w.Close()
+	return nil
 }
 
 func (r *b2repo) Download(target string, path string) error {
-
-	file, err := os.Create(path)
+	f, err := os.Create(path)
 	if err != nil {
 		return fmt.Errorf("download error: %w", err)
 	}
-	defer file.Close()
+	defer f.Close()
 
 	bucket := r.b2Bucket
 
-	remoteFile := bucket.Object(path).NewReader(r.ctx)
-	defer remoteFile.Close()
+	l.Infof("downloading %s from B2 bucket %s to %s\n", target, r.bucket, path)
 
-	localFile, err := os.Create(target)
+	rf := bucket.Object(target).NewReader(r.ctx)
+	rf.ConcurrentDownloads = r.concurrentConnections
+	defer rf.Close()
+
 	if err != nil {
 		return err
 	}
 
-	if _, err := io.Copy(file, remoteFile); err != nil {
-		localFile.Close()
+	if _, err := io.Copy(f, rf); err != nil {
 		return err
 	}
-	return localFile.Close()
+
+	return nil
 }
 
 func (r *b2repo) Close() error {
