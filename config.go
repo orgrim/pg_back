@@ -82,10 +82,10 @@ type options struct {
 	WithRolePasswords bool
 	DumpOnly          bool
 
-	Upload       string // values are none, s3, sftp, gcs
+	Upload       string // values are none, b2, s3, sftp, gcs
 	UploadPrefix string
-	Download     string // values are none, s3, sftp, gcs
-	ListRemote   string // values are none, s3, sftp, gcs
+	Download     string // values are none, b2, s3, sftp, gcs
+	ListRemote   string // values are none, b2, s3, sftp, gcs
 	PurgeRemote  bool
 	S3Region     string
 	S3Bucket     string
@@ -95,6 +95,14 @@ type options struct {
 	S3Secret     string
 	S3ForcePath  bool
 	S3DisableTLS bool
+
+	B2Region            string
+	B2Bucket            string
+	B2Endpoint          string
+	B2KeyID             string
+	B2AppKey            string
+	B2ForcePath         bool
+	B2ConcurrentUploads int
 
 	SFTPHost             string
 	SFTPPort             string
@@ -121,23 +129,24 @@ func defaultOptions() options {
 	}
 
 	return options{
-		NoConfigFile:      false,
-		Directory:         "/var/backups/postgresql",
-		Format:            'c',
-		DirJobs:           1,
-		CompressLevel:     -1,
-		Jobs:              1,
-		PauseTimeout:      3600,
-		PurgeInterval:     -30 * 24 * time.Hour,
-		PurgeKeep:         0,
-		SumAlgo:           "none",
-		CfgFile:           defaultCfgFile,
-		TimeFormat:        timeFormat,
-		WithRolePasswords: true,
-		Upload:            "none",
-		Download:          "none",
-		ListRemote:        "none",
-		AzureEndpoint:     "blob.core.windows.net",
+		NoConfigFile:        false,
+		Directory:           "/var/backups/postgresql",
+		Format:              'c',
+		DirJobs:             1,
+		CompressLevel:       -1,
+		Jobs:                1,
+		PauseTimeout:        3600,
+		PurgeInterval:       -30 * 24 * time.Hour,
+		PurgeKeep:           0,
+		SumAlgo:             "none",
+		CfgFile:             defaultCfgFile,
+		TimeFormat:          timeFormat,
+		WithRolePasswords:   true,
+		Upload:              "none",
+		Download:            "none",
+		ListRemote:          "none",
+		AzureEndpoint:       "blob.core.windows.net",
+		B2ConcurrentUploads: 5,
 	}
 }
 
@@ -294,6 +303,14 @@ func parseCli(args []string) (options, []string, error) {
 	pflag.StringVar(&opts.ListRemote, "list-remote", "none", "list the remote files on s3, gcs, sftp, azure instead of dumping. DBNAMEs become\nglobs to select files")
 	purgeRemote := pflag.String("purge-remote", "no", "purge the file on remote location after upload, with the same rules\nas the local directory")
 
+	pflag.StringVar(&opts.B2Region, "b2-region", "", "B2 region")
+	pflag.StringVar(&opts.B2Bucket, "b2-bucket", "", "B2 bucket")
+	pflag.StringVar(&opts.B2Endpoint, "b2-endpoint", "", "B2 endpoint")
+	pflag.StringVar(&opts.B2KeyID, "b2-key-id", "", "B2 access key ID")
+	pflag.StringVar(&opts.B2AppKey, "b2-app-key", "", "B2 app key")
+	B2ForcePath := pflag.String("b2-force-path", "no", "force path style addressing instead of virtual hosted bucket\naddressing")
+	B2ConcurrentUploads := pflag.Int("b2-concurrent-uploads", 5, "set the amount of concurrent b2 http uploads")
+
 	pflag.StringVar(&opts.S3Region, "s3-region", "", "S3 region")
 	pflag.StringVar(&opts.S3Bucket, "s3-bucket", "", "S3 bucket")
 	pflag.StringVar(&opts.S3Profile, "s3-profile", "", "AWS client profile name to get credentials")
@@ -447,7 +464,7 @@ func parseCli(args []string) (options, []string, error) {
 	}
 
 	// Validate upload and download options
-	stores := []string{"none", "s3", "sftp", "gcs", "azure"}
+	stores := []string{"none", "b2", "s3", "sftp", "gcs", "azure"}
 	if err := validateEnum(opts.Upload, stores); err != nil {
 		return opts, changed, fmt.Errorf("invalid value for --upload: %s", err)
 	}
@@ -467,6 +484,18 @@ func parseCli(args []string) (options, []string, error) {
 
 	for _, o := range []string{opts.Upload, opts.Download, opts.ListRemote} {
 		switch o {
+		case "b2":
+			opts.B2ForcePath, err = validateYesNoOption(*B2ForcePath)
+			if err != nil {
+				return opts, changed, fmt.Errorf("invalid value for --b2-force-path: %s", err)
+			}
+
+			if *B2ConcurrentUploads <= 0 {
+				return opts, changed, fmt.Errorf("b2 concurrent uploads must be more than 0 (current %d)", *B2ConcurrentUploads)
+			} else {
+				opts.B2ConcurrentUploads = *B2ConcurrentUploads
+			}
+
 		case "s3":
 			// Validate S3 options
 			opts.S3ForcePath, err = validateYesNoOption(*S3ForcePath)
@@ -493,13 +522,16 @@ func parseCli(args []string) (options, []string, error) {
 
 func validateConfigurationFile(cfg *ini.File) error {
 	s, _ := cfg.GetSection(ini.DefaultSection)
+
 	known_globals := []string{
 		"bin_directory", "backup_directory", "timestamp_format", "host", "port", "user",
 		"dbname", "exclude_dbs", "include_dbs", "with_templates", "format",
 		"parallel_backup_jobs", "compress_level", "jobs", "pause_timeout",
 		"purge_older_than", "purge_min_keep", "checksum_algorithm", "pre_backup_hook",
 		"post_backup_hook", "encrypt", "cipher_pass", "cipher_public_key", "cipher_private_key",
-		"encrypt_keep_source", "upload", "purge_remote", "s3_region", "s3_bucket", "s3_endpoint",
+		"encrypt_keep_source", "upload", "purge_remote",
+		"b2_region", "b2_bucket", "b2_endpoint", "b2_key_id", "b2_app_key", "b2_force_path",
+		"b2_concurrent_uploads", "s3_region", "s3_bucket", "s3_endpoint",
 		"s3_profile", "s3_key_id", "s3_secret", "s3_force_path", "s3_tls", "sftp_host",
 		"sftp_port", "sftp_user", "sftp_password", "sftp_directory", "sftp_identity",
 		"sftp_ignore_hostkey", "gcs_bucket", "gcs_endpoint", "gcs_keyfile",
@@ -602,6 +634,14 @@ func loadConfigurationFile(path string) (options, error) {
 	opts.UploadPrefix = s.Key("upload_prefix").MustString("")
 	opts.PurgeRemote = s.Key("purge_remote").MustBool(false)
 
+	opts.B2Region = s.Key("b2_region").MustString("")
+	opts.B2Bucket = s.Key("b2_bucket").MustString("")
+	opts.B2Endpoint = s.Key("b2_endpoint").MustString("")
+	opts.B2KeyID = s.Key("b2_key_id").MustString("")
+	opts.B2AppKey = s.Key("b2_app_key").MustString("")
+	opts.B2ForcePath = s.Key("b2_force_path").MustBool(false)
+	opts.B2ConcurrentUploads = s.Key("b2_concurrent_uploads").MustInt(5)
+
 	opts.S3Region = s.Key("s3_region").MustString("")
 	opts.S3Bucket = s.Key("s3_bucket").MustString("")
 	opts.S3EndPoint = s.Key("s3_endpoint").MustString("")
@@ -660,8 +700,12 @@ func loadConfigurationFile(path string) (options, error) {
 		}
 	}
 
+	if opts.B2ConcurrentUploads <= 0 {
+		return opts, fmt.Errorf("b2 concurrent uploads must be more than 0 (current %d)", opts.B2ConcurrentUploads)
+	}
+
 	// Validate upload option
-	stores := []string{"none", "s3", "sftp", "gcs", "azure"}
+	stores := []string{"none", "b2", "s3", "sftp", "gcs", "azure"}
 	if err := validateEnum(opts.Upload, stores); err != nil {
 		return opts, fmt.Errorf("invalid value for upload: %s", err)
 	}
@@ -843,6 +887,21 @@ func mergeCliAndConfigOptions(cliOpts options, configOpts options, onCli []strin
 			opts.ListRemote = cliOpts.ListRemote
 		case "purge-remote":
 			opts.PurgeRemote = cliOpts.PurgeRemote
+
+		case "b2-region":
+			opts.B2Region = cliOpts.B2Region
+		case "b2-bucket":
+			opts.B2Bucket = cliOpts.B2Bucket
+		case "b2-endpoint":
+			opts.B2Endpoint = cliOpts.B2Endpoint
+		case "b2-key-id":
+			opts.B2KeyID = cliOpts.B2KeyID
+		case "b2-app-key":
+			opts.B2AppKey = cliOpts.B2AppKey
+		case "b2-force-path":
+			opts.B2ForcePath = cliOpts.B2ForcePath
+		case "b2-concurrent-uploads":
+			opts.B2ConcurrentUploads = cliOpts.B2ConcurrentUploads
 
 		case "s3-region":
 			opts.S3Region = cliOpts.S3Region

@@ -25,7 +25,7 @@ options of the PostgreSQL instance.
 * Purge based on age and number of dumps to keep
 * Dump from a hot standby by pausing replication replay
 * Encrypt and decrypt dumps and other files
-* Upload and download dumps to S3, GCS, Azure or a remote host with SFTP
+* Upload and download dumps to S3, GCS, Azure, B2 or a remote host with SFTP
 
 ## Install
 
@@ -174,7 +174,7 @@ backup directory and connections to PostgreSQL.
 
 All files produced by a run can be uploaded to a remote location by setting the
 `--upload` option to a value different than `none`. The possible values are
-`s3`, `sftp`, `gcs`, `azure` or `none`.
+`s3`, `sftp`, `gcs`, `azure`, `b2` or `none`.
 
 When set to `s3`, files are uploaded to AWS S3. The `--s3-*` family of options
 can be used to tweak the access to the bucket. The `--s3-profile` option only
@@ -207,6 +207,9 @@ the configuration file).
 WARNING: Azure support is not guaranted because there are no free solutions for
 testing on it
 
+When set to `b2`, files are uploaded to Backblaze B2. The `--b2-*` family of options can be used to tweak the access to
+the bucket. `--b2-concurrent-uploads` can be used to upload the file through parallel HTTP connections.
+
 The `--upload-prefix` option can be used to place the files in a remote
 directory, as most cloud storage treat prefix as directories. The filename and
 the prefix is separated by a / in the remote location.
@@ -232,7 +235,6 @@ select/filter files.
 
 If `--download` is used at the same time as `--decrypt`, files are downloaded
 first, then files matching globs are decrypted.
-
 
 ## Restoring files
 
@@ -269,7 +271,6 @@ To sum up, when restoring:
 1. Create the roles and tablespaces by executing `pg_globals_{date}.sql` with `psql`.
 2. Create the database with `{dbname}_{date}.createdb.sql` if necessary.
 3. Restore the database(s) with `pg_restore` (use `-C` to create the database) or `psql`
-
 
 ## Managing the configuration file
 
@@ -315,4 +316,5 @@ Please use the issues and pull requests features from Github.
 PostgreSQL - See [LICENSE][license] file
 
 [license]: https://github.com/orgrim/pg_back/blob/master/LICENSE
+
 [pg_dump]: https://www.postgresql.org/docs/current/app-pgdump.html
