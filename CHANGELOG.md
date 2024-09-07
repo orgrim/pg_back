@@ -1,5 +1,10 @@
 # Changelog
 
+## pg_back 2.5.0
+
+* Fix Azure URL handling
+* Add support to upload files to Backblaze B2
+
 ## pg_back 2.4.0
 
 * Add the --upload-prefix option to put files under this remote directory
