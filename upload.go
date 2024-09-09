@@ -26,11 +26,20 @@
 package main
 
 import (
-	"cloud.google.com/go/storage"
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"net"
+	"os"
+	"os/user"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"cloud.google.com/go/storage"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
+	"github.com/Backblaze/blazer/b2"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
@@ -42,19 +51,15 @@ import (
 	"golang.org/x/crypto/ssh/knownhosts"
 	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
-	"io"
-	"net"
-	"os"
-	"os/user"
-	"path/filepath"
-	"strings"
-	"time"
 )
 
 // A Repo is a remote service where we can upload files
 type Repo interface {
 	// Upload a path to the remote naming it target
 	Upload(path string, target string) error
+
+	// Download target from the remote and store it into path
+	Download(target string, path string) error
 
 	// List remote files starting with a prefix. the prefix can be empty to
 	// list all files
@@ -78,6 +83,54 @@ func forwardSlashes(target string) string {
 	return strings.ReplaceAll(target, fmt.Sprintf("%c", os.PathSeparator), "/")
 }
 
+func NewRepo(kind string, opts options) (Repo, error) {
+	var (
+		repo Repo
+		err  error
+	)
+
+	switch kind {
+	case "s3":
+		repo, err = NewS3Repo(opts)
+		if err != nil {
+			return nil, fmt.Errorf("failed to prepare S3 repo: %w", err)
+		}
+	case "b2":
+		repo, err = NewB2Repo(opts)
+		if err != nil {
+			return nil, fmt.Errorf("failed to prepare B2 repo: %w", err)
+		}
+	case "sftp":
+		repo, err = NewSFTPRepo(opts)
+		if err != nil {
+			return nil, fmt.Errorf("failed to prepare sftp repo: %w", err)
+		}
+	case "gcs":
+		repo, err = NewGCSRepo(opts)
+		if err != nil {
+			return nil, fmt.Errorf("failed to prepare CGS repo: %w", err)
+		}
+	case "azure":
+		repo, err = NewAzRepo(opts)
+		if err != nil {
+			return nil, fmt.Errorf("failed to prepare Azure repo: %w", err)
+		}
+	}
+
+	return repo, nil
+}
+
+type b2repo struct {
+	appKey                string
+	b2Bucket              *b2.Bucket
+	b2Client              *b2.Client
+	bucket                string
+	concurrentConnections int
+	ctx                   context.Context
+	forcePath             bool
+	keyID                 string
+}
+
 type s3repo struct {
 	region     string
 	bucket     string
@@ -88,6 +141,118 @@ type s3repo struct {
 	forcePath  bool
 	disableSSL bool
 	session    *session.Session
+}
+
+func NewB2Repo(opts options) (*b2repo, error) {
+	r := &b2repo{
+		appKey:                opts.B2AppKey,
+		bucket:                opts.B2Bucket,
+		concurrentConnections: opts.B2ConcurrentConnections,
+		ctx:                   context.Background(),
+		forcePath:             opts.B2ForcePath,
+		keyID:                 opts.B2KeyID,
+	}
+
+	l.Verbosef("starting b2 client with %d connections to endpoint to bucket %s \n", r.concurrentConnections, r.bucket)
+	client, err := b2.NewClient(r.ctx, r.keyID, r.appKey)
+
+	if err != nil {
+		return nil, fmt.Errorf("could not create B2 session: %w", err)
+	}
+
+	r.b2Client = client
+
+	bucket, err := r.b2Client.Bucket(r.ctx, r.bucket)
+
+	if err != nil {
+		return nil, fmt.Errorf("could not connect to B2 bucket: %w", err)
+	}
+
+	r.b2Bucket = bucket
+
+	return r, nil
+}
+
+func (r *b2repo) Upload(path string, target string) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	w := r.b2Bucket.Object(target).NewWriter(r.ctx)
+	defer w.Close()
+
+	w.ConcurrentUploads = r.concurrentConnections
+
+	l.Infof("uploading %s to B2 bucket %s\n", path, r.bucket)
+	if _, err := io.Copy(w, f); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (r *b2repo) Download(target string, path string) error {
+	f, err := os.Create(path)
+	if err != nil {
+		return fmt.Errorf("download error: %w", err)
+	}
+	defer f.Close()
+
+	bucket := r.b2Bucket
+
+	l.Infof("downloading %s from B2 bucket %s to %s\n", target, r.bucket, path)
+
+	rf := bucket.Object(target).NewReader(r.ctx)
+	rf.ConcurrentDownloads = r.concurrentConnections
+	defer rf.Close()
+
+	if err != nil {
+		return err
+	}
+
+	if _, err := io.Copy(f, rf); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (r *b2repo) Close() error {
+	return nil
+}
+
+func (r *b2repo) List(prefix string) ([]Item, error) {
+
+	files := make([]Item, 0)
+
+	i := r.b2Bucket.List(r.ctx, b2.ListPrefix(prefix))
+	for i.Next() {
+		obj := i.Object()
+
+		attributes, err := obj.Attrs(r.ctx)
+
+		if err != nil {
+			return nil, err
+		}
+
+		files = append(files, Item{
+			key:     obj.Name(),
+			modtime: attributes.LastModified,
+		},
+		)
+	}
+
+	return files, i.Err()
+}
+
+func (r *b2repo) Remove(path string) error {
+	ctx, cancel := context.WithCancel(r.ctx)
+
+	defer cancel()
+
+	return r.b2Bucket.Object(path).Delete(ctx)
 }
 
 func NewS3Repo(opts options) (*s3repo, error) {
@@ -164,6 +329,28 @@ func (r *s3repo) Upload(path string, target string) error {
 
 	if err != nil {
 		return fmt.Errorf("unable to upload %q to %q: %w", path, r.bucket, err)
+	}
+
+	return nil
+}
+
+func (r *s3repo) Download(target string, path string) error {
+	file, err := os.Create(path)
+	if err != nil {
+		return fmt.Errorf("download error: %w", err)
+	}
+	defer file.Close()
+
+	downloader := s3manager.NewDownloader(r.session)
+
+	l.Infof("downloading %s from S3 bucket %s to %s\n", target, r.bucket, path)
+	_, err = downloader.Download(file, &s3.GetObjectInput{
+		Bucket: aws.String(r.bucket),
+		Key:    aws.String(forwardSlashes(target)),
+	})
+
+	if err != nil {
+		return fmt.Errorf("unable to download %q from %q: %w", target, r.bucket, err)
 	}
 
 	return nil
@@ -482,6 +669,36 @@ func (r *sftpRepo) Upload(path string, target string) error {
 	return nil
 }
 
+func (r *sftpRepo) Download(target string, path string) error {
+	l.Infof("downloading %s from %s:%s using sftp\n", target, r.host, r.baseDir)
+
+	dst, err := os.Create(path)
+	if err != nil {
+		return fmt.Errorf("sftp: could not open or create %s: %w", path, err)
+	}
+	defer dst.Close()
+
+	rpath := filepath.Join(r.baseDir, target)
+
+	// sftp requires slash as path separator
+	if os.PathSeparator != '/' {
+		rpath = strings.ReplaceAll(rpath, string(os.PathSeparator), "/")
+	}
+	l.Verboseln("sftp remote path is:", rpath)
+
+	src, err := r.client.Open(rpath)
+	if err != nil {
+		return fmt.Errorf("sftp: could not open %s on %s: %w", rpath, r.host, err)
+	}
+	defer src.Close()
+
+	if _, err := io.Copy(dst, src); err != nil {
+		return fmt.Errorf("sftp: could not receive data with sftp: %s", err)
+	}
+
+	return nil
+}
+
 func (r *sftpRepo) List(prefix string) (items []Item, rerr error) {
 	items = make([]Item, 0)
 
@@ -592,6 +809,27 @@ func (r *gcsRepo) Upload(path string, target string) error {
 	return obj.Close()
 }
 
+func (r *gcsRepo) Download(target string, path string) error {
+	file, err := os.Create(path)
+	if err != nil {
+		return fmt.Errorf("download error: %w", err)
+	}
+	defer file.Close()
+
+	obj, err := r.client.Bucket(r.bucket).Object(forwardSlashes(target)).NewReader(context.Background())
+	if err != nil {
+		return fmt.Errorf("download error: %w", err)
+	}
+	defer obj.Close()
+
+	l.Infof("downloading %s from GCS bucket %s to %s\n", target, r.bucket, path)
+	if _, err := io.Copy(file, obj); err != nil {
+		return fmt.Errorf("could not read data from GCS object: %w", err)
+	}
+
+	return obj.Close()
+}
+
 func (r *gcsRepo) List(prefix string) (items []Item, rerr error) {
 	items = make([]Item, 0)
 
@@ -630,7 +868,7 @@ type azRepo struct {
 	account   string
 	key       string
 	endpoint  string
-	client    *azblob.ContainerClient
+	client    *azblob.Client
 }
 
 func NewAzRepo(opts options) (*azRepo, error) {
@@ -642,7 +880,7 @@ func NewAzRepo(opts options) (*azRepo, error) {
 	}
 
 	var (
-		client azblob.ContainerClient
+		client *azblob.Client
 		err    error
 	)
 
@@ -655,7 +893,7 @@ func NewAzRepo(opts options) (*azRepo, error) {
 	}
 
 	if r.account == "" {
-		client, err = azblob.NewContainerClientWithNoCredential(r.endpoint, nil)
+		client, err = azblob.NewClientWithNoCredential(r.endpoint, nil)
 		if err != nil {
 			return nil, fmt.Errorf("could not create anonymous Azure client: %w", err)
 		}
@@ -665,15 +903,15 @@ func NewAzRepo(opts options) (*azRepo, error) {
 			return nil, fmt.Errorf("could not setup Azure credentials: %w", err)
 		}
 
-		url := fmt.Sprintf("https://%s.%s/%s", r.account, r.endpoint, r.container)
+		url := fmt.Sprintf("https://%s.%s", r.account, r.endpoint)
 
-		client, err = azblob.NewContainerClientWithSharedKey(url, credential, nil)
+		client, err = azblob.NewClientWithSharedKeyCredential(url, credential, nil)
 		if err != nil {
 			return nil, fmt.Errorf("could not create Azure client: %w", err)
 		}
 	}
 
-	r.client = &client
+	r.client = client
 
 	return r, nil
 }
@@ -685,10 +923,8 @@ func (r *azRepo) Upload(path string, target string) error {
 	}
 	defer file.Close()
 
-	blob := r.client.NewBlockBlobClient(forwardSlashes(target))
-
 	l.Infof("uploading %s to Azure container %s\n", path, r.container)
-	_, err = blob.UploadFileToBlockBlob(context.Background(), file, azblob.HighLevelUploadToBlockBlobOption{})
+	_, err = r.client.UploadFile(context.Background(), r.container, path, file, nil)
 	if err != nil {
 		return fmt.Errorf("could not upload %s to Azure: %w", path, err)
 	}
@@ -696,17 +932,36 @@ func (r *azRepo) Upload(path string, target string) error {
 	return nil
 }
 
+func (r *azRepo) Download(target string, path string) error {
+	file, err := os.Create(path)
+	if err != nil {
+		return fmt.Errorf("download error: %w", err)
+	}
+	defer file.Close()
+
+	l.Infof("downloading %s from Azure container %s\n", target, r.container)
+	_, err = r.client.DownloadFile(context.Background(), r.container, target, file, nil)
+	if err != nil {
+		return fmt.Errorf("could not download %s from Azure: %w", target, err)
+	}
+
+	return nil
+}
+
 func (r *azRepo) List(prefix string) ([]Item, error) {
 	p := forwardSlashes(prefix)
-	pager := r.client.ListBlobsFlat(&azblob.ContainerListBlobFlatSegmentOptions{
+	pager := r.client.NewListBlobsFlatPager(r.container, &azblob.ListBlobsFlatOptions{
 		Prefix: &p,
 	})
 
 	files := make([]Item, 0)
-	for pager.NextPage(context.Background()) {
-		resp := pager.PageResponse()
+	for pager.More() {
+		resp, err := pager.NextPage(context.Background())
+		if err != nil {
+			return nil, fmt.Errorf("could not fully list Azure container %s: %w", r.container, err)
+		}
 
-		for _, v := range resp.ContainerListBlobFlatSegmentResult.Segment.BlobItems {
+		for _, v := range resp.Segment.BlobItems {
 			file := Item{
 				key:     *v.Name,
 				modtime: *v.Properties.LastModified,
@@ -716,17 +971,12 @@ func (r *azRepo) List(prefix string) ([]Item, error) {
 		}
 	}
 
-	if err := pager.Err(); err != nil {
-		return nil, fmt.Errorf("could not list files in Azure container %s: %w", r.container, err)
-	}
-
 	return files, nil
 }
 
 func (r *azRepo) Remove(path string) error {
-	blob := r.client.NewBlockBlobClient(forwardSlashes(path))
 
-	if _, err := blob.Delete(context.Background(), nil); err != nil {
+	if _, err := r.client.DeleteBlob(context.Background(), r.container, forwardSlashes(path), nil); err != nil {
 		return fmt.Errorf("could not remove blob from Azure container %s: %w", r.container, err)
 	}
 

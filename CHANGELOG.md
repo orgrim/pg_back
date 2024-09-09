@@ -1,5 +1,29 @@
 # Changelog
 
+## pg_back 2.5.0
+
+* Fix Azure URL handling
+* Add support to upload files to Backblaze B2
+
+## pg_back 2.4.0
+
+* Add the --upload-prefix option to put files under this remote directory
+* Do not try to purge global files when --dump-only is enabled
+
+## pg_back 2.3.1
+
+* Fix cipher_public_key and cipher_private_key not allowed in config file
+
+## pg_back 2.3.0
+
+* Add options to avoid dumping hash passwords with pg_dumpall
+* Ensure usability without superuser privileges
+* Update Go dependencies
+* Add the --dump-only option to only dump databases
+* Fix mode of the directory when the format is dir
+* Add an option to download from remote locations
+* Add an option to list files from remote locations
+
 ## pg_back 2.2.0
 
 * Support compression in plain format

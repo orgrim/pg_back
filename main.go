@@ -37,7 +37,7 @@ import (
 	"time"
 )
 
-var version = "2.2.0"
+var version = "2.5.0"
 var binDir string
 
 type dump struct {
@@ -153,7 +153,7 @@ func run() (retVal error) {
 	var cliOptions options
 
 	if cliOpts.NoConfigFile {
-		l.Infoln("*** Skipping reading config file")
+		l.Infoln("Skipping reading config file")
 		cliOptions = defaultOptions()
 	} else {
 		// Load configuration file and allow the default configuration
@@ -173,23 +173,57 @@ func run() (retVal error) {
 		return fmt.Errorf("required cipher parameters not present: %w", err)
 	}
 
-	// When asked to decrypt the backups, do it here and exit, we have all
+	if (opts.Upload == "s3" || opts.Download == "s3" || opts.ListRemote == "s3") && opts.S3Bucket == "" {
+		return fmt.Errorf("a bucket is mandatory with s3")
+	}
+
+	if (opts.Upload == "b2" || opts.Download == "b2" || opts.ListRemote == "b2") && opts.B2Bucket == "" {
+		return fmt.Errorf("a bucket is mandatory with B2")
+	}
+
+	if (opts.Upload == "gcs" || opts.Download == "gcs" || opts.ListRemote == "gcs") && opts.GCSBucket == "" {
+		return fmt.Errorf("a bucket is mandatory with gcs")
+	}
+
+	if (opts.Upload == "azure" || opts.Download == "azure" || opts.ListRemote == "azure") && opts.AzureContainer == "" {
+		return fmt.Errorf("a container is mandatory with azure")
+	}
+
+	// Run actions that won't dump databases first, in that case the list
+	// of databases become file globs.  Avoid getting wrong globs from the
+	// config file since we are using the remaining args from the command
+	// line that are usually as a list of databases to dump
+	globs := []string{}
+	for _, v := range cliOptList {
+		if v == "include-dbs" {
+			globs = opts.Dbnames
+			break
+		}
+	}
+
+	// Listing remote files take priority over the other options that won't dump databases
+	if opts.ListRemote != "none" {
+		if err := listRemoteFiles(opts.ListRemote, opts, globs); err != nil {
+			return err
+		}
+
+		return nil
+	}
+
+	// When asked to download or decrypt the backups, do it here and exit, we have all
 	// required input (passphrase and backup directory)
-	if opts.Decrypt {
-		// Avoid getting wrong globs from the config file since we are
-		// using the remaining args from the command line that are
-		// usually as a list of databases to dump
-		globs := []string{}
-		for _, v := range cliOptList {
-			if v == "include-dbs" {
-				globs = opts.Dbnames
-				break
+	if opts.Decrypt || opts.Download != "none" {
+		if opts.Download != "none" {
+			if err := downloadFiles(opts.Download, opts, opts.Directory, globs); err != nil {
+				return err
 			}
 		}
 
-		params := decryptParams{PrivateKey: opts.CipherPrivateKey, Passphrase: opts.CipherPassphrase}
-		if err := decryptDirectory(opts.Directory, params, opts.Jobs, globs); err != nil {
-			return err
+		if opts.Decrypt {
+			params := decryptParams{PrivateKey: opts.CipherPrivateKey, Passphrase: opts.CipherPassphrase}
+			if err := decryptDirectory(opts.Directory, params, opts.Jobs, globs); err != nil {
+				return err
+			}
 		}
 
 		return nil
@@ -209,18 +243,6 @@ func run() (retVal error) {
 	pgDumpVersion := pgToolVersion("pg_dump")
 	if pgDumpVersion < 80400 {
 		return fmt.Errorf("provided pg_dump is older than 8.4, unable use it.")
-	}
-
-	if opts.Upload == "s3" && opts.S3Bucket == "" {
-		return fmt.Errorf("a bucket is mandatory when upload is s3")
-	}
-
-	if opts.Upload == "gcs" && opts.GCSBucket == "" {
-		return fmt.Errorf("a bucket is mandatory when upload is gcs")
-	}
-
-	if opts.Upload == "azure" && opts.AzureContainer == "" {
-		return fmt.Errorf("a container is mandatory when upload is azure")
 	}
 
 	// Parse the connection information
@@ -270,29 +292,47 @@ func run() (retVal error) {
 	// so it must be done before blocking on the WaitGroup in stopPostProcess()
 	defer close(producedFiles)
 
-	l.Infoln("dumping globals")
-	if err := dumpGlobals(opts.Directory, opts.TimeFormat, conninfo, producedFiles); err != nil {
-		return fmt.Errorf("pg_dumpall -g failed: %w", err)
-	}
-
+	// Connect before running pg_dumpall so that we know if the user is superuser
 	db, err := dbOpen(conninfo)
 	if err != nil {
 		return fmt.Errorf("connection to PostgreSQL failed: %w", err)
 	}
 	defer db.Close()
 
-	l.Infoln("dumping instance configuration")
-	var verr *pgVersionError
-	if err := dumpSettings(opts.Directory, opts.TimeFormat, db, producedFiles); err != nil {
-		if errors.As(err, &verr) {
-			l.Warnln(err)
-		} else {
-			return fmt.Errorf("could not dump configuration parameters: %w", err)
+	if !opts.DumpOnly {
+		if !db.superuser {
+			l.Infoln("connection user is not superuser, some information will not be dumped")
 		}
-	}
 
-	if err := dumpConfigFiles(opts.Directory, opts.TimeFormat, db, producedFiles); err != nil {
-		return fmt.Errorf("could not dump configuration files: %w", err)
+		// Then we can implicitely avoid dumping role password when using a
+		// regular user
+		dumpRolePasswords := opts.WithRolePasswords && db.superuser
+		if dumpRolePasswords {
+			l.Infoln("dumping globals")
+		} else {
+			l.Infoln("dumping globals without role passwords")
+		}
+		if err := dumpGlobals(opts.Directory, opts.TimeFormat, dumpRolePasswords, conninfo, producedFiles); err != nil {
+			return fmt.Errorf("pg_dumpall of globals failed: %w", err)
+		}
+
+		l.Infoln("dumping instance configuration")
+		var (
+			verr *pgVersionError
+			perr *pgPrivError
+		)
+
+		if err := dumpSettings(opts.Directory, opts.TimeFormat, db, producedFiles); err != nil {
+			if errors.As(err, &verr) || errors.As(err, &perr) {
+				l.Warnln(err)
+			} else {
+				return fmt.Errorf("could not dump configuration parameters: %w", err)
+			}
+		}
+
+		if err := dumpConfigFiles(opts.Directory, opts.TimeFormat, db, producedFiles); err != nil {
+			return fmt.Errorf("could not dump configuration files: %w", err)
+		}
 	}
 
 	databases, err := listDatabases(db, opts.WithTemplates, opts.ExcludeDbs, opts.Dbnames)
@@ -351,6 +391,15 @@ func run() (retVal error) {
 
 	canDumpACL := true
 	canDumpConfig := true
+
+	// When asked to only dump database, exclude ACL and config even if
+	// this can lead of missing info on restore when pg_dump is older than
+	// 11
+	if opts.DumpOnly {
+		canDumpACL = false
+		canDumpConfig = false
+	}
+
 	// collect the result of the jobs
 	for j := 0; j < numJobs; j++ {
 		var b, c string
@@ -391,6 +440,7 @@ func run() (retVal error) {
 			l.Verboseln("dumping configuration of", dbname)
 			c, err = dumpDBConfig(db, dbname)
 			if err != nil {
+				var verr *pgVersionError
 				if !errors.As(err, &verr) {
 					l.Errorln(err)
 					exitCode = 1
@@ -467,6 +517,11 @@ func run() (retVal error) {
 		if err != nil {
 			return fmt.Errorf("failed to prepare upload to S3: %w", err)
 		}
+	case "b2":
+		repo, err = NewB2Repo(opts)
+		if err != nil {
+			return fmt.Errorf("failed to prepare upload to B2: %w", err)
+		}
 	case "sftp":
 		repo, err = NewSFTPRepo(opts)
 		if err != nil {
@@ -496,21 +551,23 @@ func run() (retVal error) {
 		}
 
 		if opts.PurgeRemote && repo != nil {
-			if err := purgeRemoteDumps(repo, opts.Directory, dbname, o.PurgeKeep, limit); err != nil {
+			if err := purgeRemoteDumps(repo, opts.UploadPrefix, opts.Directory, dbname, o.PurgeKeep, limit); err != nil {
 				retVal = err
 			}
 		}
 	}
 
-	for _, other := range []string{"pg_globals", "pg_settings", "hba_file", "ident_file"} {
-		limit := now.Add(defDbOpts.PurgeInterval)
-		if err := purgeDumps(opts.Directory, other, defDbOpts.PurgeKeep, limit); err != nil {
-			retVal = err
-		}
-
-		if opts.PurgeRemote && repo != nil {
-			if err := purgeRemoteDumps(repo, opts.Directory, other, defDbOpts.PurgeKeep, limit); err != nil {
+	if !opts.DumpOnly {
+		for _, other := range []string{"pg_globals", "pg_settings", "hba_file", "ident_file"} {
+			limit := now.Add(defDbOpts.PurgeInterval)
+			if err := purgeDumps(opts.Directory, other, defDbOpts.PurgeKeep, limit); err != nil {
 				retVal = err
+			}
+
+			if opts.PurgeRemote && repo != nil {
+				if err := purgeRemoteDumps(repo, opts.UploadPrefix, opts.Directory, other, defDbOpts.PurgeKeep, limit); err != nil {
+					retVal = err
+				}
 			}
 		}
 	}
@@ -676,7 +733,14 @@ func (d *dump) dump(fc chan<- sumFileJob) error {
 	d.Path = file
 	d.ExitCode = 0
 
-	if err := os.Chmod(file, 0600); err != nil {
+	var mode os.FileMode = 0600
+	if d.Options.Format == 'd' {
+		// The hardening of permissions only apply to the top level
+		// directory, this won't make the contents executable
+		mode = 0700
+	}
+
+	if err := os.Chmod(file, mode); err != nil {
 		return fmt.Errorf("could not chmod to more secure permission for %s: %s", dbname, err)
 	}
 
@@ -827,7 +891,7 @@ func pgToolVersion(tool string) int {
 	return numver
 }
 
-func dumpGlobals(dir string, timeFormat string, conninfo *ConnInfo, fc chan<- sumFileJob) error {
+func dumpGlobals(dir string, timeFormat string, withRolePasswords bool, conninfo *ConnInfo, fc chan<- sumFileJob) error {
 	command := execPath("pg_dumpall")
 	args := []string{"-g", "-w"}
 
@@ -842,11 +906,21 @@ func dumpGlobals(dir string, timeFormat string, conninfo *ConnInfo, fc chan<- su
 	// information
 	var env []string
 
-	if pgToolVersion("pg_dumpall") < 90300 {
+	pgDumpallVersion := pgToolVersion("pg_dumpall")
+	if pgDumpallVersion < 90300 {
 		env = os.Environ()
 		env = append(env, conninfo.MakeEnv()...)
 	} else {
 		args = append(args, "-d", conninfo.String())
+	}
+
+	// The --no-role-passwords option was added to pg_dumpall from 10
+	if !withRolePasswords {
+		if pgDumpallVersion < 100000 {
+			return fmt.Errorf("pg_dumpall does not support --no-role-passwords, use pg_dumpall >= 10")
+		}
+
+		args = append(args, "--no-role-passwords")
 	}
 
 	file := formatDumpPath(dir, timeFormat, "sql", "pg_globals", time.Now(), 0)
@@ -948,6 +1022,98 @@ func dumpConfigFiles(dir string, timeFormat string, db *pg, fc chan<- sumFileJob
 			}
 		}
 	}
+	return nil
+}
+
+func listRemoteFiles(repoName string, opts options, globs []string) error {
+	repo, err := NewRepo(repoName, opts)
+	if err != nil {
+		return err
+	}
+
+	remoteFiles, err := repo.List("")
+	if err != nil {
+		return fmt.Errorf("could not list contents of remote location: %w", err)
+	}
+
+	for _, i := range remoteFiles {
+		keep := false
+		if len(globs) == 0 {
+			keep = true
+		}
+
+		for _, glob := range globs {
+			keep, err = filepath.Match(glob, i.key)
+			if err != nil {
+				return fmt.Errorf("bad patern: %w", err)
+			}
+
+			if keep {
+				break
+			}
+		}
+
+		if !keep {
+			continue
+		}
+
+		fmt.Println(i.key)
+	}
+
+	return nil
+}
+
+func downloadFiles(repoName string, opts options, dir string, globs []string) error {
+	repo, err := NewRepo(repoName, opts)
+	if err != nil {
+		return err
+	}
+
+	// Without globs, there is nothing to download
+	if len(globs) == 0 {
+		return fmt.Errorf("no filter given to download files, use globs as command line arguments")
+	}
+
+	remoteFiles, err := repo.List("")
+	if err != nil {
+		return fmt.Errorf("could not list contents of remote location: %w", err)
+	}
+
+	for _, i := range remoteFiles {
+		keep := false
+		for _, glob := range globs {
+			keep, err = filepath.Match(glob, i.key)
+			if err != nil {
+				return fmt.Errorf("bad patern: %w", err)
+			}
+
+			if keep {
+				break
+			}
+		}
+
+		if !keep {
+			l.Verboseln("skipping:", i.key)
+			continue
+		}
+
+		if i.isDir {
+			l.Warnf("%s is a directory, append %c* to the filter to download its contents", i.key, os.PathSeparator)
+			continue
+		}
+
+		// Create any parent directory under target dir
+		path := filepath.Join(dir, i.key)
+		parent := filepath.Dir(path)
+		if err := os.MkdirAll(parent, 0700); err != nil {
+			return fmt.Errorf("could not create directory %s: %w", parent, err)
+		}
+
+		if err := repo.Download(i.key, path); err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 
@@ -1341,40 +1507,11 @@ func postProcessFiles(inFiles chan sumFileJob, wg *sync.WaitGroup, opts options)
 		}(i)
 	}
 
-	var (
-		repo Repo
-		err  error
-	)
-
-	switch opts.Upload {
-	case "s3":
-		repo, err = NewS3Repo(opts)
-		if err != nil {
-			l.Errorln("failed to prepare upload to S3:", err)
-			ret <- err
-			repo = nil
-		}
-	case "sftp":
-		repo, err = NewSFTPRepo(opts)
-		if err != nil {
-			l.Errorln("failed to prepare upload over SFTP:", err)
-			ret <- err
-			repo = nil
-		}
-	case "gcs":
-		repo, err = NewGCSRepo(opts)
-		if err != nil {
-			l.Errorln("failed to prepare upload to GCS:", err)
-			ret <- err
-			repo = nil
-		}
-	case "azure":
-		repo, err = NewAzRepo(opts)
-		if err != nil {
-			l.Errorln("failed to prepare upload to Azure", err)
-			ret <- err
-			repo = nil
-		}
+	repo, err := NewRepo(opts.Upload, opts)
+	if err != nil {
+		l.Errorln(err)
+		ret <- err
+		repo = nil
 	}
 
 	for i := 0; i < opts.Jobs; i++ {
@@ -1392,7 +1529,8 @@ func postProcessFiles(inFiles chan sumFileJob, wg *sync.WaitGroup, opts options)
 				}
 
 				if opts.Upload != "none" && repo != nil {
-					if err := repo.Upload(j.Path, relPath(opts.Directory, j.Path)); err != nil {
+					// Prepend the global prefix to the relative path of the dump
+					if err := repo.Upload(j.Path, filepath.Join(opts.UploadPrefix, relPath(opts.Directory, j.Path))); err != nil {
 						l.Errorln(err)
 						if !failed {
 							ret <- err
