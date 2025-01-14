@@ -550,7 +550,7 @@ gkLoop:
 	knonw_perdb := []string{
 		"format", "parallel_backup_jobs", "compress_level", "checksum_algorithm",
 		"purge_older_than", "purge_min_keep", "schemas", "exclude_schemas", "tables",
-		"exclude_tables", "pg_dump_options", "with_blobs",
+		"exclude_tables", "pg_dump_options", "with_blobs", "user",
 	}
 
 	for _, sub := range subs {
@@ -745,6 +745,7 @@ func loadConfigurationFile(path string) (options, error) {
 		o.SumAlgo = s.Key("checksum_algorithm").MustString(opts.SumAlgo)
 		dbPurgeInterval = s.Key("purge_older_than").MustString(purgeInterval)
 		dbPurgeKeep = s.Key("purge_min_keep").MustString(purgeKeep)
+		o.Username = s.Key("user").MustString(opts.Username)
 
 		// Validate purge keep and time limit
 		keep, err := validatePurgeKeepValue(dbPurgeKeep)

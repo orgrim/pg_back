@@ -1,5 +1,9 @@
 # Changelog
 
+## pg_back 2.6.0
+
+* Allow to override the connection user per database
+
 ## pg_back 2.5.0
 
 * Fix Azure URL handling

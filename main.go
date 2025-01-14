@@ -37,7 +37,7 @@ import (
 	"time"
 )
 
-var version = "2.5.0"
+var version = "2.6.0"
 var binDir string
 
 type dump struct {
@@ -111,6 +111,9 @@ type dbOpts struct {
 	// -B, or let pg_dump use its default. 0 means default, 1 include
 	// blobs, 2 exclude blobs.
 	WithBlobs int
+
+	// Connection user for that database
+	Username string
 }
 
 func main() {
@@ -584,6 +587,7 @@ func defaultDbOpts(opts options) *dbOpts {
 		PurgeInterval: opts.PurgeInterval,
 		PurgeKeep:     opts.PurgeKeep,
 		PgDumpOpts:    opts.PgDumpOpts,
+		Username:      opts.Username,
 	}
 	return &dbo
 }
@@ -682,6 +686,9 @@ func (d *dump) dump(fc chan<- sumFileJob) error {
 	// on the command line. For older version, it is passed using the
 	// environment
 	conninfo := d.ConnString.Set("dbname", dbname)
+	if d.Options.Username != "" {
+		conninfo = conninfo.Set("user", d.Options.Username)
+	}
 
 	var env []string
 
