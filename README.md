@@ -207,8 +207,10 @@ the configuration file).
 WARNING: Azure support is not guaranted because there are no free solutions for
 testing on it
 
-When set to `b2`, files are uploaded to Backblaze B2. The `--b2-*` family of options can be used to tweak the access to
-the bucket. `--b2-concurrent-connections` can be used to upload the file through parallel HTTP connections.
+When set to `b2`, files are uploaded to Backblaze B2. The `--b2-*` family of
+options can be used to tweak the access to the
+bucket. `--b2-concurrent-connections` can be used to upload the file through
+parallel HTTP connections.
 
 The `--upload-prefix` option can be used to place the files in a remote
 directory, as most cloud storage treat prefix as directories. The filename and
