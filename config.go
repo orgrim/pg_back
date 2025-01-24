@@ -50,6 +50,7 @@ type options struct {
 	NoConfigFile      bool
 	BinDirectory      string
 	Directory         string
+	Mode              int
 	Host              string
 	Port              int
 	Username          string
@@ -129,6 +130,7 @@ func defaultOptions() options {
 	return options{
 		NoConfigFile:            false,
 		Directory:               "/var/backups/postgresql",
+		Mode:                    0o600,
 		Format:                  'c',
 		DirJobs:                 1,
 		CompressLevel:           -1,
@@ -159,6 +161,14 @@ type parseCliResult struct {
 
 func (*parseCliResult) Error() string {
 	return "please exit now"
+}
+
+func validateMode(s string) (int, error) {
+	mode, err := strconv.ParseInt(s, 8, 32)
+	if err != nil {
+		return 0, fmt.Errorf("Invalid file permission %q", s)
+	}
+	return int(mode), nil
 }
 
 func validateDumpFormat(s string) error {
@@ -268,6 +278,7 @@ func parseCli(args []string) (options, []string, error) {
 	pflag.BoolVar(&opts.NoConfigFile, "no-config-file", false, "skip reading config file\n")
 	pflag.StringVarP(&opts.BinDirectory, "bin-directory", "B", "", "PostgreSQL binaries directory. Empty to search $PATH")
 	pflag.StringVarP(&opts.Directory, "backup-directory", "b", "/var/backups/postgresql", "store dump files there")
+	mode := pflag.StringP("backup-file-mode", "m", "0600", "mode to apply to dump files")
 	pflag.StringVarP(&opts.CfgFile, "config", "c", defaultCfgFile, "alternate config file")
 	pflag.StringSliceVarP(&opts.ExcludeDbs, "exclude-dbs", "D", []string{}, "list of databases to exclude")
 	pflag.BoolVarP(&opts.WithTemplates, "with-templates", "t", false, "include templates")
@@ -414,6 +425,12 @@ func parseCli(args []string) (options, []string, error) {
 		changed = append(changed, "include-dbs")
 	}
 
+	parsed_mode, err := validateMode(*mode)
+	if err != nil {
+		return opts, changed, fmt.Errorf("invalid value for --purge-remote: %s", err)
+	}
+	opts.Mode = parsed_mode
+
 	// Validate purge keep and time limit
 	keep, err := validatePurgeKeepValue(purgeKeep)
 	if err != nil {
@@ -520,7 +537,7 @@ func validateConfigurationFile(cfg *ini.File) error {
 	s, _ := cfg.GetSection(ini.DefaultSection)
 
 	known_globals := []string{
-		"bin_directory", "backup_directory", "timestamp_format", "host", "port", "user",
+		"bin_directory", "backup_directory", "backup_perm_mode", "timestamp_format", "host", "port", "user",
 		"dbname", "exclude_dbs", "include_dbs", "with_templates", "format",
 		"parallel_backup_jobs", "compress_level", "jobs", "pause_timeout",
 		"purge_older_than", "purge_min_keep", "checksum_algorithm", "pre_backup_hook",
@@ -600,6 +617,7 @@ func loadConfigurationFile(path string) (options, error) {
 	// flags
 	opts.BinDirectory = s.Key("bin_directory").MustString("")
 	opts.Directory = s.Key("backup_directory").MustString("/var/backups/postgresql")
+	opts.Mode = s.Key("backup_perm_mode").MustInt(0o0600)
 	timeFormat := s.Key("timestamp_format").MustString("rfc3339")
 	opts.Host = s.Key("host").MustString("")
 	opts.Port = s.Key("port").MustInt(0)
