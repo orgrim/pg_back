@@ -51,7 +51,7 @@ func computeChecksum(path string, h hash.Hash) (string, error) {
 	return string(h.Sum(nil)), nil
 }
 
-func checksumFile(path string, algo string) (string, error) {
+func checksumFile(path string, mode int, algo string) (string, error) {
 	var h hash.Hash
 
 	switch algo {
@@ -114,10 +114,16 @@ func checksumFile(path string, algo string) (string, error) {
 		r, _ := computeChecksum(path, h)
 		fmt.Fprintf(o, "%x  %s\n", r, path)
 	}
+	l.Verboseln("computing checksum with MODE", mode, path)
+	if mode > 0 {
+		if err := os.Chmod(o.Name(), os.FileMode(mode)); err != nil {
+			return "", fmt.Errorf("could not chmod checksum file %s: %s", path, err)
+		}
+	}
 	return sumFile, nil
 }
 
-func checksumFileList(paths []string, algo string, sumFilePrefix string) (string, error) {
+func checksumFileList(paths []string, mode int, algo string, sumFilePrefix string) (string, error) {
 	var h hash.Hash
 
 	switch algo {
@@ -157,6 +163,12 @@ func checksumFileList(paths []string, algo string, sumFilePrefix string) (string
 		}
 
 		fmt.Fprintf(o, "%x *%s\n", r, path)
+
+		if mode > 0 {
+			if err := os.Chmod(o.Name(), os.FileMode(mode)); err != nil {
+				return "", fmt.Errorf("could not chmod checksum file %s: %s", path, err)
+			}
+		}
 	}
 
 	if failed {
