@@ -55,6 +55,9 @@ type dump struct {
 	// Directory is the target directory where to create the dump
 	Directory string
 
+	// Mode is the permission for the resulting backup
+	Mode int
+
 	// Time format for the filename
 	TimeFormat string
 
@@ -315,7 +318,7 @@ func run() (retVal error) {
 		} else {
 			l.Infoln("dumping globals without role passwords")
 		}
-		if err := dumpGlobals(opts.Directory, opts.TimeFormat, dumpRolePasswords, conninfo, producedFiles); err != nil {
+		if err := dumpGlobals(opts.Directory, opts.Mode, opts.TimeFormat, dumpRolePasswords, conninfo, producedFiles); err != nil {
 			return fmt.Errorf("pg_dumpall of globals failed: %w", err)
 		}
 
@@ -379,6 +382,7 @@ func run() (retVal error) {
 			Database:         dbname,
 			Options:          o,
 			Directory:        opts.Directory,
+			Mode:             opts.Mode,
 			TimeFormat:       opts.TimeFormat,
 			ConnString:       conninfo,
 			CipherPassphrase: passphrase,
@@ -475,8 +479,7 @@ func run() (retVal error) {
 			fmt.Fprintf(f, "%s", c)
 
 			f.Close()
-
-			if err := os.Chmod(aclpath, 0600); err != nil {
+			if err := os.Chmod(aclpath, os.FileMode(d.Mode)); err != nil {
 				return fmt.Errorf("could not chmod to more secure permission for ACL %s: %s", dbname, err)
 			}
 
@@ -740,15 +743,19 @@ func (d *dump) dump(fc chan<- sumFileJob) error {
 	d.Path = file
 	d.ExitCode = 0
 
-	var mode os.FileMode = 0600
-	if d.Options.Format == 'd' {
-		// The hardening of permissions only apply to the top level
-		// directory, this won't make the contents executable
-		mode = 0700
-	}
+	var mode os.FileMode = os.FileMode(d.Mode)
+	if mode > 0 {
+		if d.Options.Format == 'd' {
+			// The hardening of permissions only apply to the top level
+			// directory, this won't make the contents executable
+			// we keep this for compatibility reason, but since file mode is under
+			// user control, we should probably remove this
+			mode = 0700
+		}
 
-	if err := os.Chmod(file, mode); err != nil {
-		return fmt.Errorf("could not chmod to more secure permission for %s: %s", dbname, err)
+		if err := os.Chmod(file, mode); err != nil {
+			return fmt.Errorf("could not chmod to more secure permission for %s: %s", dbname, err)
+		}
 	}
 
 	return nil
@@ -898,7 +905,7 @@ func pgToolVersion(tool string) int {
 	return numver
 }
 
-func dumpGlobals(dir string, timeFormat string, withRolePasswords bool, conninfo *ConnInfo, fc chan<- sumFileJob) error {
+func dumpGlobals(dir string, mode int, timeFormat string, withRolePasswords bool, conninfo *ConnInfo, fc chan<- sumFileJob) error {
 	command := execPath("pg_dumpall")
 	args := []string{"-g", "-w"}
 
@@ -956,9 +963,10 @@ func dumpGlobals(dir string, timeFormat string, withRolePasswords bool, conninfo
 			}
 		}
 	}
-
-	if err := os.Chmod(file, 0600); err != nil {
-		return fmt.Errorf("could not chmod to more secure permission for pg_globals: %s", err)
+	if mode > 0 {
+		if err := os.Chmod(file, os.FileMode(mode)); err != nil {
+			return fmt.Errorf("could not chmod to more secure permission for pg_globals: %s", err)
+		}
 	}
 
 	if fc != nil {
