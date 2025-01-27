@@ -69,8 +69,10 @@ func TestValidateMode(t *testing.T) {
 		wantError bool
 	}{
 		{"0700", 448, false},
-		{"18446744000", 0, true},
-		{"08170", 0, true},
+		{"070000", 0, true},      // invalid mode (too long)
+		{"18446744000", 0, true}, // still invalid, positive integer
+		{"08170", 0, true},       // non valid mode (8 on it)
+		{"-8170", -8170, false},  // valid and mean do nothing (useful when using umask)
 	}
 
 	l.logger.SetOutput(ioutil.Discard)
@@ -598,11 +600,11 @@ func TestLoadConfigurationFile(t *testing.T) {
 			},
 		},
 		{ // ensure comma separated lists work
-			[]string{"backup_directory = test", "include_dbs = a, b, postgres", "compress_level = 9"},
+			[]string{"backup_directory = test", "include_dbs = a, b, postgres", "compress_level = 9", "backup_perm_mode = 0400"},
 			false,
 			options{
 				Directory:               "test",
-				Mode:                    0o600,
+				Mode:                    0o400,
 				Dbnames:                 []string{"a", "b", "postgres"},
 				Format:                  'c',
 				DirJobs:                 1,

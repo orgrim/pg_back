@@ -744,16 +744,18 @@ func (d *dump) dump(fc chan<- sumFileJob) error {
 	d.ExitCode = 0
 
 	var mode os.FileMode = os.FileMode(d.Mode)
-	if d.Options.Format == 'd' {
-		// The hardening of permissions only apply to the top level
-		// directory, this won't make the contents executable
-		// we keep this for compatibility reason, but since file mode is under
-		// user control, we should probably remove this
-		mode = 0700
-	}
+	if mode > 0 {
+		if d.Options.Format == 'd' {
+			// The hardening of permissions only apply to the top level
+			// directory, this won't make the contents executable
+			// we keep this for compatibility reason, but since file mode is under
+			// user control, we should probably remove this
+			mode = 0700
+		}
 
-	if err := os.Chmod(file, mode); err != nil {
-		return fmt.Errorf("could not chmod to more secure permission for %s: %s", dbname, err)
+		if err := os.Chmod(file, mode); err != nil {
+			return fmt.Errorf("could not chmod to more secure permission for %s: %s", dbname, err)
+		}
 	}
 
 	return nil
@@ -961,8 +963,10 @@ func dumpGlobals(dir string, mode int, timeFormat string, withRolePasswords bool
 			}
 		}
 	}
-	if err := os.Chmod(file, os.FileMode(mode)); err != nil {
-		return fmt.Errorf("could not chmod to more secure permission for pg_globals: %s", err)
+	if mode > 0 {
+		if err := os.Chmod(file, os.FileMode(mode)); err != nil {
+			return fmt.Errorf("could not chmod to more secure permission for pg_globals: %s", err)
+		}
 	}
 
 	if fc != nil {

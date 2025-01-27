@@ -164,11 +164,14 @@ func (*parseCliResult) Error() string {
 }
 
 func validateMode(s string) (int, error) {
-	mode, err := strconv.ParseInt(s, 8, 32)
-	if err != nil {
-		return 0, fmt.Errorf("Invalid file permission %q", s)
+	if (strings.HasPrefix(s, "0") && len(s) <= 5) || (strings.HasPrefix(s, "-")) {
+		mode, err := strconv.ParseInt(s, 0, 32)
+		if err != nil {
+			return 0, fmt.Errorf("Invalid permission %q", s)
+		}
+		return int(mode), nil
 	}
-	return int(mode), nil
+	return 0, fmt.Errorf("Invalid permission %q, must be octal (start by 0 and max 5 digits) number or negative", s)
 }
 
 func validateDumpFormat(s string) error {
