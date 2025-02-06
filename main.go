@@ -55,6 +55,9 @@ type dump struct {
 	// Directory is the target directory where to create the dump
 	Directory string
 
+	// Mode is the permission for the resulting backup
+	Mode int
+
 	// Time format for the filename
 	TimeFormat string
 
@@ -315,7 +318,7 @@ func run() (retVal error) {
 		} else {
 			l.Infoln("dumping globals without role passwords")
 		}
-		if err := dumpGlobals(opts.Directory, opts.TimeFormat, dumpRolePasswords, conninfo, producedFiles); err != nil {
+		if err := dumpGlobals(opts.Directory, opts.Mode, opts.TimeFormat, dumpRolePasswords, conninfo, producedFiles); err != nil {
 			return fmt.Errorf("pg_dumpall of globals failed: %w", err)
 		}
 
@@ -325,7 +328,7 @@ func run() (retVal error) {
 			perr *pgPrivError
 		)
 
-		if err := dumpSettings(opts.Directory, opts.TimeFormat, db, producedFiles); err != nil {
+		if err := dumpSettings(opts.Directory, opts.Mode, opts.TimeFormat, db, producedFiles); err != nil {
 			if errors.As(err, &verr) || errors.As(err, &perr) {
 				l.Warnln(err)
 			} else {
@@ -333,7 +336,7 @@ func run() (retVal error) {
 			}
 		}
 
-		if err := dumpConfigFiles(opts.Directory, opts.TimeFormat, db, producedFiles); err != nil {
+		if err := dumpConfigFiles(opts.Directory, opts.Mode, opts.TimeFormat, db, producedFiles); err != nil {
 			return fmt.Errorf("could not dump configuration files: %w", err)
 		}
 	}
@@ -379,6 +382,7 @@ func run() (retVal error) {
 			Database:         dbname,
 			Options:          o,
 			Directory:        opts.Directory,
+			Mode:             opts.Mode,
 			TimeFormat:       opts.TimeFormat,
 			ConnString:       conninfo,
 			CipherPassphrase: passphrase,
@@ -475,8 +479,7 @@ func run() (retVal error) {
 			fmt.Fprintf(f, "%s", c)
 
 			f.Close()
-
-			if err := os.Chmod(aclpath, 0600); err != nil {
+			if err := os.Chmod(aclpath, os.FileMode(d.Mode)); err != nil {
 				return fmt.Errorf("could not chmod to more secure permission for ACL %s: %s", dbname, err)
 			}
 
@@ -740,15 +743,19 @@ func (d *dump) dump(fc chan<- sumFileJob) error {
 	d.Path = file
 	d.ExitCode = 0
 
-	var mode os.FileMode = 0600
-	if d.Options.Format == 'd' {
-		// The hardening of permissions only apply to the top level
-		// directory, this won't make the contents executable
-		mode = 0700
-	}
+	var mode os.FileMode = os.FileMode(d.Mode)
+	if d.Mode > 0 {
+		if d.Options.Format == 'd' {
+			// The hardening of permissions only apply to the top level
+			// directory, this won't make the contents executable
+			// we keep this for compatibility reason, but since file mode is under
+			// user control, we should probably remove this
+			mode = 0700
+		}
 
-	if err := os.Chmod(file, mode); err != nil {
-		return fmt.Errorf("could not chmod to more secure permission for %s: %s", dbname, err)
+		if err := os.Chmod(file, mode); err != nil {
+			return fmt.Errorf("could not chmod to more secure permission for %s: %s", dbname, err)
+		}
 	}
 
 	return nil
@@ -898,7 +905,7 @@ func pgToolVersion(tool string) int {
 	return numver
 }
 
-func dumpGlobals(dir string, timeFormat string, withRolePasswords bool, conninfo *ConnInfo, fc chan<- sumFileJob) error {
+func dumpGlobals(dir string, mode int, timeFormat string, withRolePasswords bool, conninfo *ConnInfo, fc chan<- sumFileJob) error {
 	command := execPath("pg_dumpall")
 	args := []string{"-g", "-w"}
 
@@ -956,9 +963,10 @@ func dumpGlobals(dir string, timeFormat string, withRolePasswords bool, conninfo
 			}
 		}
 	}
-
-	if err := os.Chmod(file, 0600); err != nil {
-		return fmt.Errorf("could not chmod to more secure permission for pg_globals: %s", err)
+	if mode > 0 {
+		if err := os.Chmod(file, os.FileMode(mode)); err != nil {
+			return fmt.Errorf("could not chmod to more secure permission for pg_globals: %s", err)
+		}
 	}
 
 	if fc != nil {
@@ -970,7 +978,7 @@ func dumpGlobals(dir string, timeFormat string, withRolePasswords bool, conninfo
 	return nil
 }
 
-func dumpSettings(dir string, timeFormat string, db *pg, fc chan<- sumFileJob) error {
+func dumpSettings(dir string, mode int, timeFormat string, db *pg, fc chan<- sumFileJob) error {
 
 	file := formatDumpPath(dir, timeFormat, "out", "pg_settings", time.Now(), 0)
 
@@ -983,11 +991,17 @@ func dumpSettings(dir string, timeFormat string, db *pg, fc chan<- sumFileJob) e
 		return err
 	}
 
-	// Use a Buffer to avoid creating an empty file
 	if len(s) > 0 {
 		l.Verboseln("writing settings to:", file)
-		if err := os.WriteFile(file, []byte(s), 0600); err != nil {
+		f, err := os.Create(file)
+		if err != nil {
 			return err
+		}
+		fmt.Fprintf(f, "%s", s)
+		if mode > 0 { // otherwhise let umask do the job
+			if err := os.Chmod(f.Name(), os.FileMode(mode)); err != nil {
+				return fmt.Errorf("could not chmod to more secure permission for settings file %s", f.Name())
+			}
 		}
 
 		if fc != nil {
@@ -1000,7 +1014,7 @@ func dumpSettings(dir string, timeFormat string, db *pg, fc chan<- sumFileJob) e
 	return nil
 }
 
-func dumpConfigFiles(dir string, timeFormat string, db *pg, fc chan<- sumFileJob) error {
+func dumpConfigFiles(dir string, mode int, timeFormat string, db *pg, fc chan<- sumFileJob) error {
 	for _, param := range []string{"hba_file", "ident_file"} {
 		file := formatDumpPath(dir, timeFormat, "out", param, time.Now(), 0)
 
@@ -1016,8 +1030,15 @@ func dumpConfigFiles(dir string, timeFormat string, db *pg, fc chan<- sumFileJob
 		// Use a Buffer to avoid creating an empty file
 		if len(s) > 0 {
 			l.Verbosef("writing contents of '%s' to: %s", param, file)
-			if err := os.WriteFile(file, []byte(s), 0600); err != nil {
+			f, err := os.Create(file)
+			if err != nil {
 				return err
+			}
+			fmt.Fprintf(f, "%s", s)
+			if mode > 0 { // otherwhise let umask do the job
+				if err := os.Chmod(f.Name(), os.FileMode(mode)); err != nil {
+					return fmt.Errorf("could not chmod to more secure permission for settings file %s", f.Name())
+				}
 			}
 
 			// We have produced a file send it to the channel for
@@ -1348,7 +1369,7 @@ func postProcessFiles(inFiles chan sumFileJob, wg *sync.WaitGroup, opts options)
 
 				if j.SumAlgo != "none" {
 					l.Infoln("computing checksum of", j.Path)
-					p, err := checksumFile(j.Path, j.SumAlgo)
+					p, err := checksumFile(j.Path, opts.Mode, j.SumAlgo)
 					if err != nil {
 						l.Errorln("checksum failed:", err)
 						if !failed {
@@ -1443,7 +1464,7 @@ func postProcessFiles(inFiles chan sumFileJob, wg *sync.WaitGroup, opts options)
 
 				if opts.Encrypt {
 					l.Infoln("encrypting", j.Path)
-					encFiles, err := encryptFile(j.Path, j.Params, j.KeepSrc)
+					encFiles, err := encryptFile(j.Path, opts.Mode, j.Params, j.KeepSrc)
 					if err != nil {
 						l.Errorln("encryption failed:", err)
 						if !failed {
@@ -1493,7 +1514,7 @@ func postProcessFiles(inFiles chan sumFileJob, wg *sync.WaitGroup, opts options)
 
 				if j.SumAlgo != "none" {
 					l.Infoln("computing checksum of", j.SumFile)
-					p, err := checksumFileList(j.Paths, j.SumAlgo, j.SumFile)
+					p, err := checksumFileList(j.Paths, opts.Mode, j.SumAlgo, j.SumFile)
 					if err != nil {
 						l.Errorln("checksum of encrypted files failed:", err)
 						if !failed {
