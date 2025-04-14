@@ -1543,6 +1543,10 @@ func postProcessFiles(inFiles chan sumFileJob, wg *sync.WaitGroup, opts options)
 						}
 						continue
 					}
+					if opts.DeleteUploaded {
+						l.Infoln("removing", j.Path)
+						os.Remove(j.Path)
+					}
 				}
 			}
 		}(i)

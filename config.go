@@ -82,19 +82,20 @@ type options struct {
 	WithRolePasswords bool
 	DumpOnly          bool
 
-	Upload       string // values are none, b2, s3, sftp, gcs
-	UploadPrefix string
-	Download     string // values are none, b2, s3, sftp, gcs
-	ListRemote   string // values are none, b2, s3, sftp, gcs
-	PurgeRemote  bool
-	S3Region     string
-	S3Bucket     string
-	S3EndPoint   string
-	S3Profile    string
-	S3KeyID      string
-	S3Secret     string
-	S3ForcePath  bool
-	S3DisableTLS bool
+	Upload         string // values are none, b2, s3, sftp, gcs
+	UploadPrefix   string
+	DeleteUploaded bool
+	Download       string // values are none, b2, s3, sftp, gcs
+	ListRemote     string // values are none, b2, s3, sftp, gcs
+	PurgeRemote    bool
+	S3Region       string
+	S3Bucket       string
+	S3EndPoint     string
+	S3Profile      string
+	S3KeyID        string
+	S3Secret       string
+	S3ForcePath    bool
+	S3DisableTLS   bool
 
 	B2Bucket                string
 	B2KeyID                 string
@@ -297,6 +298,7 @@ func parseCli(args []string) (options, []string, error) {
 
 	pflag.StringVar(&opts.Upload, "upload", "none", "upload produced files to target (s3, gcs,..) use \"none\" to override\nconfiguration file and disable upload")
 	pflag.StringVar(&opts.UploadPrefix, "upload-prefix", "", "add this prefix to uploaded files, similar to a target directory")
+	deleteUploaded := pflag.String("delete-uploaded", "no", "delete local file after upload")
 	pflag.StringVar(&opts.Download, "download", "none", "download files from target (s3, gcs,..) instead of dumping. DBNAMEs become\nglobs to select files")
 	pflag.StringVar(&opts.ListRemote, "list-remote", "none", "list the remote files on s3, gcs, sftp, azure instead of dumping. DBNAMEs become\nglobs to select files")
 	purgeRemote := pflag.String("purge-remote", "no", "purge the file on remote location after upload, with the same rules\nas the local directory")
@@ -473,6 +475,11 @@ func parseCli(args []string) (options, []string, error) {
 		return opts, changed, fmt.Errorf("invalid value for --list-remote: %s", err)
 	}
 
+	opts.DeleteUploaded, err = validateYesNoOption(*deleteUploaded)
+	if err != nil {
+		return opts, changed, fmt.Errorf("invalid value for --delete-uploaded: %s", err)
+	}
+
 	opts.PurgeRemote, err = validateYesNoOption(*purgeRemote)
 	if err != nil {
 		return opts, changed, fmt.Errorf("invalid value for --purge-remote: %s", err)
@@ -532,7 +539,7 @@ func validateConfigurationFile(cfg *ini.File) error {
 		"sftp_port", "sftp_user", "sftp_password", "sftp_directory", "sftp_identity",
 		"sftp_ignore_hostkey", "gcs_bucket", "gcs_endpoint", "gcs_keyfile",
 		"azure_container", "azure_account", "azure_key", "azure_endpoint", "pg_dump_options",
-		"dump_role_passwords", "dump_only", "upload_prefix",
+		"dump_role_passwords", "dump_only", "upload_prefix", "delete_uploaded",
 	}
 
 gkLoop:
@@ -628,6 +635,7 @@ func loadConfigurationFile(path string) (options, error) {
 
 	opts.Upload = s.Key("upload").MustString("none")
 	opts.UploadPrefix = s.Key("upload_prefix").MustString("")
+	opts.DeleteUploaded = s.Key("delete_uploaded").MustBool(false)
 	opts.PurgeRemote = s.Key("purge_remote").MustBool(false)
 
 	opts.B2Bucket = s.Key("b2_bucket").MustString("")
