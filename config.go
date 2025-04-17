@@ -82,6 +82,7 @@ type options struct {
 	Decrypt           bool
 	WithRolePasswords bool
 	DumpOnly          bool
+	UniformTimestamp  bool
 
 	Upload         string // values are none, b2, s3, sftp, gcs
 	UploadPrefix   string
@@ -300,6 +301,7 @@ func parseCli(args []string) (options, []string, error) {
 	pflag.StringVarP(&purgeKeep, "purge-min-keep", "K", "0", "minimum number of dumps to keep when purging or 'all' to keep\neverything")
 	pflag.StringVar(&opts.PreHook, "pre-backup-hook", "", "command to run before taking dumps")
 	pflag.StringVar(&opts.PostHook, "post-backup-hook", "", "command to run after taking dumps\n")
+	pflag.BoolVar(&opts.UniformTimestamp, "uniform-timestamp", false, "Use the same timestamp for all pg_back files instead of individual creation times")
 
 	pflag.BoolVar(&opts.Encrypt, "encrypt", false, "encrypt the dumps")
 	NoEncrypt := pflag.Bool("no-encrypt", false, "do not encrypt the dumps")
@@ -559,7 +561,7 @@ func validateConfigurationFile(cfg *ini.File) error {
 		"sftp_port", "sftp_user", "sftp_password", "sftp_directory", "sftp_identity",
 		"sftp_ignore_hostkey", "gcs_bucket", "gcs_endpoint", "gcs_keyfile",
 		"azure_container", "azure_account", "azure_key", "azure_endpoint", "pg_dump_options",
-		"dump_role_passwords", "dump_only", "upload_prefix", "delete_uploaded",
+		"dump_role_passwords", "dump_only", "upload_prefix", "delete_uploaded", "uniform_timestamp",
 	}
 
 gkLoop:
@@ -653,6 +655,7 @@ func loadConfigurationFile(path string) (options, error) {
 	opts.CipherPublicKey = s.Key("cipher_public_key").MustString("")
 	opts.CipherPrivateKey = s.Key("cipher_private_key").MustString("")
 	opts.EncryptKeepSrc = s.Key("encrypt_keep_source").MustBool(false)
+	opts.UniformTimestamp = s.Key("uniform_timestamp").MustBool(false)
 
 	opts.Upload = s.Key("upload").MustString("none")
 	opts.UploadPrefix = s.Key("upload_prefix").MustString("")
@@ -988,6 +991,8 @@ func mergeCliAndConfigOptions(cliOpts options, configOpts options, onCli []strin
 			opts.Username = cliOpts.Username
 		case "dbname":
 			opts.ConnDb = cliOpts.ConnDb
+		case "uniform-timestamp":
+			opts.UniformTimestamp = cliOpts.UniformTimestamp
 		}
 	}
 
