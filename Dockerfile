@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # Build the application from source
-FROM --platform=${BUILDPLATFORM:-linux/amd64} golang:1.21 AS build-stage
+FROM --platform=${BUILDPLATFORM:-linux/amd64} golang:latest AS build-stage
 
 ARG TARGETPLATFORM
 ARG BUILDPLATFORM
