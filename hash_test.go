@@ -126,7 +126,7 @@ func TestChecksumFile(t *testing.T) {
 	if err := os.Mkdir("test.d", 0755); err != nil {
 		t.Fatal("could not create test dir")
 	}
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		f, err := os.Create(filepath.Join("test.d", fmt.Sprintf("test%d", i)))
 		if err != nil {
 			t.Fatal("could not create test file")
