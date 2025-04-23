@@ -32,6 +32,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -197,11 +198,8 @@ func run() (retVal error) {
 	// config file since we are using the remaining args from the command
 	// line that are usually as a list of databases to dump
 	globs := []string{}
-	for _, v := range cliOptList {
-		if v == "include-dbs" {
-			globs = opts.Dbnames
-			break
-		}
+	if slices.Contains(cliOptList, "include-dbs") {
+		globs = opts.Dbnames
 	}
 
 	// Listing remote files take priority over the other options that won't dump databases
