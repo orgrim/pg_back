@@ -62,6 +62,35 @@ func TestValidateDumpFormat(t *testing.T) {
 
 }
 
+func TestValidateMode(t *testing.T) {
+	var tests = []struct {
+		give      string
+		want      int
+		wantError bool
+	}{
+		{"0700", 448, false},
+		{"070000", 0, true},      // invalid mode (too long)
+		{"18446744000", 0, true}, // still invalid, positive integer
+		{"08170", 0, true},       // non valid mode (8 on it)
+		{"-8170", -8170, false},  // valid and mean do nothing (useful when using umask)
+	}
+
+	l.logger.SetOutput(ioutil.Discard)
+	for i, st := range tests {
+		t.Run(fmt.Sprintf("%v", i), func(t *testing.T) {
+			got, err := validateMode(st.give)
+			if err == nil && st.wantError {
+				t.Errorf("excepted an error got nil")
+			} else if err != nil && !st.wantError {
+				t.Errorf("did not want an error, got %s", err)
+			}
+			if got != st.want {
+				t.Errorf("got %v, want %v", got, st.want)
+			}
+		})
+	}
+}
+
 func TestValidatePurgeKeepValue(t *testing.T) {
 	var tests = []struct {
 		give      string
@@ -183,6 +212,7 @@ func TestDefaultOptions(t *testing.T) {
 
 	var want = options{
 		Directory:               "/var/backups/postgresql",
+		Mode:                    0o600,
 		Format:                  'c',
 		DirJobs:                 1,
 		CompressLevel:           -1,
@@ -228,6 +258,7 @@ func TestParseCli(t *testing.T) {
 				[]string{"-b", "test", "-Z", "2", "a", "b"},
 				options{
 					Directory:               "test",
+					Mode:                    0o600,
 					Dbnames:                 []string{"a", "b"},
 					Format:                  'c',
 					DirJobs:                 1,
@@ -255,6 +286,7 @@ func TestParseCli(t *testing.T) {
 				[]string{"-t", "--without-templates"},
 				options{
 					Directory:               "/var/backups/postgresql",
+					Mode:                    0o600,
 					WithTemplates:           false,
 					Format:                  'c',
 					DirJobs:                 1,
@@ -306,6 +338,7 @@ func TestParseCli(t *testing.T) {
 				[]string{"--upload", "wrong"},
 				options{
 					Directory:               "/var/backups/postgresql",
+					Mode:                    0o600,
 					Format:                  'c',
 					DirJobs:                 1,
 					CompressLevel:           -1,
@@ -334,6 +367,7 @@ func TestParseCli(t *testing.T) {
 				[]string{"--download", "wrong"},
 				options{
 					Directory:               "/var/backups/postgresql",
+					Mode:                    0o600,
 					Format:                  'c',
 					DirJobs:                 1,
 					CompressLevel:           -1,
@@ -370,6 +404,7 @@ func TestParseCli(t *testing.T) {
 				[]string{"--cipher-pass", "mypass"},
 				options{
 					Directory:               "/var/backups/postgresql",
+					Mode:                    0o600,
 					Format:                  'c',
 					DirJobs:                 1,
 					CompressLevel:           -1,
@@ -398,6 +433,7 @@ func TestParseCli(t *testing.T) {
 				[]string{"--cipher-private-key", "mykey"},
 				options{
 					Directory:               "/var/backups/postgresql",
+					Mode:                    0o600,
 					Format:                  'c',
 					DirJobs:                 1,
 					CompressLevel:           -1,
@@ -426,6 +462,7 @@ func TestParseCli(t *testing.T) {
 				[]string{"--cipher-public-key", "fakepubkey"},
 				options{
 					Directory:               "/var/backups/postgresql",
+					Mode:                    0o600,
 					Format:                  'c',
 					DirJobs:                 1,
 					CompressLevel:           -1,
@@ -596,10 +633,11 @@ func TestLoadConfigurationFile(t *testing.T) {
 		want   options
 	}{
 		{
-			[]string{"backup_directory = test", "port = 5433"},
+			[]string{"backup_directory = test", "port = 5433", "backup_file_mode = 0700"},
 			false,
 			options{
 				Directory:               "test",
+				Mode:                    0o700,
 				Port:                    5433,
 				Format:                  'c',
 				DirJobs:                 1,
@@ -620,10 +658,11 @@ func TestLoadConfigurationFile(t *testing.T) {
 			},
 		},
 		{ // ensure comma separated lists work
-			[]string{"backup_directory = test", "include_dbs = a, b, postgres", "compress_level = 9"},
+			[]string{"backup_directory = test", "include_dbs = a, b, postgres", "compress_level = 9", "backup_file_mode = 0400"},
 			false,
 			options{
 				Directory:               "test",
+				Mode:                    0o400,
 				Dbnames:                 []string{"a", "b", "postgres"},
 				Format:                  'c',
 				DirJobs:                 1,
@@ -648,6 +687,7 @@ func TestLoadConfigurationFile(t *testing.T) {
 			false,
 			options{
 				Directory:               "/var/backups/postgresql",
+				Mode:                    0o600,
 				Format:                  'c',
 				DirJobs:                 1,
 				CompressLevel:           -1,
@@ -671,6 +711,7 @@ func TestLoadConfigurationFile(t *testing.T) {
 			false,
 			options{
 				Directory:               "/var/backups/postgresql",
+				Mode:                    0o600,
 				Format:                  'c',
 				DirJobs:                 1,
 				CompressLevel:           -1,
@@ -712,6 +753,7 @@ func TestLoadConfigurationFile(t *testing.T) {
 			false,
 			options{
 				Directory:     "test",
+				Mode:          0o600,
 				Format:        'c',
 				DirJobs:       1,
 				CompressLevel: -1,
@@ -756,6 +798,7 @@ func TestLoadConfigurationFile(t *testing.T) {
 			false,
 			options{
 				Directory:     "test",
+				Mode:          0o600,
 				Format:        'c',
 				DirJobs:       1,
 				CompressLevel: 3,
@@ -832,6 +875,7 @@ func TestMergeCliAndConfigoptions(t *testing.T) {
 	want := options{
 		BinDirectory:            "/bin",
 		Directory:               "test",
+		Mode:                    0o600,
 		Host:                    "localhost",
 		Port:                    5433,
 		Username:                "test",

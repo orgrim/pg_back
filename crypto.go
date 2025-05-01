@@ -130,7 +130,7 @@ func ageDecryptInternal(src io.Reader, dst io.Writer, identity age.Identity) err
 	return nil
 }
 
-func encryptFile(path string, params encryptParams, keep bool) ([]string, error) {
+func encryptFile(path string, mode int, params encryptParams, keep bool) ([]string, error) {
 	encrypted := make([]string, 0)
 
 	i, err := os.Stat(path)
@@ -210,7 +210,11 @@ func encryptFile(path string, params encryptParams, keep bool) ([]string, error)
 		}
 
 		encrypted = append(encrypted, dstFile)
-
+		if mode > 0 {
+			if err := os.Chmod(dstFile, os.FileMode(mode)); err != nil {
+				return encrypted, fmt.Errorf("could not chmod to more secure permission for encrypted file: %w", err)
+			}
+		}
 		if !keep {
 			l.Verboseln("removing source file:", path)
 			src.Close()

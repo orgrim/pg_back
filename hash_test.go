@@ -77,18 +77,18 @@ func TestChecksumFile(t *testing.T) {
 	}
 
 	// bad algo
-	if _, err := checksumFile("", "none"); err != nil {
+	if _, err := checksumFile("", 0o700, "none"); err != nil {
 		t.Errorf("expected <nil>, got %q\n", err)
 	}
 
-	if _, err := checksumFile("", "other"); err == nil {
+	if _, err := checksumFile("", 0o700, "other"); err == nil {
 		t.Errorf("expected err, got <nil>\n")
 	}
 
 	// test each algo with the file
 	for i, st := range tests {
 		t.Run(fmt.Sprintf("f%v", i), func(t *testing.T) {
-			if _, err := checksumFile("test", st.algo); err != nil {
+			if _, err := checksumFile("test", 0o700, st.algo); err != nil {
 				t.Errorf("checksumFile returned: %v", err)
 			}
 
@@ -111,12 +111,12 @@ func TestChecksumFile(t *testing.T) {
 	// bad files
 	var e *os.PathError
 	l.logger.SetOutput(ioutil.Discard)
-	if _, err := checksumFile("", "sha1"); !errors.As(err, &e) {
+	if _, err := checksumFile("", 0o700, "sha1"); !errors.As(err, &e) {
 		t.Errorf("expected an *os.PathError, got %q\n", err)
 	}
 
 	os.Chmod("test.sha1", 0444)
-	if _, err := checksumFile("test", "sha1"); !errors.As(err, &e) {
+	if _, err := checksumFile("test", 0o700, "sha1"); !errors.As(err, &e) {
 		t.Errorf("expected an *os.PathError, got %q\n", err)
 	}
 	os.Chmod("test.sha1", 0644)
@@ -138,7 +138,7 @@ func TestChecksumFile(t *testing.T) {
 	// test each algo with the directory
 	for i, st := range tests {
 		t.Run(fmt.Sprintf("d%v", i), func(t *testing.T) {
-			if _, err := checksumFile("test.d", st.algo); err != nil {
+			if _, err := checksumFile("test.d", 0o700, st.algo); err != nil {
 				t.Errorf("checksumFile returned: %v", err)
 			}
 
