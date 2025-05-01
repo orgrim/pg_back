@@ -450,13 +450,13 @@ func makeUrlConnInfo(infos map[string]string) string {
 				// same non default port for all hosts, duplicate it
 				// for the next loop
 				if ports[0] != "" {
-					for i := 0; i < len(hosts); i++ {
+					for range len(hosts) {
 						ports = append(ports, ports[0])
 					}
 				}
 			} else {
 				// fill with empty port to fix the list
-				for i := 0; i < len(hosts); i++ {
+				for range len(hosts) {
 					ports = append(ports, "")
 				}
 			}

@@ -32,6 +32,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -200,11 +201,8 @@ func run() (retVal error) {
 	// config file since we are using the remaining args from the command
 	// line that are usually as a list of databases to dump
 	globs := []string{}
-	for _, v := range cliOptList {
-		if v == "include-dbs" {
-			globs = opts.Dbnames
-			break
-		}
+	if slices.Contains(cliOptList, "include-dbs") {
+		globs = opts.Dbnames
 	}
 
 	// Listing remote files take priority over the other options that won't dump databases
@@ -359,8 +357,8 @@ func run() (retVal error) {
 
 	// start workers - thanks gobyexample.com
 	l.Verbosef("launching %d workers", maxWorkers)
-	for w := 0; w < maxWorkers; w++ {
-		go dumper(w, jobs, results, producedFiles)
+	for range maxWorkers {
+		go dumper(jobs, results, producedFiles)
 	}
 
 	defDbOpts := defaultDbOpts(opts)
@@ -408,7 +406,7 @@ func run() (retVal error) {
 	}
 
 	// collect the result of the jobs
-	for j := 0; j < numJobs; j++ {
+	for range numJobs {
 		var b, c string
 		var err error
 
@@ -783,7 +781,7 @@ func recursiveChmod(file string, newMode os.FileMode) error {
 	return err
 }
 
-func dumper(id int, jobs <-chan *dump, results chan<- *dump, fc chan<- sumFileJob) {
+func dumper(jobs <-chan *dump, results chan<- *dump, fc chan<- sumFileJob) {
 	for j := range jobs {
 
 		if err := j.dump(fc); err != nil {
@@ -1181,7 +1179,7 @@ func decryptDirectory(dir string, params decryptParams, workers int, globs []str
 
 	// Start workers that listen for filenames to decrypt until the queue
 	// is closed
-	for i := 0; i < workers; i++ {
+	for i := range workers {
 		wg.Add(1)
 		go func(id int) {
 			l.Verboseln("started decrypt worker", id)
@@ -1367,7 +1365,7 @@ func postProcessFiles(inFiles chan sumFileJob, wg *sync.WaitGroup, opts options)
 	encIn := make(chan encryptFileJob)
 	uploadIn := make(chan uploadJob)
 
-	for i := 0; i < opts.Jobs; i++ {
+	for i := range opts.Jobs {
 		wg.Add(1)
 		go func(id int) {
 			l.Verboseln("started checksum worker", id)
@@ -1470,7 +1468,7 @@ func postProcessFiles(inFiles chan sumFileJob, wg *sync.WaitGroup, opts options)
 
 	sumEncIn := make(chan sumEncryptFileJob)
 
-	for i := 0; i < opts.Jobs; i++ {
+	for i := range opts.Jobs {
 		wg.Add(1)
 		go func(id int) {
 			l.Verboseln("started encryption worker", id)
@@ -1516,7 +1514,7 @@ func postProcessFiles(inFiles chan sumFileJob, wg *sync.WaitGroup, opts options)
 		}(i)
 	}
 
-	for i := 0; i < opts.Jobs; i++ {
+	for i := range opts.Jobs {
 		wg.Add(1)
 		go func(id int) {
 			l.Verboseln("started checksum worker for encrypted files", id)
@@ -1564,7 +1562,7 @@ func postProcessFiles(inFiles chan sumFileJob, wg *sync.WaitGroup, opts options)
 		repo = nil
 	}
 
-	for i := 0; i < opts.Jobs; i++ {
+	for i := range opts.Jobs {
 		wg.Add(1)
 		go func(id int) {
 			l.Verboseln("started upload worker", id)
@@ -1600,22 +1598,22 @@ func postProcessFiles(inFiles chan sumFileJob, wg *sync.WaitGroup, opts options)
 		// inFiles will be closed outside of the function, when all
 		// worker reading from it exit, close encIn to make the workers
 		// reading from it stop, and so on.
-		for i := 0; i < opts.Jobs; i++ {
+		for range opts.Jobs {
 			<-done
 		}
 		close(encIn)
 
-		for i := 0; i < opts.Jobs; i++ {
+		for range opts.Jobs {
 			<-done
 		}
 		close(sumEncIn)
 
-		for i := 0; i < opts.Jobs; i++ {
+		for range opts.Jobs {
 			<-done
 		}
 		close(uploadIn)
 
-		for i := 0; i < opts.Jobs; i++ {
+		for range opts.Jobs {
 			<-done
 		}
 
