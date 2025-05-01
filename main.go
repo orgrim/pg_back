@@ -750,10 +750,20 @@ func (d *dump) dump(fc chan<- sumFileJob) error {
 			if (mode&0o400 > 0) || (mode&0o200 > 0) {
 				mode = mode | 0o100
 			}
+
+			if (mode&0o040 > 0) || (mode&0o020 > 0) {
+				mode = mode | 0o010
+			}
+
+			if (mode&0o004 > 0) || (mode&0o002 > 0) {
+				mode = mode | 0o001
+			}
 		}
+
 		if err := os.Chmod(file, mode); err != nil {
 			return fmt.Errorf("could not chmod to more secure permission for %s: %w", dbname, err)
 		}
+
 		if isDirFormat {
 			// adapt mode on files on directory based on initial configured mode
 			if err := recursiveChmod(file, os.FileMode(d.Mode)); err != nil {
