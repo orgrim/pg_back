@@ -169,6 +169,11 @@ func encryptFile(path string, mode int, params encryptParams, keep bool) ([]stri
 				}
 
 				encrypted = append(encrypted, dstFile)
+				if mode > 0 {
+					if err := os.Chmod(dstFile, os.FileMode(mode)); err != nil {
+						return fmt.Errorf("could not chmod to more secure permission for encrypted file: %w", err)
+					}
+				}
 
 				if !keep {
 					l.Verboseln("removing source file:", path)

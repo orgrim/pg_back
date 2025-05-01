@@ -515,6 +515,7 @@ func TestParseCli(t *testing.T) {
 				[]string{"--delete-uploaded", "yes"},
 				options{
 					Directory:               "/var/backups/postgresql",
+					Mode:                    0o600,
 					Format:                  'c',
 					DirJobs:                 1,
 					CompressLevel:           -1,
@@ -544,6 +545,7 @@ func TestParseCli(t *testing.T) {
 				[]string{"--delete-uploaded", "true"},
 				options{
 					Directory:               "/var/backups/postgresql",
+					Mode:                    0o600,
 					Format:                  'c',
 					DirJobs:                 1,
 					CompressLevel:           -1,
