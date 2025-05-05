@@ -39,7 +39,7 @@ import (
 func readLegacyConf(f io.Reader) ([]string, error) {
 	var lines []string
 
-	data, err := ioutil.ReadAll(f)
+	data, err := io.ReadAll(f)
 	if err != nil {
 		return lines, fmt.Errorf("could not read file: %w", err)
 	}
