@@ -28,9 +28,10 @@ package main
 import (
 	"bytes"
 	"fmt"
+	"testing"
+
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
-	"testing"
 )
 
 func TestReadLegacyConf(t *testing.T) {

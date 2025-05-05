@@ -27,11 +27,11 @@ package main
 
 import (
 	"fmt"
-	"github.com/anmitsu/go-shlex"
 	"io"
-	"io/ioutil"
 	"os"
 	"strings"
+
+	"github.com/anmitsu/go-shlex"
 )
 
 // Read the input file and return all lines that look like legacy configuration
