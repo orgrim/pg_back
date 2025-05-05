@@ -27,10 +27,11 @@ package main
 
 import (
 	"fmt"
-	"github.com/anmitsu/go-shlex"
 	"os"
 	"os/exec"
 	"strings"
+
+	"github.com/anmitsu/go-shlex"
 )
 
 func hookCommand(cmd string, logPrefix string) error {

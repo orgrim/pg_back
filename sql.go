@@ -29,10 +29,11 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"github.com/jackc/pgtype"
-	_ "github.com/jackc/pgx/v4/stdlib"
 	"strings"
 	"time"
+
+	"github.com/jackc/pgtype"
+	_ "github.com/jackc/pgx/v4/stdlib"
 )
 
 type pg struct {
