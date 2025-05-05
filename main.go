@@ -706,7 +706,7 @@ func (d *dump) dump(fc chan<- sumFileJob) error {
 	l.Verboseln("running:", pgDumpCmd)
 	stdoutStderr, err := pgDumpCmd.CombinedOutput()
 	if err != nil {
-		for _, line := range strings.Split(string(stdoutStderr), "\n") {
+		for line := range strings.SplitSeq(string(stdoutStderr), "\n") {
 			if line != "" {
 				l.Errorf("[%s] %s\n", dbname, line)
 			}
@@ -718,7 +718,7 @@ func (d *dump) dump(fc chan<- sumFileJob) error {
 		return err
 	}
 	if len(stdoutStderr) > 0 {
-		for _, line := range strings.Split(string(stdoutStderr), "\n") {
+		for line := range strings.SplitSeq(string(stdoutStderr), "\n") {
 			if line != "" {
 				l.Infof("[%s] %s\n", dbname, line)
 			}
@@ -979,7 +979,7 @@ func dumpGlobals(dir string, mode int, timeFormat string, withRolePasswords bool
 	l.Verboseln("running:", pgDumpallCmd)
 	stdoutStderr, err := pgDumpallCmd.CombinedOutput()
 	if err != nil {
-		for _, line := range strings.Split(string(stdoutStderr), "\n") {
+		for line := range strings.SplitSeq(string(stdoutStderr), "\n") {
 			if line != "" {
 				l.Errorln(line)
 			}
@@ -987,7 +987,7 @@ func dumpGlobals(dir string, mode int, timeFormat string, withRolePasswords bool
 		return err
 	}
 	if len(stdoutStderr) > 0 {
-		for _, line := range strings.Split(string(stdoutStderr), "\n") {
+		for line := range strings.SplitSeq(string(stdoutStderr), "\n") {
 			if line != "" {
 				l.Infoln(line)
 			}

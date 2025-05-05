@@ -51,7 +51,7 @@ func hookCommand(cmd string, logPrefix string) error {
 	c := exec.Command(prog, args...)
 	stdoutStderr, err := c.CombinedOutput()
 	if err != nil {
-		for _, line := range strings.Split(string(stdoutStderr), "\n") {
+		for line := range strings.SplitSeq(string(stdoutStderr), "\n") {
 			if line != "" {
 				l.Errorln(logPrefix, line)
 			}
@@ -59,7 +59,7 @@ func hookCommand(cmd string, logPrefix string) error {
 		return err
 	}
 	if len(stdoutStderr) > 0 {
-		for _, line := range strings.Split(string(stdoutStderr), "\n") {
+		for line := range strings.SplitSeq(string(stdoutStderr), "\n") {
 			if line != "" {
 				l.Infoln(logPrefix, line)
 			}
