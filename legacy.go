@@ -239,7 +239,7 @@ func convertLegacyConf(oldConf []string) string {
 		case "PGBK_DBLIST", "PGBK_EXCLUDE":
 			// The separator for lists of databases now the comma
 			dbs := make([]string, 0)
-			for _, d := range strings.Split(strings.Trim(value, "'\""), " ") {
+			for d := range strings.SplitSeq(strings.Trim(value, "'\""), " ") {
 				if len(d) > 0 {
 					dbs = append(dbs, d)
 				}
