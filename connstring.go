@@ -27,6 +27,7 @@ package main
 
 import (
 	"fmt"
+	"maps"
 	"net/url"
 	"sort"
 	"strings"
@@ -85,10 +86,7 @@ func (c *ConnInfo) Copy() *ConnInfo {
 		Kind:  c.Kind,
 		Infos: make(map[string]string, len(c.Infos)),
 	}
-
-	for k, v := range c.Infos {
-		newC.Infos[k] = v
-	}
+	maps.Copy(newC.Infos, c.Infos)
 
 	return &newC
 }
