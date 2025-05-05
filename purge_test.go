@@ -27,7 +27,6 @@ package main
 
 import (
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -38,7 +37,7 @@ import (
 // func purgeDumps(directory string, dbname string, keep int, limit time.Time) error
 func TestPurgeDumps(t *testing.T) {
 	// work in a tempdir
-	dir, err := ioutil.TempDir("", "test_purge_dumps")
+	dir, err := os.MkdirTemp("", "test_purge_dumps")
 	if err != nil {
 		t.Fatal("could not create tempdir:", err)
 	}
@@ -81,7 +80,7 @@ func TestPurgeDumps(t *testing.T) {
 	// file without write perms
 	if runtime.GOOS != "windows" {
 		tf = formatDumpPath(wd, time.RFC3339, "dump", "db", time.Now().Add(-time.Hour), 0)
-		ioutil.WriteFile(tf, []byte("truc\n"), 0644)
+		os.WriteFile(tf, []byte("truc\n"), 0644)
 		os.Chmod(filepath.Dir(tf), 0555)
 
 		err = purgeDumps(wd, "db", 0, time.Now())
@@ -139,7 +138,7 @@ func TestPurgeDumps(t *testing.T) {
 			for i := 1; i <= 3; i++ {
 				when := time.Now().Add(-time.Hour * time.Duration(i))
 				tf = formatDumpPath(wd, st.format, "dump", "db", when, 0)
-				ioutil.WriteFile(tf, []byte("truc\n"), 0644)
+				os.WriteFile(tf, []byte("truc\n"), 0644)
 				os.Chtimes(tf, when, when)
 			}
 

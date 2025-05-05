@@ -27,7 +27,6 @@ package main
 
 import (
 	"errors"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -36,7 +35,7 @@ import (
 
 func TestLockPath(t *testing.T) {
 	// Work from a tempdir
-	dir, err := ioutil.TempDir("", "test_lockpath")
+	dir, err := os.MkdirTemp("", "test_lockpath")
 	if err != nil {
 		t.Fatal("could not create tempdir:", err)
 	}
@@ -83,7 +82,7 @@ func TestLockPath(t *testing.T) {
 }
 
 func TestUnlockPath(t *testing.T) {
-	f, err := ioutil.TempFile("", "test_unlockpath")
+	f, err := os.CreateTemp("", "test_unlockpath")
 	if err != nil {
 		t.Fatal("could not create tempfile")
 	}

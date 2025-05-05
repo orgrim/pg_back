@@ -28,7 +28,7 @@ package main
 import (
 	"errors"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -50,7 +50,7 @@ func TestChecksumFile(t *testing.T) {
 
 	// create a temporary directory to store a test file to
 	// checksum with the different algorithm relatively
-	dir, err := ioutil.TempDir("", "test_checksum_file")
+	dir, err := os.MkdirTemp("", "test_checksum_file")
 	if err != nil {
 		t.Fatal("could not create tempdir:", err)
 	}
@@ -110,7 +110,7 @@ func TestChecksumFile(t *testing.T) {
 
 	// bad files
 	var e *os.PathError
-	l.logger.SetOutput(ioutil.Discard)
+	l.logger.SetOutput(io.Discard)
 	if _, err := checksumFile("", 0o700, "sha1"); !errors.As(err, &e) {
 		t.Errorf("expected an *os.PathError, got %q\n", err)
 	}
