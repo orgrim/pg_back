@@ -3,6 +3,10 @@
 ## pg_back 2.6.0
 
 * Allow to override the connection user per database
+* Add the --delete-uploaded to delete local file after upload
+* Add the --backup-file-mode option to configure the permissions on dumps
+* Add the --uniform-timestamp option to create all files of a run with the same
+  time in the filenames
 
 ## pg_back 2.5.0
 

@@ -66,12 +66,6 @@ If default and command line options are not enough, a configuration file
 may be provided with `-c <configfilename>` (see [pg_back.conf](pg_back.conf)).
 (Note: see below to convert configuration files from version 1.)
 
-If the default output directory `/var/backups/postgresql` does not exist or has
-improper ownership for your user, use `-b` to give the path where to store the
-files. The path may contain the `{dbname}` keyword, that would be replaced by
-the name of the database being dumped, this permits to dump each database in
-its own directory.
-
 To connect to PostgreSQL, use the `-h`, `-p`, `-U` and `-d` options. If you
 need less known connection options such as `sslcert` and `sslkey`, you can give
 a `keyword=value` libpq connection string like `pg_dump` and `pg_dumpall`
@@ -82,6 +76,24 @@ delimiters).
 The other command line options let you tweak what is dumped, purged, and how
 it is done. These options can be put in a configuration file. The command line
 options override configuration options.
+
+### Output
+
+If the default output directory `/var/backups/postgresql` does not exist or has
+improper ownership for your user, use `-b` to give the path where to store the
+files. The path may contain the `{dbname}` keyword, that would be replaced by
+the name of the database being dumped, this permits to dump each database in
+its own directory.
+
+By default the files are created with script file permissions, 0600, it can be
+changed with the `--backup-file-mode` option. Permissions on directories are
+deduced from the file mode to add the `x` bit if necessary.
+
+A run of pg_back creates multiple files, with the date and time of their
+creation in their filename. While this help finding at what time the data would
+be restored, all timestamps in filename are potentially different. The
+`--uniform-timestamp` changes this behavious to use the same date and time for
+all files output by a run, it is the time of the first dump of the run.
 
 ### Per-database configuration
 
