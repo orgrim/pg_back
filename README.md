@@ -231,6 +231,12 @@ the prefix is separated by a / in the remote location.
 The `--purge-remote` option can be set to `yes` to apply the same purge policy
 on the remote location as the local directory.
 
+The `--delete-uploaded` option can be set to `yes` (or `no` to override the
+configuration file value) to remove a local file as soon as it is uploaded
+successfully. (Note: it will leave unencrypted local files when
+`--encrypt-keep-src` and `--encrypt` are active because only encrypted files
+are uploaded in that case)
+
 When files are encrypted and their unencrypted source is kept, only encrypted
 files are uploaded.
 
