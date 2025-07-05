@@ -576,7 +576,7 @@ gkLoop:
 	}
 
 	subs := cfg.Sections()
-	knonw_perdb := []string{
+	known_perdb := []string{
 		"format", "parallel_backup_jobs", "compress_level", "checksum_algorithm",
 		"purge_older_than", "purge_min_keep", "schemas", "exclude_schemas", "tables",
 		"exclude_tables", "pg_dump_options", "with_blobs", "user",
@@ -589,7 +589,7 @@ gkLoop:
 
 	dbkLoop:
 		for _, v := range sub.KeyStrings() {
-			for _, c := range knonw_perdb {
+			for _, c := range known_perdb {
 				if v == c {
 					continue dbkLoop
 				}
@@ -886,6 +886,9 @@ func mergeCliAndConfigOptions(cliOpts options, configOpts options, onCli []strin
 			for _, dbo := range opts.PerDbOpts {
 				dbo.SumAlgo = cliOpts.SumAlgo
 			}
+		case "uniform-timestamp":
+			opts.UniformTimestamp = cliOpts.UniformTimestamp
+
 		case "purge-older-than":
 			opts.PurgeInterval = cliOpts.PurgeInterval
 			for _, dbo := range opts.PerDbOpts {
@@ -923,6 +926,8 @@ func mergeCliAndConfigOptions(cliOpts options, configOpts options, onCli []strin
 			opts.ListRemote = cliOpts.ListRemote
 		case "purge-remote":
 			opts.PurgeRemote = cliOpts.PurgeRemote
+		case "delete-uploaded":
+			opts.DeleteUploaded = cliOpts.DeleteUploaded
 
 		case "b2-bucket":
 			opts.B2Bucket = cliOpts.B2Bucket
@@ -991,10 +996,7 @@ func mergeCliAndConfigOptions(cliOpts options, configOpts options, onCli []strin
 			opts.Username = cliOpts.Username
 		case "dbname":
 			opts.ConnDb = cliOpts.ConnDb
-		case "uniform-timestamp":
-			opts.UniformTimestamp = cliOpts.UniformTimestamp
 		}
 	}
-
 	return opts
 }
