@@ -53,7 +53,7 @@ func lockPath(path string) (*os.File, bool, error) {
 		case syscall.EWOULDBLOCK:
 			return f, false, nil
 		default:
-			f.Close()
+			f.Close() //nolint:errcheck
 			return nil, false, err
 		}
 	}
@@ -70,6 +70,8 @@ func unlockPath(f *os.File) error {
 		return err
 	}
 
-	f.Close()
+	if err := f.Close(); err != nil {
+		return err
+	}
 	return os.Remove(path)
 }

@@ -86,7 +86,7 @@ func dbOpen(conninfo *ConnInfo) (*pg, error) {
 	newDB.conn = db
 	newDB.version, err = pgGetVersionNum(db)
 	if err != nil {
-		db.Close()
+		db.Close() //nolint:errcheck
 		return nil, err
 	}
 
@@ -100,7 +100,7 @@ func dbOpen(conninfo *ConnInfo) (*pg, error) {
 
 	newDB.superuser, err = pgAmISuperuser(db)
 	if err != nil {
-		db.Close()
+		db.Close() //nolint:errcheck
 		return nil, err
 	}
 
@@ -168,7 +168,12 @@ func listAllDatabases(db *pg, withTemplates bool) (_ []string, err error) {
 	return dbs, nil
 }
 
-func listDatabases(db *pg, withTemplates bool, excludedDbs []string, includedDbs []string) ([]string, error) {
+func listDatabases(
+	db *pg,
+	withTemplates bool,
+	excludedDbs []string,
+	includedDbs []string,
+) ([]string, error) {
 	var (
 		databases []string
 		err       error
@@ -285,14 +290,27 @@ func dumpCreateDBAndACL(db *pg, dbname string, force bool) (_ string, err error)
 			connlimit  int
 			tablespace string
 		)
-		err := rows.Scan(&owner, &encoding, &collate, &ctype, &istemplate, &acl, &connlimit, &tablespace)
+		err := rows.Scan(
+			&owner,
+			&encoding,
+			&collate,
+			&ctype,
+			&istemplate,
+			&acl,
+			&connlimit,
+			&tablespace,
+		)
 		if err != nil {
 			return "", fmt.Errorf("could not get row: %s", err)
 		}
 
 		if dbname != "template0" {
 			s += "--\n-- Database creation\n--\n\n"
-			s += fmt.Sprintf("CREATE DATABASE \"%s\" WITH TEMPLATE = template0 OWNER = \"%s\"", sqlQuoteIdent(dbname), sqlQuoteIdent(owner))
+			s += fmt.Sprintf(
+				"CREATE DATABASE \"%s\" WITH TEMPLATE = template0 OWNER = \"%s\"",
+				sqlQuoteIdent(dbname),
+				sqlQuoteIdent(owner),
+			)
 			s += fmt.Sprintf(" ENCODING = %s", sqlQuoteLiteral(encoding))
 			s += fmt.Sprintf(" LC_COLLATE = %s", sqlQuoteLiteral(collate))
 
@@ -307,7 +325,10 @@ func dumpCreateDBAndACL(db *pg, dbname string, force bool) (_ string, err error)
 			s += ";\n\n"
 
 			if istemplate {
-				s += fmt.Sprintf("UPDATE pg_catalog.pg_database SET datistemplate = 't' WHERE datname = %s;\n", sqlQuoteLiteral(dbname))
+				s += fmt.Sprintf(
+					"UPDATE pg_catalog.pg_database SET datistemplate = 't' WHERE datname = %s;\n",
+					sqlQuoteLiteral(dbname),
+				)
 			}
 		}
 
@@ -337,7 +358,10 @@ func dumpCreateDBAndACL(db *pg, dbname string, force bool) (_ string, err error)
 			}
 
 			if revokeAll {
-				s += fmt.Sprintf("REVOKE CONNECT, TEMPORARY ON DATABASE \"%s\" FROM PUBLIC;\n", sqlQuoteIdent(dbname))
+				s += fmt.Sprintf(
+					"REVOKE CONNECT, TEMPORARY ON DATABASE \"%s\" FROM PUBLIC;\n",
+					sqlQuoteIdent(dbname),
+				)
 			}
 			s += t
 		}
@@ -380,7 +404,11 @@ func makeACLCommands(aclitem string, dbname string, owner string) string {
 	// privileges are shown for the owner
 	if grantee == owner {
 		if privs != "CTc" {
-			s += fmt.Sprintf("REVOKE ALL ON DATABASE \"%s\" FROM \"%s\";\n", sqlQuoteIdent(dbname), sqlQuoteIdent(grantee))
+			s += fmt.Sprintf(
+				"REVOKE ALL ON DATABASE \"%s\" FROM \"%s\";\n",
+				sqlQuoteIdent(dbname),
+				sqlQuoteIdent(grantee),
+			)
 		} else {
 			return s
 		}
@@ -392,11 +420,23 @@ func makeACLCommands(aclitem string, dbname string, owner string) string {
 	for i, b := range privs {
 		switch b {
 		case 'C':
-			s += fmt.Sprintf("GRANT CREATE ON DATABASE \"%s\" TO \"%s\"", sqlQuoteIdent(dbname), sqlQuoteIdent(grantee))
+			s += fmt.Sprintf(
+				"GRANT CREATE ON DATABASE \"%s\" TO \"%s\"",
+				sqlQuoteIdent(dbname),
+				sqlQuoteIdent(grantee),
+			)
 		case 'T':
-			s += fmt.Sprintf("GRANT TEMPORARY ON DATABASE \"%s\" TO \"%s\"", sqlQuoteIdent(dbname), sqlQuoteIdent(grantee))
+			s += fmt.Sprintf(
+				"GRANT TEMPORARY ON DATABASE \"%s\" TO \"%s\"",
+				sqlQuoteIdent(dbname),
+				sqlQuoteIdent(grantee),
+			)
 		case 'c':
-			s += fmt.Sprintf("GRANT CONNECT ON DATABASE \"%s\" TO \"%s\"", sqlQuoteIdent(dbname), sqlQuoteIdent(grantee))
+			s += fmt.Sprintf(
+				"GRANT CONNECT ON DATABASE \"%s\" TO \"%s\"",
+				sqlQuoteIdent(dbname),
+				sqlQuoteIdent(grantee),
+			)
 		}
 
 		if i+1 < len(privs) {
@@ -424,7 +464,9 @@ func dumpDBConfig(db *pg, dbname string) (_ string, err error) {
 
 	// this query only work from 9.0, where pg_db_role_setting was introduced
 	if db.version < 90000 {
-		return "", &pgVersionError{s: "cluster version is older than 9.0, not dumping database configuration"}
+		return "", &pgVersionError{
+			s: "cluster version is older than 9.0, not dumping database configuration",
+		}
 	}
 
 	// this is no longer necessary after 11. Dumping ACL is the
@@ -465,7 +507,13 @@ func dumpDBConfig(db *pg, dbname string) (_ string, err error) {
 		}
 
 		if role.Status != pgtype.Null {
-			s += fmt.Sprintf("ALTER ROLE \"%s\" IN DATABASE \"%s\" SET \"%s\" TO %s;\n", role.String, dbname, tokens[0], tokens[1])
+			s += fmt.Sprintf(
+				"ALTER ROLE \"%s\" IN DATABASE \"%s\" SET \"%s\" TO %s;\n",
+				role.String,
+				dbname,
+				tokens[0],
+				tokens[1],
+			)
 		} else {
 			s += fmt.Sprintf("ALTER DATABASE \"%s\" SET \"%s\" TO %s;\n", dbname, tokens[0], tokens[1])
 		}
@@ -482,7 +530,9 @@ func showSettings(db *pg) (_ string, err error) {
 	var s, query string
 
 	if db.version < 80400 {
-		return "", &pgVersionError{s: "cluster version is older than 8.4, not dumping configuration"}
+		return "", &pgVersionError{
+			s: "cluster version is older than 8.4, not dumping configuration",
+		}
 	}
 
 	if !db.superuser {

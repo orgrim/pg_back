@@ -161,7 +161,14 @@ func TestPurgeDumps(t *testing.T) {
 				for _, f := range fi {
 					info += fmt.Sprintf("%s %v\n", f.Name(), f.ModTime())
 				}
-				t.Errorf("expected %d files in dir, found %d\n%slimit: %v, keep: %v", st.want, len(fi), info, st.limit, st.keep)
+				t.Errorf(
+					"expected %d files in dir, found %d\n%slimit: %v, keep: %v",
+					st.want,
+					len(fi),
+					info,
+					st.limit,
+					st.keep,
+				)
 			}
 
 			os.RemoveAll(wd)

@@ -27,9 +27,10 @@ package main
 
 import (
 	"fmt"
+	"testing"
+
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
-	"testing"
 )
 
 func TestParseKeywordConnInfo(t *testing.T) {
@@ -51,7 +52,12 @@ func TestParseKeywordConnInfo(t *testing.T) {
 		{
 			"host =  pg.local port\n = 5433 user=u1 dbname= 'silly name'  ",
 			"",
-			map[string]string{"dbname": "silly name", "host": "pg.local", "port": "5433", "user": "u1"},
+			map[string]string{
+				"dbname": "silly name",
+				"host":   "pg.local",
+				"port":   "5433",
+				"user":   "u1",
+			},
 		},
 		{
 			"bad keyword = value",
@@ -141,11 +147,23 @@ func TestParseUrlConnInfo(t *testing.T) {
 		},
 		{
 			"postgresql://other@localhost/otherdb?connect_timeout=10&application_name=myapp",
-			map[string]string{"host": "localhost", "user": "other", "dbname": "otherdb", "connect_timeout": "10", "application_name": "myapp"},
+			map[string]string{
+				"host":             "localhost",
+				"user":             "other",
+				"dbname":           "otherdb",
+				"connect_timeout":  "10",
+				"application_name": "myapp",
+			},
 		},
 		{
 			"postgresql://host1:123,host2:456/somedb?target_session_attrs=any&application_name=myapp",
-			map[string]string{"host": "host1,host2", "port": "123,456", "dbname": "somedb", "target_session_attrs": "any", "application_name": "myapp"},
+			map[string]string{
+				"host":                 "host1,host2",
+				"port":                 "123,456",
+				"dbname":               "somedb",
+				"target_session_attrs": "any",
+				"application_name":     "myapp",
+			},
 		},
 		{
 			"postgresql://[::1]:5433",
@@ -173,7 +191,12 @@ func TestMakeKeywordConnInfo(t *testing.T) {
 		want  string
 	}{
 		{
-			map[string]string{"host": "/tmp", "port": "5432", "dbname": "ab c'd", "password": "jE'r\\m"},
+			map[string]string{
+				"host":     "/tmp",
+				"port":     "5432",
+				"dbname":   "ab c'd",
+				"password": "jE'r\\m",
+			},
 			`dbname='ab c\'d' host=/tmp password='jE\'r\\m' port=5432`,
 		},
 	}
@@ -194,7 +217,12 @@ func TestMakeUrlConnInfo(t *testing.T) {
 		want  string
 	}{
 		{
-			map[string]string{"host": "localhost", "port": "5432", "dbname": "db", "password": "secret"},
+			map[string]string{
+				"host":     "localhost",
+				"port":     "5432",
+				"dbname":   "db",
+				"password": "secret",
+			},
 			"postgresql://:secret@localhost:5432/db",
 		},
 		{
@@ -210,11 +238,21 @@ func TestMakeUrlConnInfo(t *testing.T) {
 			"postgresql://u1@h1:5432,h2:5432/db",
 		},
 		{
-			map[string]string{"host": "h1,h2,h3", "port": "5432,5433", "dbname": "db", "user": "u1"},
+			map[string]string{
+				"host":   "h1,h2,h3",
+				"port":   "5432,5433",
+				"dbname": "db",
+				"user":   "u1",
+			},
 			"postgresql://u1@h1:5432,h2:5433,h3/db",
 		},
 		{
-			map[string]string{"host": "h1,h2,h3", "port": "5432,5433,", "dbname": "db", "user": "u1"},
+			map[string]string{
+				"host":   "h1,h2,h3",
+				"port":   "5432,5433,",
+				"dbname": "db",
+				"user":   "u1",
+			},
 			"postgresql://u1@h1:5432,h2:5433,h3/db",
 		},
 		{
@@ -226,7 +264,13 @@ func TestMakeUrlConnInfo(t *testing.T) {
 			"postgresql:///",
 		},
 		{
-			map[string]string{"user": "other", "host": "localhost", "dbname": "otherdb", "connect_timeout": "10", "application_name": "myapp"},
+			map[string]string{
+				"user":             "other",
+				"host":             "localhost",
+				"dbname":           "otherdb",
+				"connect_timeout":  "10",
+				"application_name": "myapp",
+			},
 			"postgresql://other@localhost/otherdb?application_name=myapp&connect_timeout=10",
 		},
 	}
@@ -250,15 +294,57 @@ func TestPrepareConnInfo(t *testing.T) {
 		want     string
 	}{
 		{"/tmp", 0, "", "", "application_name=pg_back host=/tmp"},
-		{"localhost", 5432, "postgres", "postgres", "application_name=pg_back dbname=postgres host=localhost port=5432 user=postgres"},
-		{"localhost", 0, "postgres", "postgres", "application_name=pg_back dbname=postgres host=localhost user=postgres"},
-		{"localhost", 5432, "", "postgres", "application_name=pg_back dbname=postgres host=localhost port=5432"},
-		{"localhost", 5432, "postgres", "", "application_name=pg_back host=localhost port=5432 user=postgres"},
+		{
+			"localhost",
+			5432,
+			"postgres",
+			"postgres",
+			"application_name=pg_back dbname=postgres host=localhost port=5432 user=postgres",
+		},
+		{
+			"localhost",
+			0,
+			"postgres",
+			"postgres",
+			"application_name=pg_back dbname=postgres host=localhost user=postgres",
+		},
+		{
+			"localhost",
+			5432,
+			"",
+			"postgres",
+			"application_name=pg_back dbname=postgres host=localhost port=5432",
+		},
+		{
+			"localhost",
+			5432,
+			"postgres",
+			"",
+			"application_name=pg_back host=localhost port=5432 user=postgres",
+		},
 		{"localhost", 0, "postgres", "", "application_name=pg_back host=localhost user=postgres"},
 		{"", 0, "postgres", "", "application_name=pg_back user=postgres"},
-		{"localhost", 0, "postgres", "host=/tmp port=5432", "application_name=pg_back host=/tmp port=5432"},
-		{"", 0, "", "host=/tmp port=5433 application_name=other", "application_name=other host=/tmp port=5433"},
-		{"", 0, "", "postgresql:///db?host=/tmp", "postgresql:///db?application_name=pg_back&host=%2Ftmp"},
+		{
+			"localhost",
+			0,
+			"postgres",
+			"host=/tmp port=5432",
+			"application_name=pg_back host=/tmp port=5432",
+		},
+		{
+			"",
+			0,
+			"",
+			"host=/tmp port=5433 application_name=other",
+			"application_name=other host=/tmp port=5433",
+		},
+		{
+			"",
+			0,
+			"",
+			"postgresql:///db?host=/tmp",
+			"postgresql:///db?application_name=pg_back&host=%2Ftmp",
+		},
 	}
 
 	for i, subt := range tests {
@@ -315,8 +401,13 @@ func TestConnInfoSet(t *testing.T) {
 			"user",
 			"somebody",
 			&ConnInfo{
-				Kind:  CI_KEYVAL,
-				Infos: map[string]string{"host": "localhost", "port": "5432", "dbname": "db", "user": "somebody"},
+				Kind: CI_KEYVAL,
+				Infos: map[string]string{
+					"host":   "localhost",
+					"port":   "5432",
+					"dbname": "db",
+					"user":   "somebody",
+				},
 			},
 		},
 	}

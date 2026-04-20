@@ -173,7 +173,10 @@ func validateMode(s string) (int, error) {
 		}
 		return int(mode), nil
 	}
-	return 0, fmt.Errorf("invalid permission %q, must be octal (start by 0 and max 5 digits) number or negative", s)
+	return 0, fmt.Errorf(
+		"invalid permission %q, must be octal (start by 0 and max 5 digits) number or negative",
+		s,
+	)
 }
 
 func validateDumpFormat(s string) error {
@@ -282,48 +285,188 @@ func parseCli(args []string) (options, []string, error) {
 
 	pflag.StringVarP(&opts.CfgFile, "config", "c", defaultCfgFile, "alternate config file")
 	pflag.BoolVar(&opts.NoConfigFile, "no-config-file", false, "skip reading config file\n")
-	pflag.StringVarP(&opts.BinDirectory, "bin-directory", "B", "", "PostgreSQL binaries directory. Empty to search $PATH")
-	pflag.StringVarP(&opts.Directory, "backup-directory", "b", "/var/backups/postgresql", "store dump files there")
+	pflag.StringVarP(
+		&opts.BinDirectory,
+		"bin-directory",
+		"B",
+		"",
+		"PostgreSQL binaries directory. Empty to search $PATH",
+	)
+	pflag.StringVarP(
+		&opts.Directory,
+		"backup-directory",
+		"b",
+		"/var/backups/postgresql",
+		"store dump files there",
+	)
 	pflag.StringVarP(&mode, "backup-file-mode", "m", "0600", "mode to apply to dump files")
-	pflag.StringSliceVarP(&opts.ExcludeDbs, "exclude-dbs", "D", []string{}, "list of databases to exclude")
+	pflag.StringSliceVarP(
+		&opts.ExcludeDbs,
+		"exclude-dbs",
+		"D",
+		[]string{},
+		"list of databases to exclude",
+	)
 	pflag.BoolVarP(&opts.WithTemplates, "with-templates", "t", false, "include templates")
 	WithoutTemplates := pflag.Bool("without-templates", false, "force exclude templates")
-	pflag.BoolVar(&opts.WithRolePasswords, "with-role-passwords", true, "dump globals with role passwords")
-	WithoutRolePasswords := pflag.Bool("without-role-passwords", false, "do not dump passwords of roles")
-	pflag.BoolVar(&opts.DumpOnly, "dump-only", false, "only dump databases, excluding configuration and globals")
-	pflag.IntVarP(&opts.PauseTimeout, "pause-timeout", "T", 3600, "abort if replication cannot be paused after this number\nof seconds")
+	pflag.BoolVar(
+		&opts.WithRolePasswords,
+		"with-role-passwords",
+		true,
+		"dump globals with role passwords",
+	)
+	WithoutRolePasswords := pflag.Bool(
+		"without-role-passwords",
+		false,
+		"do not dump passwords of roles",
+	)
+	pflag.BoolVar(
+		&opts.DumpOnly,
+		"dump-only",
+		false,
+		"only dump databases, excluding configuration and globals",
+	)
+	pflag.IntVarP(
+		&opts.PauseTimeout,
+		"pause-timeout",
+		"T",
+		3600,
+		"abort if replication cannot be paused after this number\nof seconds",
+	)
 	pflag.IntVarP(&opts.Jobs, "jobs", "j", 1, "dump this many databases concurrently")
-	pflag.StringVarP(&format, "format", "F", "custom", "database dump format: plain, custom, tar or directory")
-	pflag.IntVarP(&opts.DirJobs, "parallel-backup-jobs", "J", 1, "number of parallel jobs to dumps when using directory format")
-	pflag.IntVarP(&opts.CompressLevel, "compress", "Z", -1, "compression level for compressed formats")
-	pflag.StringVarP(&opts.SumAlgo, "checksum-algo", "S", "none", "signature algorithm: none sha1 sha224 sha256 sha384 sha512")
-	pflag.BoolVar(&opts.UniformTimestamp, "uniform-timestamp", false, "Use the same timestamp for all pg_back files instead of individual\ncreation times")
-	pflag.StringVarP(&purgeInterval, "purge-older-than", "P", "30", "purge backups older than this duration in days\nuse an interval with units \"s\" (seconds), \"m\" (minutes) or \"h\" (hours)\nfor less than a day.")
-	pflag.StringVarP(&purgeKeep, "purge-min-keep", "K", "0", "minimum number of dumps to keep when purging or 'all' to keep\neverything")
+	pflag.StringVarP(
+		&format,
+		"format",
+		"F",
+		"custom",
+		"database dump format: plain, custom, tar or directory",
+	)
+	pflag.IntVarP(
+		&opts.DirJobs,
+		"parallel-backup-jobs",
+		"J",
+		1,
+		"number of parallel jobs to dumps when using directory format",
+	)
+	pflag.IntVarP(
+		&opts.CompressLevel,
+		"compress",
+		"Z",
+		-1,
+		"compression level for compressed formats",
+	)
+	pflag.StringVarP(
+		&opts.SumAlgo,
+		"checksum-algo",
+		"S",
+		"none",
+		"signature algorithm: none sha1 sha224 sha256 sha384 sha512",
+	)
+	pflag.BoolVar(
+		&opts.UniformTimestamp,
+		"uniform-timestamp",
+		false,
+		"Use the same timestamp for all pg_back files instead of individual\ncreation times",
+	)
+	pflag.StringVarP(
+		&purgeInterval,
+		"purge-older-than",
+		"P",
+		"30",
+		"purge backups older than this duration in days\nuse an interval with units \"s\" (seconds), \"m\" (minutes) or \"h\" (hours)\nfor less than a day.",
+	)
+	pflag.StringVarP(
+		&purgeKeep,
+		"purge-min-keep",
+		"K",
+		"0",
+		"minimum number of dumps to keep when purging or 'all' to keep\neverything",
+	)
 	pflag.StringVar(&opts.PreHook, "pre-backup-hook", "", "command to run before taking dumps")
 	pflag.StringVar(&opts.PostHook, "post-backup-hook", "", "command to run after taking dumps\n")
 
 	pflag.BoolVar(&opts.Encrypt, "encrypt", false, "encrypt the dumps")
 	NoEncrypt := pflag.Bool("no-encrypt", false, "do not encrypt the dumps")
-	pflag.BoolVar(&opts.EncryptKeepSrc, "encrypt-keep-src", false, "keep original files when encrypting")
-	NoEncryptKeepSrc := pflag.Bool("no-encrypt-keep-src", false, "do not keep original files when encrypting")
-	pflag.BoolVar(&opts.Decrypt, "decrypt", false, "decrypt files in the backup directory instead of dumping. DBNAMEs become\nglobs to select files")
-	pflag.StringVar(&opts.CipherPassphrase, "cipher-pass", "", "cipher passphrase for encryption and decryption")
-	pflag.StringVar(&opts.CipherPublicKey, "cipher-public-key", "", "AGE public key for encryption; in Bech32 encoding starting with 'age1'")
-	pflag.StringVar(&opts.CipherPrivateKey, "cipher-private-key", "", "AGE private key for decryption; in Bech32 encoding starting with\n'AGE-SECRET-KEY-1'\n")
+	pflag.BoolVar(
+		&opts.EncryptKeepSrc,
+		"encrypt-keep-src",
+		false,
+		"keep original files when encrypting",
+	)
+	NoEncryptKeepSrc := pflag.Bool(
+		"no-encrypt-keep-src",
+		false,
+		"do not keep original files when encrypting",
+	)
+	pflag.BoolVar(
+		&opts.Decrypt,
+		"decrypt",
+		false,
+		"decrypt files in the backup directory instead of dumping. DBNAMEs become\nglobs to select files",
+	)
+	pflag.StringVar(
+		&opts.CipherPassphrase,
+		"cipher-pass",
+		"",
+		"cipher passphrase for encryption and decryption",
+	)
+	pflag.StringVar(
+		&opts.CipherPublicKey,
+		"cipher-public-key",
+		"",
+		"AGE public key for encryption; in Bech32 encoding starting with 'age1'",
+	)
+	pflag.StringVar(
+		&opts.CipherPrivateKey,
+		"cipher-private-key",
+		"",
+		"AGE private key for decryption; in Bech32 encoding starting with\n'AGE-SECRET-KEY-1'\n",
+	)
 
-	pflag.StringVar(&opts.Upload, "upload", "none", "upload produced files to target (s3, gcs,..) use \"none\" to override\nconfiguration file and disable upload")
-	pflag.StringVar(&opts.UploadPrefix, "upload-prefix", "", "add this prefix to uploaded files, similar to a target directory")
+	pflag.StringVar(
+		&opts.Upload,
+		"upload",
+		"none",
+		"upload produced files to target (s3, gcs,..) use \"none\" to override\nconfiguration file and disable upload",
+	)
+	pflag.StringVar(
+		&opts.UploadPrefix,
+		"upload-prefix",
+		"",
+		"add this prefix to uploaded files, similar to a target directory",
+	)
 	deleteUploaded := pflag.String("delete-uploaded", "no", "delete local file after upload")
-	pflag.StringVar(&opts.Download, "download", "none", "download files from target (s3, gcs,..) instead of dumping. DBNAMEs become\nglobs to select files")
-	pflag.StringVar(&opts.ListRemote, "list-remote", "none", "list the remote files on s3, gcs, sftp, azure instead of dumping. DBNAMEs\nbecome globs to select files")
-	purgeRemote := pflag.String("purge-remote", "no", "purge the file on remote location after upload, with the same rules\nas the local directory")
+	pflag.StringVar(
+		&opts.Download,
+		"download",
+		"none",
+		"download files from target (s3, gcs,..) instead of dumping. DBNAMEs become\nglobs to select files",
+	)
+	pflag.StringVar(
+		&opts.ListRemote,
+		"list-remote",
+		"none",
+		"list the remote files on s3, gcs, sftp, azure instead of dumping. DBNAMEs\nbecome globs to select files",
+	)
+	purgeRemote := pflag.String(
+		"purge-remote",
+		"no",
+		"purge the file on remote location after upload, with the same rules\nas the local directory",
+	)
 
 	pflag.StringVar(&opts.B2Bucket, "b2-bucket", "", "Backblaze B2 bucket")
 	pflag.StringVar(&opts.B2KeyID, "b2-key-id", "", "Backblaze B2 access key ID")
 	pflag.StringVar(&opts.B2AppKey, "b2-app-key", "", "Backblaze B2 app key")
-	B2ForcePath := pflag.String("b2-force-path", "no", "force path style addressing instead of virtual hosted bucket\naddressing")
-	B2ConcurrentConnections := pflag.Int("b2-concurrent-connections", 5, "set the amount of concurrent b2 http connections")
+	B2ForcePath := pflag.String(
+		"b2-force-path",
+		"no",
+		"force path style addressing instead of virtual hosted bucket\naddressing",
+	)
+	B2ConcurrentConnections := pflag.Int(
+		"b2-concurrent-connections",
+		5,
+		"set the amount of concurrent b2 http connections",
+	)
 
 	pflag.StringVar(&opts.S3Region, "s3-region", "", "S3 region")
 	pflag.StringVar(&opts.S3Bucket, "s3-bucket", "", "S3 bucket")
@@ -331,16 +474,39 @@ func parseCli(args []string) (options, []string, error) {
 	pflag.StringVar(&opts.S3KeyID, "s3-key-id", "", "AWS Access key ID")
 	pflag.StringVar(&opts.S3Secret, "s3-secret", "", "AWS Secret access key")
 	pflag.StringVar(&opts.S3EndPoint, "s3-endpoint", "", "S3 endpoint URI")
-	S3ForcePath := pflag.String("s3-force-path", "no", "force path style addressing instead of virtual hosted bucket\naddressing")
+	S3ForcePath := pflag.String(
+		"s3-force-path",
+		"no",
+		"force path style addressing instead of virtual hosted bucket\naddressing",
+	)
 	S3UseTLS := pflag.String("s3-tls", "yes", "enable or disable TLS on requests")
 
 	pflag.StringVar(&opts.SFTPHost, "sftp-host", "", "Remote hostname for SFTP")
 	pflag.StringVar(&opts.SFTPPort, "sftp-port", "", "Remote port for SFTP")
-	pflag.StringVar(&opts.SFTPUsername, "sftp-user", "", "Login for SFTP when different than the current user")
-	pflag.StringVar(&opts.SFTPPassword, "sftp-password", "", "Password for SFTP or passphrase when identity file is set")
-	pflag.StringVar(&opts.SFTPDirectory, "sftp-directory", "", "Target directory on the remote host")
+	pflag.StringVar(
+		&opts.SFTPUsername,
+		"sftp-user",
+		"",
+		"Login for SFTP when different than the current user",
+	)
+	pflag.StringVar(
+		&opts.SFTPPassword,
+		"sftp-password",
+		"",
+		"Password for SFTP or passphrase when identity file is set",
+	)
+	pflag.StringVar(
+		&opts.SFTPDirectory,
+		"sftp-directory",
+		"",
+		"Target directory on the remote host",
+	)
 	pflag.StringVar(&opts.SFTPIdentityFile, "sftp-identity", "", "Path to a private key")
-	SFTPIgnoreHostKey := pflag.String("sftp-ignore-hostkey", "no", "Check the target host key against local known hosts")
+	SFTPIgnoreHostKey := pflag.String(
+		"sftp-ignore-hostkey",
+		"no",
+		"Check the target host key against local known hosts",
+	)
 
 	pflag.StringVar(&opts.GCSBucket, "gcs-bucket", "", "GCS bucket name")
 	pflag.StringVar(&opts.GCSEndPoint, "gcs-endpoint", "", "GCS endpoint URL")
@@ -349,14 +515,29 @@ func parseCli(args []string) (options, []string, error) {
 	pflag.StringVar(&opts.AzureContainer, "azure-container", "", "Azure Blob Container")
 	pflag.StringVar(&opts.AzureAccount, "azure-account", "", "Azure Blob Storage account")
 	pflag.StringVar(&opts.AzureKey, "azure-key", "", "Azure Blob Storage shared key")
-	pflag.StringVar(&opts.AzureEndpoint, "azure-endpoint", "blob.core.windows.net", "Azure Blob Storage endpoint")
+	pflag.StringVar(
+		&opts.AzureEndpoint,
+		"azure-endpoint",
+		"blob.core.windows.net",
+		"Azure Blob Storage endpoint",
+	)
 
 	pflag.StringVarP(&opts.Host, "host", "h", "", "database server host or socket directory")
 	pflag.IntVarP(&opts.Port, "port", "p", 0, "database server port number")
 	pflag.StringVarP(&opts.Username, "username", "U", "", "connect as specified database user")
 	pflag.StringVarP(&opts.ConnDb, "dbname", "d", "", "connect to database name\n")
-	pflag.StringVar(&pce.LegacyConfig, "convert-legacy-config", "", "convert a pg_back v1 configuration file")
-	pflag.BoolVar(&pce.ShowConfig, "print-default-config", false, "print the default configuration\n")
+	pflag.StringVar(
+		&pce.LegacyConfig,
+		"convert-legacy-config",
+		"",
+		"convert a pg_back v1 configuration file",
+	)
+	pflag.BoolVar(
+		&pce.ShowConfig,
+		"print-default-config",
+		false,
+		"print the default configuration\n",
+	)
 	pflag.BoolVarP(&opts.Quiet, "quiet", "q", false, "quiet mode")
 	pflag.BoolVarP(&opts.Verbose, "verbose", "v", false, "verbose mode\n")
 	pflag.BoolVarP(&pce.ShowHelp, "help", "?", false, "print usage")
@@ -476,7 +657,9 @@ func parseCli(args []string) (options, []string, error) {
 	}
 
 	if opts.CipherPassphrase != "" && opts.CipherPrivateKey != "" {
-		return opts, changed, fmt.Errorf("only one of --cipher-pass or --cipher-private-key allowed")
+		return opts, changed, fmt.Errorf(
+			"only one of --cipher-pass or --cipher-private-key allowed",
+		)
 	}
 
 	if opts.BinDirectory != "" {
@@ -518,7 +701,10 @@ func parseCli(args []string) (options, []string, error) {
 			}
 
 			if *B2ConcurrentConnections <= 0 {
-				return opts, changed, fmt.Errorf("b2 concurrent connections must be more than 0 (current %d)", *B2ConcurrentConnections)
+				return opts, changed, fmt.Errorf(
+					"b2 concurrent connections must be more than 0 (current %d)",
+					*B2ConcurrentConnections,
+				)
 			} else {
 				opts.B2ConcurrentConnections = *B2ConcurrentConnections
 			}
@@ -736,7 +922,10 @@ func loadConfigurationFile(path string) (options, error) {
 	}
 
 	if opts.B2ConcurrentConnections <= 0 {
-		return opts, fmt.Errorf("b2 concurrent connections must be more than 0 (current %d)", opts.B2ConcurrentConnections)
+		return opts, fmt.Errorf(
+			"b2 concurrent connections must be more than 0 (current %d)",
+			opts.B2ConcurrentConnections,
+		)
 	}
 
 	// Validate upload option

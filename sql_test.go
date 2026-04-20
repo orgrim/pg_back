@@ -114,12 +114,24 @@ func TestMakeACLCommands(t *testing.T) {
 		{"invalid", ""},
 		{"=", ""},
 		{"/", ""},
-		{"=c/postgres", "REVOKE ALL ON DATABASE \"testdb\" FROM PUBLIC;\nSET SESSION AUTHORIZATION \"postgres\";\nGRANT CONNECT ON DATABASE \"testdb\" TO \"PUBLIC\";\nRESET SESSION AUTHORIZATION;\n"},
+		{
+			"=c/postgres",
+			"REVOKE ALL ON DATABASE \"testdb\" FROM PUBLIC;\nSET SESSION AUTHORIZATION \"postgres\";\nGRANT CONNECT ON DATABASE \"testdb\" TO \"PUBLIC\";\nRESET SESSION AUTHORIZATION;\n",
+		},
 		{"=Tc/postgres", ""},
 		{"testrole=CTc/testrole", ""},
-		{"testrole=Cc/testrole", "REVOKE ALL ON DATABASE \"testdb\" FROM \"testrole\";\nGRANT CREATE ON DATABASE \"testdb\" TO \"testrole\";\nGRANT CONNECT ON DATABASE \"testdb\" TO \"testrole\";\n"},
-		{"other=CT*c/testrole", "GRANT CREATE ON DATABASE \"testdb\" TO \"other\";\nGRANT TEMPORARY ON DATABASE \"testdb\" TO \"other\" WITH GRANT OPTION;\nGRANT CONNECT ON DATABASE \"testdb\" TO \"other\";\n"},
-		{"other=T*/testrole", "GRANT TEMPORARY ON DATABASE \"testdb\" TO \"other\" WITH GRANT OPTION;\n"},
+		{
+			"testrole=Cc/testrole",
+			"REVOKE ALL ON DATABASE \"testdb\" FROM \"testrole\";\nGRANT CREATE ON DATABASE \"testdb\" TO \"testrole\";\nGRANT CONNECT ON DATABASE \"testdb\" TO \"testrole\";\n",
+		},
+		{
+			"other=CT*c/testrole",
+			"GRANT CREATE ON DATABASE \"testdb\" TO \"other\";\nGRANT TEMPORARY ON DATABASE \"testdb\" TO \"other\" WITH GRANT OPTION;\nGRANT CONNECT ON DATABASE \"testdb\" TO \"other\";\n",
+		},
+		{
+			"other=T*/testrole",
+			"GRANT TEMPORARY ON DATABASE \"testdb\" TO \"other\" WITH GRANT OPTION;\n",
+		},
 	}
 
 	dbname := "testdb"
@@ -198,7 +210,12 @@ func TestListDatabases(t *testing.T) {
 		{false, []string{}, []string{"b2", "b3"}, []string{"b2"}},
 		{true, []string{"b1", "b3"}, []string{}, []string{"b2", "postgres", "template1"}},
 		{false, []string{"b1", "b3"}, []string{}, []string{"b2", "postgres"}},
-		{false, []string{"b1", "b3"}, []string{"b1", "b2", "template1"}, []string{"b2", "template1"}},
+		{
+			false,
+			[]string{"b1", "b3"},
+			[]string{"b1", "b2", "template1"},
+			[]string{"b2", "template1"},
+		},
 	}
 
 	needPgConn(t)
@@ -221,7 +238,9 @@ func TestDumpDBConfig(t *testing.T) {
 	var tests = []struct {
 		want string
 	}{
-		{"ALTER ROLE \"u1\" IN DATABASE \"b1\" SET \"work_mem\" TO '1MB';\nALTER DATABASE \"b1\" SET \"log_min_duration_statement\" TO '10s';\nALTER DATABASE \"b1\" SET \"work_mem\" TO '5MB';\n"},
+		{
+			"ALTER ROLE \"u1\" IN DATABASE \"b1\" SET \"work_mem\" TO '1MB';\nALTER DATABASE \"b1\" SET \"log_min_duration_statement\" TO '10s';\nALTER DATABASE \"b1\" SET \"work_mem\" TO '5MB';\n",
+		},
 	}
 
 	needPgConn(t)
@@ -275,8 +294,14 @@ func TestDumpCreateDBAndACL(t *testing.T) {
 		db   string
 		want string
 	}{
-		{"b1", "--\n-- Database creation\n--\n\nCREATE DATABASE \"b1\" WITH TEMPLATE = template0 OWNER = \"u1\" ENCODING = 'UTF8' LC_COLLATE = 'en_US.UTF-8' LC_CTYPE = 'en_US.UTF-8';\n\n"},
-		{"b2", "--\n-- Database creation\n--\n\nCREATE DATABASE \"b2\" WITH TEMPLATE = template0 OWNER = \"u1\" ENCODING = 'UTF8' LC_COLLATE = 'en_US.UTF-8' LC_CTYPE = 'en_US.UTF-8';\n\n--\n-- Database privileges \n--\n\nREVOKE CONNECT, TEMPORARY ON DATABASE \"b2\" FROM PUBLIC;\nGRANT CONNECT ON DATABASE \"b2\" TO \"u2\";\n"},
+		{
+			"b1",
+			"--\n-- Database creation\n--\n\nCREATE DATABASE \"b1\" WITH TEMPLATE = template0 OWNER = \"u1\" ENCODING = 'UTF8' LC_COLLATE = 'en_US.UTF-8' LC_CTYPE = 'en_US.UTF-8';\n\n",
+		},
+		{
+			"b2",
+			"--\n-- Database creation\n--\n\nCREATE DATABASE \"b2\" WITH TEMPLATE = template0 OWNER = \"u1\" ENCODING = 'UTF8' LC_COLLATE = 'en_US.UTF-8' LC_CTYPE = 'en_US.UTF-8';\n\n--\n-- Database privileges \n--\n\nREVOKE CONNECT, TEMPORARY ON DATABASE \"b2\" FROM PUBLIC;\nGRANT CONNECT ON DATABASE \"b2\" TO \"u2\";\n",
+		},
 	}
 
 	for _, st := range tests {
