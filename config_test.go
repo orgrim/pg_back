@@ -28,7 +28,7 @@ package main
 import (
 	"errors"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"os"
 	"runtime"
 	"testing"
@@ -75,7 +75,7 @@ func TestValidateMode(t *testing.T) {
 		{"-8170", -8170, false},  // valid and mean do nothing (useful when using umask)
 	}
 
-	l.logger.SetOutput(ioutil.Discard)
+	l.logger.SetOutput(io.Discard)
 	for i, st := range tests {
 		t.Run(fmt.Sprintf("%v", i), func(t *testing.T) {
 			got, err := validateMode(st.give)
@@ -103,7 +103,7 @@ func TestValidatePurgeKeepValue(t *testing.T) {
 		{"-10", -1, true},
 	}
 
-	l.logger.SetOutput(ioutil.Discard)
+	l.logger.SetOutput(io.Discard)
 	for i, st := range tests {
 		t.Run(fmt.Sprintf("%v", i), func(t *testing.T) {
 			got, err := validatePurgeKeepValue(st.give)
@@ -841,7 +841,7 @@ func TestLoadConfigurationFile(t *testing.T) {
 		t.Run(fmt.Sprintf("%v", i), func(t *testing.T) {
 
 			// create a temporary file to feed the function
-			f, err := ioutil.TempFile("", "test")
+			f, err := os.CreateTemp("", "test")
 			if err != nil {
 				t.Errorf("could not setup test: %v\n", err)
 			}
