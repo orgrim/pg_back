@@ -246,7 +246,7 @@ func run() (retVal error) {
 	// Ensure that pg_dump accepts the options we will give it
 	pgDumpVersion := pgToolVersion("pg_dump")
 	if pgDumpVersion < 80400 {
-		return fmt.Errorf("provided pg_dump is older than 8.4, unable use it.")
+		return fmt.Errorf("provided pg_dump is older than 8.4, unable use it")
 	}
 
 	// Parse the connection information
@@ -751,7 +751,7 @@ func (d *dump) dump(fc chan<- sumFileJob) error {
 	d.ExitCode = 0
 
 	if d.Mode > 0 {
-		var mode os.FileMode = os.FileMode(d.Mode)
+		var mode = os.FileMode(d.Mode)
 		isDirFormat := d.Options.Format == 'd'
 		if isDirFormat {
 			// calculate appropriate permission for parent directory, we need +x
@@ -890,7 +890,7 @@ func formatDumpPath(dir string, timeFormat string, suffix string, dbname string,
 
 	d = dir
 	if dbname != "" {
-		d = strings.Replace(dir, "{dbname}", dbname, -1)
+		d = strings.ReplaceAll(dir, "{dbname}", dbname)
 	}
 
 	s = suffix
@@ -925,14 +925,15 @@ func pgToolVersion(tool string) int {
 	var maj, min, rev, numver int
 	n, _ := fmt.Sscanf(string(vs), tool+" (PostgreSQL) %d.%d.%d", &maj, &min, &rev)
 
-	if n == 3 {
+	switch n {
+	case 3:
 		// Before PostgreSQL 10, the format si MAJ.MIN.REV
 		numver = (maj*100+min)*100 + rev
-	} else if n == 2 {
+	case 2:
 		// From PostgreSQL 10, the format si MAJ.REV, so the rev ends
 		// up in min with the scan
 		numver = maj*10000 + min
-	} else {
+	default:
 		// We have the special case of the development version, where the
 		// format is MAJdevel
 		fmt.Sscanf(string(vs), tool+" (PostgreSQL) %ddevel", &maj)
@@ -1311,7 +1312,7 @@ func decryptDirectory(dir string, params decryptParams, workers int, globs []str
 	// know the size of the buffer, so we limit to one error per worker to
 	// avoid being blocked by channel
 	select {
-	case _ = <-ret:
+	case <-ret:
 		return fmt.Errorf("failure in decrypt, please examine logs")
 	default:
 		return nil
