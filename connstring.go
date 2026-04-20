@@ -269,7 +269,7 @@ func parseKeywordConnInfo(connstring string) (map[string]string, error) {
 	keyword := ""
 	value := ""
 
-	for _, r := range []rune(connstring) {
+	for _, r := range connstring {
 		if s.expKey {
 			if unicode.IsSpace(r) {
 				continue
