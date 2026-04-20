@@ -23,10 +23,9 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
 // THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-package main
+package config
 
 import (
-	_ "embed"
 	"errors"
 	"fmt"
 	"os"
@@ -36,17 +35,54 @@ import (
 	"time"
 
 	"github.com/anmitsu/go-shlex"
+	"github.com/orgrim/pg_back/internal/logger"
+	"github.com/orgrim/pg_back/internal/metadata"
 	"github.com/spf13/pflag"
 	"gopkg.in/ini.v1"
 )
 
 var defaultCfgFile = "/etc/pg_back/pg_back.conf"
 
-//go:embed pg_back.conf
-var defaultCfg string
+type DbOpts struct {
+	// Format of the dump
+	Format rune
+
+	// Algorithm of the checksum of the file, "none" is used to
+	// disable checksuming
+	SumAlgo string
+
+	// Number of parallel jobs for directory format
+	Jobs int
+
+	// Compression level for compressed formats, -1 means the default
+	CompressLevel int
+
+	// Purge configuration
+	PurgeInterval time.Duration
+	PurgeKeep     int
+
+	// Limit schemas
+	Schemas         []string
+	ExcludedSchemas []string
+
+	// Limit dumped tables
+	Tables         []string
+	ExcludedTables []string
+
+	// Other pg_dump options to use
+	PgDumpOpts []string
+
+	// Whether to force the dump of large objects or not with pg_dump -b or
+	// -B, or let pg_dump use its default. 0 means default, 1 include
+	// blobs, 2 exclude blobs.
+	WithBlobs int
+
+	// Connection user for that database
+	Username string
+}
 
 // options struct holds command line and configuration file options
-type options struct {
+type Options struct {
 	NoConfigFile      bool
 	BinDirectory      string
 	Directory         string
@@ -69,7 +105,7 @@ type options struct {
 	PreHook           string
 	PostHook          string
 	PgDumpOpts        []string
-	PerDbOpts         map[string]*dbOpts
+	PerDbOpts         map[string]*DbOpts
 	CfgFile           string
 	TimeFormat        string
 	Verbose           bool
@@ -123,13 +159,13 @@ type options struct {
 	AzureEndpoint  string
 }
 
-func defaultOptions() options {
+func DefaultOptions() Options {
 	timeFormat := time.RFC3339
 	if runtime.GOOS == "windows" {
 		timeFormat = "2006-01-02_15-04-05"
 	}
 
-	return options{
+	return Options{
 		NoConfigFile:            false,
 		Directory:               "/var/backups/postgresql",
 		Mode:                    0o600,
@@ -154,14 +190,14 @@ func defaultOptions() options {
 
 // parseCliResult is use to handle utility flags like help, version, that make
 // the program end early
-type parseCliResult struct {
+type ParseCliResult struct {
 	ShowHelp     bool
 	ShowVersion  bool
 	LegacyConfig string
 	ShowConfig   bool
 }
 
-func (*parseCliResult) Error() string {
+func (*ParseCliResult) Error() string {
 	return "please exit now"
 }
 
@@ -169,12 +205,12 @@ func validateMode(s string) (int, error) {
 	if (strings.HasPrefix(s, "0") && len(s) <= 5) || (strings.HasPrefix(s, "-")) {
 		mode, err := strconv.ParseInt(s, 0, 32)
 		if err != nil {
-			return 0, fmt.Errorf("invalid permission %q", s)
+			return 0, fmt.Errorf("Invalid permission %q", s)
 		}
 		return int(mode), nil
 	}
 	return 0, fmt.Errorf(
-		"invalid permission %q, must be octal (start by 0 and max 5 digits) number or negative",
+		"Invalid permission %q, must be octal (start by 0 and max 5 digits) number or negative",
 		s,
 	)
 }
@@ -199,11 +235,11 @@ func validatePurgeKeepValue(k string) (int, error) {
 	keep, err := strconv.ParseInt(k, 10, 0)
 	if err != nil {
 		// return -1 too when the input is not convertible to an int
-		return -1, fmt.Errorf("invalid input for keep: %w", err)
+		return -1, fmt.Errorf("Invalid input for keep: %w", err)
 	}
 
 	if keep < 0 {
-		return -1, fmt.Errorf("invalid input for keep: negative value: %d", keep)
+		return -1, fmt.Errorf("Invalid input for keep: negative value: %d", keep)
 	}
 
 	return int(keep), nil
@@ -212,7 +248,7 @@ func validatePurgeKeepValue(k string) (int, error) {
 func validatePurgeTimeLimitValue(i string) (time.Duration, error) {
 	if days, err := strconv.ParseInt(i, 10, 0); err != nil {
 		if errors.Is(err, strconv.ErrRange) {
-			return 0, errors.New("invalid input for purge interval, number too big")
+			return 0, errors.New("Invalid input for purge interval, number too big")
 		}
 	} else {
 		return time.Duration(-days*24) * time.Hour, nil
@@ -268,11 +304,11 @@ func validateDirectory(s string) error {
 	return nil
 }
 
-func parseCli(args []string) (options, []string, error) {
+func ParseCli(args []string, defaultCfg string) (Options, []string, error) {
 	var format, mode, purgeKeep, purgeInterval string
 
-	opts := defaultOptions()
-	pce := &parseCliResult{}
+	opts := DefaultOptions()
+	pce := &ParseCliResult{}
 
 	pflag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "pg_back dumps some PostgreSQL databases\n\n")
@@ -546,9 +582,7 @@ func parseCli(args []string) (options, []string, error) {
 	// Do not use the default pflag.Parse() that use os.Args[1:],
 	// but pass it explicitly so that unit-tests can feed any set
 	// of flags
-	if err := pflag.CommandLine.Parse(args); err != nil {
-		return opts, []string{}, err
-	}
+	pflag.CommandLine.Parse(args)
 
 	// Record the list of flags set on the command line to allow
 	// overriding the configuration later, if an alternate
@@ -593,7 +627,7 @@ func parseCli(args []string) (options, []string, error) {
 	}
 
 	if pce.ShowVersion {
-		fmt.Printf("pg_back version %v\n", version)
+		fmt.Printf("pg_back version %v\n", metadata.Version)
 		return opts, changed, pce
 	}
 
@@ -790,10 +824,10 @@ gkLoop:
 	return nil
 }
 
-func loadConfigurationFile(path string) (options, error) {
+func LoadConfigurationFile(path string, l *logger.LevelLog) (Options, error) {
 	var format, mode, purgeKeep, purgeInterval string
 
-	opts := defaultOptions()
+	opts := DefaultOptions()
 
 	cfg, err := ini.Load(path)
 	if err != nil {
@@ -803,7 +837,7 @@ func loadConfigurationFile(path string) (options, error) {
 			return opts, nil
 		}
 
-		return opts, fmt.Errorf("could load configuration file: %v", err)
+		return opts, fmt.Errorf("Could load configuration file: %v", err)
 	}
 
 	if err := validateConfigurationFile(cfg); err != nil {
@@ -959,7 +993,7 @@ func loadConfigurationFile(path string) (options, error) {
 	// Process all sections with database specific configuration,
 	// fallback on the values of the global section
 	subs := cfg.Sections()
-	opts.PerDbOpts = make(map[string]*dbOpts, len(subs))
+	opts.PerDbOpts = make(map[string]*DbOpts, len(subs))
 
 	for _, s := range subs {
 		if s.Name() == ini.DefaultSection {
@@ -968,7 +1002,7 @@ func loadConfigurationFile(path string) (options, error) {
 
 		var dbFormat, dbPurgeInterval, dbPurgeKeep string
 
-		o := dbOpts{}
+		o := DbOpts{}
 		dbFormat = s.Key("format").MustString(format)
 		o.Jobs = s.Key("parallel_backup_jobs").MustInt(opts.DirJobs)
 		o.CompressLevel = s.Key("compress_level").MustInt(opts.CompressLevel)
@@ -1030,7 +1064,7 @@ func loadConfigurationFile(path string) (options, error) {
 	return opts, nil
 }
 
-func mergeCliAndConfigOptions(cliOpts options, configOpts options, onCli []string) options {
+func MergeCliAndConfigOptions(cliOpts Options, configOpts Options, onCli []string) Options {
 	opts := configOpts
 
 	// Command line values take precedence on everything, including per

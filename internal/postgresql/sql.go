@@ -23,7 +23,7 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
 // THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-package main
+package postgresql
 
 import (
 	"database/sql"
@@ -34,20 +34,22 @@ import (
 
 	"github.com/jackc/pgtype"
 	_ "github.com/jackc/pgx/v4/stdlib"
+	"github.com/orgrim/pg_back/internal/helpers"
+	"github.com/orgrim/pg_back/internal/logger"
 )
 
-type pg struct {
+type Pg struct {
 	conn      *sql.DB
 	version   int
 	xlogOrWal string
-	superuser bool
+	Superuser bool
 }
 
-func pgGetVersionNum(db *sql.DB) (int, error) {
+func pgGetVersionNum(logger *logger.LevelLog, db *sql.DB) (int, error) {
 	var version int
 
 	query := "select setting from pg_settings where name = 'server_version_num'"
-	l.Verboseln("executing SQL query:", query)
+	logger.Verboseln("executing SQL query:", query)
 	err := db.QueryRow(query).Scan(&version)
 	if err != nil {
 		return 0, fmt.Errorf("could not get PostgreSQL server version: %s", err)
@@ -56,11 +58,11 @@ func pgGetVersionNum(db *sql.DB) (int, error) {
 	return version, nil
 }
 
-func pgAmISuperuser(db *sql.DB) (bool, error) {
+func pgAmISuperuser(logger *logger.LevelLog, db *sql.DB) (bool, error) {
 	var isSuper bool
 
 	query := "select rolsuper from pg_roles where rolname = current_user"
-	l.Verboseln("executing SQL query:", query)
+	logger.Verboseln("executing SQL query:", query)
 	err := db.QueryRow(query).Scan(&isSuper)
 	if err != nil {
 		return false, fmt.Errorf("could not check if db user is superuser: %s", err)
@@ -69,9 +71,9 @@ func pgAmISuperuser(db *sql.DB) (bool, error) {
 	return isSuper, nil
 }
 
-func dbOpen(conninfo *ConnInfo) (*pg, error) {
+func DbOpen(logger *logger.LevelLog, conninfo *ConnInfo) (*Pg, error) {
 	connstr := conninfo.String()
-	l.Verbosef("connecting to PostgreSQL with: \"%s\"", connstr)
+	logger.Verbosef("connecting to PostgreSQL with: \"%s\"", connstr)
 	db, err := sql.Open("pgx", connstr)
 	if err != nil {
 		return nil, fmt.Errorf("could not open database: %s", err)
@@ -82,15 +84,15 @@ func dbOpen(conninfo *ConnInfo) (*pg, error) {
 		return nil, fmt.Errorf("could not connect to database: %s", err)
 	}
 
-	newDB := new(pg)
+	newDB := new(Pg)
 	newDB.conn = db
-	newDB.version, err = pgGetVersionNum(db)
+	newDB.version, err = pgGetVersionNum(logger, db)
 	if err != nil {
 		db.Close() //nolint:errcheck
 		return nil, err
 	}
 
-	l.Verboseln("server num version is:", newDB.version)
+	logger.Verboseln("server num version is:", newDB.version)
 	// Keyword xlog has been replaced by wal as of PostgreSQL 10
 	if newDB.version >= 100000 {
 		newDB.xlogOrWal = "wal"
@@ -98,7 +100,7 @@ func dbOpen(conninfo *ConnInfo) (*pg, error) {
 		newDB.xlogOrWal = "xlog"
 	}
 
-	newDB.superuser, err = pgAmISuperuser(db)
+	newDB.Superuser, err = pgAmISuperuser(logger, db)
 	if err != nil {
 		db.Close() //nolint:errcheck
 		return nil, err
@@ -107,8 +109,9 @@ func dbOpen(conninfo *ConnInfo) (*pg, error) {
 	return newDB, nil
 }
 
-func (db *pg) Close() error {
-	l.Verboseln("closing connection to PostgreSQL")
+func (db *Pg) Close() error {
+	// TODO: re-add logging when adding a new logger field to the DB struct
+	// logger.Verboseln("closing connection to PostgreSQL")
 	return db.conn.Close()
 }
 
@@ -135,7 +138,7 @@ func sqlQuoteIdent(s string) string {
 	return strings.ReplaceAll(s, "\"", "\"\"")
 }
 
-func listAllDatabases(db *pg, withTemplates bool) (_ []string, err error) {
+func listAllDatabases(logger *logger.LevelLog, db *Pg, withTemplates bool) (_ []string, err error) {
 	var (
 		query  string
 		dbname string
@@ -148,12 +151,12 @@ func listAllDatabases(db *pg, withTemplates bool) (_ []string, err error) {
 	}
 
 	dbs := make([]string, 0)
-	l.Verboseln("executing SQL query:", query)
+	logger.Verboseln("executing SQL query:", query)
 	rows, err := db.conn.Query(query)
 	if err != nil {
 		return dbs, fmt.Errorf("could not list databases: %s", err)
 	}
-	defer WrappedClose(rows, &err)
+	defer helpers.WrappedClose(rows, &err)
 
 	for rows.Next() {
 		err := rows.Scan(&dbname)
@@ -168,8 +171,9 @@ func listAllDatabases(db *pg, withTemplates bool) (_ []string, err error) {
 	return dbs, nil
 }
 
-func listDatabases(
-	db *pg,
+func ListDatabases(
+	logger *logger.LevelLog,
+	db *Pg,
 	withTemplates bool,
 	excludedDbs []string,
 	includedDbs []string,
@@ -182,7 +186,7 @@ func listDatabases(
 	// When an explicit list of database is given, allow to select
 	// templates
 	if len(includedDbs) > 0 {
-		databases, err = listAllDatabases(db, true)
+		databases, err = listAllDatabases(logger, db, true)
 		if err != nil {
 			return databases, err
 		}
@@ -197,11 +201,11 @@ func listDatabases(
 					continue nextidb
 				}
 			}
-			l.Warnf("database \"%s\" does not exists, excluded", d)
+			logger.Warnf("database \"%s\" does not exists, excluded", d)
 		}
 		databases = realDbs
 	} else {
-		databases, err = listAllDatabases(db, withTemplates)
+		databases, err = listAllDatabases(logger, db, withTemplates)
 		if err != nil {
 			return databases, err
 		}
@@ -225,24 +229,30 @@ func listDatabases(
 	return databases, nil
 }
 
-type pgVersionError struct {
+type PgVersionError struct {
 	s string
 }
 
-func (e *pgVersionError) Error() string {
+func (e *PgVersionError) Error() string {
 	return e.s
 }
 
-type pgPrivError struct {
+type PgPrivError struct {
 	s string
 }
 
-func (e *pgPrivError) Error() string {
+func (e *PgPrivError) Error() string {
 	return e.s
 }
 
 // pg_dumpacl stuff
-func dumpCreateDBAndACL(db *pg, dbname string, force bool) (_ string, err error) {
+func DumpCreateDBAndACL(
+	logger *logger.LevelLog,
+	db *Pg,
+	dbname string,
+	pgDumpVersion int,
+	force bool,
+) (_ string, err error) {
 	var s string
 
 	if dbname == "" {
@@ -252,18 +262,20 @@ func dumpCreateDBAndACL(db *pg, dbname string, force bool) (_ string, err error)
 	// this query only work from 9.0, where datcollate and datctype were
 	// added to pg_database
 	if db.version < 90000 {
-		return "", &pgVersionError{s: "cluster version is older than 9.0, not dumping ACL"}
+		return "", &PgVersionError{s: "cluster version is older than 9.0, not dumping ACL"}
 	}
 
 	// this is no longer necessary after 11. Dumping ACL is the
 	// job of pg_dump so we have to check its version, not the
 	// server
-	if pgToolVersion("pg_dump") >= 110000 && !force {
-		l.Verboseln("no need to dump create database query and database ACL with pg_dump from >=11")
+	if pgDumpVersion >= 110000 && !force {
+		logger.Verboseln(
+			"no need to dump create database query and database ACL with pg_dump from >=11",
+		)
 		return "", nil
 	}
 
-	l.Infoln("dumping database creation and ACL commands of", dbname)
+	logger.Infoln("dumping database creation and ACL commands of", dbname)
 
 	query := "SELECT coalesce(rolname, (select rolname from pg_roles where oid=(select datdba from pg_database where datname='template0'))), " +
 		"  pg_encoding_to_char(d.encoding), " +
@@ -272,12 +284,12 @@ func dumpCreateDBAndACL(db *pg, dbname string, force bool) (_ string, err error)
 		"FROM pg_database d" +
 		"  LEFT JOIN pg_roles u ON (datdba = u.oid) " +
 		"WHERE datallowconn AND datname = $1"
-	l.Verboseln("executing SQL query:", query)
+	logger.Verboseln("executing SQL query:", query)
 	rows, err := db.conn.Query(query, dbname)
 	if err != nil {
 		return "", fmt.Errorf("could not query database information for %s: %s", dbname, err)
 	}
-	defer WrappedClose(rows, &err)
+	defer helpers.WrappedClose(rows, &err)
 
 	for rows.Next() {
 		var (
@@ -455,7 +467,12 @@ func makeACLCommands(aclitem string, dbname string, owner string) string {
 	return s
 }
 
-func dumpDBConfig(db *pg, dbname string) (_ string, err error) {
+func DumpDBConfig(
+	logger *logger.LevelLog,
+	db *Pg,
+	dbname string,
+	pgDumpVersion int,
+) (_ string, err error) {
 	var s string
 
 	if dbname == "" {
@@ -464,7 +481,7 @@ func dumpDBConfig(db *pg, dbname string) (_ string, err error) {
 
 	// this query only work from 9.0, where pg_db_role_setting was introduced
 	if db.version < 90000 {
-		return "", &pgVersionError{
+		return "", &PgVersionError{
 			s: "cluster version is older than 9.0, not dumping database configuration",
 		}
 	}
@@ -472,20 +489,20 @@ func dumpDBConfig(db *pg, dbname string) (_ string, err error) {
 	// this is no longer necessary after 11. Dumping ACL is the
 	// job of pg_dump so we have to check its version, not the
 	// server
-	if pgToolVersion("pg_dump") >= 110000 {
-		l.Verboseln("no need to dump database configuration with pg_dump from >=11")
+	if pgDumpVersion >= 110000 {
+		logger.Verboseln("no need to dump database configuration with pg_dump from >=11")
 		return "", nil
 	}
 
-	l.Infoln("dumping database configuration commands of", dbname)
+	logger.Infoln("dumping database configuration commands of", dbname)
 	// dump per database config
 	query := "SELECT CASE setrole WHEN 0 THEN NULL ELSE pg_get_userbyid(setrole) END, unnest(setconfig) FROM pg_db_role_setting WHERE setdatabase = (SELECT oid FROM pg_database WHERE datname = $1) ORDER BY 1, 2"
-	l.Verboseln("executing SQL query:", query)
+	logger.Verboseln("executing SQL query:", query)
 	rows, err := db.conn.Query(query, dbname)
 	if err != nil {
 		return "", fmt.Errorf("could not query database configuration for %s: %s", dbname, err)
 	}
-	defer WrappedClose(rows, &err)
+	defer helpers.WrappedClose(rows, &err)
 
 	for rows.Next() {
 		var (
@@ -526,17 +543,17 @@ func dumpDBConfig(db *pg, dbname string) (_ string, err error) {
 	return s, err
 }
 
-func showSettings(db *pg) (_ string, err error) {
+func ShowSettings(logger *logger.LevelLog, db *Pg) (_ string, err error) {
 	var s, query string
 
 	if db.version < 80400 {
-		return "", &pgVersionError{
+		return "", &PgVersionError{
 			s: "cluster version is older than 8.4, not dumping configuration",
 		}
 	}
 
-	if !db.superuser {
-		return "", &pgPrivError{s: "current user is not superuser, not dumping configuration"}
+	if !db.Superuser {
+		return "", &PgPrivError{s: "current user is not superuser, not dumping configuration"}
 	}
 
 	if db.version >= 90500 {
@@ -549,12 +566,12 @@ func showSettings(db *pg) (_ string, err error) {
 		query = "SELECT name, setting FROM pg_settings WHERE sourcefile IS NOT NULL"
 	}
 
-	l.Verboseln("executing SQL query:", query)
+	logger.Verboseln("executing SQL query:", query)
 	rows, err := db.conn.Query(query)
 	if err != nil {
 		return "", fmt.Errorf("could not query instance configuration: %s", err)
 	}
-	defer WrappedClose(rows, &err)
+	defer helpers.WrappedClose(rows, &err)
 
 	for rows.Next() {
 		var (
@@ -564,7 +581,7 @@ func showSettings(db *pg) (_ string, err error) {
 
 		err := rows.Scan(&name, &value)
 		if err != nil {
-			l.Errorln(err)
+			logger.Errorln(err)
 			continue
 		}
 
@@ -586,19 +603,19 @@ func showSettings(db *pg) (_ string, err error) {
 		// when dumping settings from pg_settings, some
 		// settings may not be found because their value can
 		// set a higher levels than configuration files
-		return s, &pgVersionError{s: "cluster version is older than 9.5, settings from configuration files could be missing if the SET command was used"}
+		return s, &PgVersionError{s: "cluster version is older than 9.5, settings from configuration files could be missing if the SET command was used"}
 	}
 }
 
-func extractFileFromSettings(db *pg, name string) (_ string, err error) {
+func ExtractFileFromSettings(logger *logger.LevelLog, db *Pg, name string) (_ string, err error) {
 	query := "SELECT setting, pg_read_file(setting, 0, (pg_stat_file(setting)).size) FROM pg_settings WHERE name = $1"
 
-	l.Verboseln("executing SQL query:", query)
+	logger.Verboseln("executing SQL query:", query)
 	rows, err := db.conn.Query(query, name)
 	if err != nil {
 		return "", fmt.Errorf("could not query file contents from settings: %s", err)
 	}
-	defer WrappedClose(rows, &err)
+	defer helpers.WrappedClose(rows, &err)
 
 	var result string
 
@@ -610,7 +627,7 @@ func extractFileFromSettings(db *pg, name string) (_ string, err error) {
 
 		err := rows.Scan(&path, &contents)
 		if err != nil {
-			l.Errorln(err)
+			logger.Errorln(err)
 			continue
 		}
 
@@ -631,18 +648,18 @@ func (*pgReplicaHasLocks) Error() string {
 	return "replication not paused because of AccessExclusiveLock"
 }
 
-func pauseReplication(db *pg) (err error) {
+func pauseReplication(logger *logger.LevelLog, db *Pg) (err error) {
 	// If an AccessExclusiveLock is granted when the replay is
 	// paused, it will remain and pg_dump would be stuck forever
 	query := fmt.Sprintf("SELECT pg_%s_replay_pause() "+
 		"WHERE NOT EXISTS (SELECT 1 FROM pg_locks WHERE mode = 'AccessExclusiveLock') "+
 		"AND pg_is_in_recovery();", db.xlogOrWal)
-	l.Verboseln("executing SQL query:", query)
+	logger.Verboseln("executing SQL query:", query)
 	rows, err := db.conn.Query(query)
 	if err != nil {
 		return fmt.Errorf("could not pause replication: %s", err)
 	}
-	defer WrappedClose(rows, &err)
+	defer helpers.WrappedClose(rows, &err)
 
 	// The query returns a single row with one column of type void,
 	// which is and empty string, on success. It does not return
@@ -660,7 +677,7 @@ func pauseReplication(db *pg) (err error) {
 	return err
 }
 
-func canPauseReplication(db *pg) (_ bool, err error) {
+func canPauseReplication(logger *logger.LevelLog, db *Pg) (_ bool, err error) {
 	// hot standby exists from 9.0
 	if db.version < 90000 {
 		return false, nil
@@ -668,12 +685,12 @@ func canPauseReplication(db *pg) (_ bool, err error) {
 
 	query := fmt.Sprintf("SELECT 1 FROM pg_proc "+
 		"WHERE proname='pg_%s_replay_pause' AND pg_is_in_recovery()", db.xlogOrWal)
-	l.Verboseln("executing SQL query:", query)
+	logger.Verboseln("executing SQL query:", query)
 	rows, err := db.conn.Query(query)
 	if err != nil {
 		return false, fmt.Errorf("could not check if replication is pausable: %s", err)
 	}
-	defer WrappedClose(rows, &err)
+	defer helpers.WrappedClose(rows, &err)
 
 	// The query returns 1 on success, no row on failure
 	var one int
@@ -690,9 +707,9 @@ func canPauseReplication(db *pg) (_ bool, err error) {
 	return true, err
 }
 
-func pauseReplicationWithTimeout(db *pg, timeOut int) error {
+func PauseReplicationWithTimeout(logger *logger.LevelLog, db *Pg, timeOut int) error {
 
-	if ok, err := canPauseReplication(db); !ok {
+	if ok, err := canPauseReplication(logger, db); !ok {
 		return err
 	}
 
@@ -701,7 +718,7 @@ func pauseReplicationWithTimeout(db *pg, timeOut int) error {
 	stop := make(chan bool)
 	fail := make(chan error)
 
-	l.Infoln("pausing replication")
+	logger.Infoln("pausing replication")
 
 	// We want to retry pausing replication at a defined interval
 	// but not forever. We cannot put the timeout in the same
@@ -711,9 +728,9 @@ func pauseReplicationWithTimeout(db *pg, timeOut int) error {
 		defer ticker.Stop()
 
 		for {
-			if err := pauseReplication(db); err != nil {
+			if err := pauseReplication(logger, db); err != nil {
 				if errors.As(err, &rerr) {
-					l.Warnln(err)
+					logger.Warnln(err)
 				} else {
 					fail <- err
 					return
@@ -736,7 +753,7 @@ func pauseReplicationWithTimeout(db *pg, timeOut int) error {
 	// goroutine if we hit the timeout
 	select {
 	case <-done:
-		l.Infoln("replication paused")
+		logger.Infoln("replication paused")
 	case <-time.After(time.Duration(timeOut) * time.Second):
 		stop <- true
 		return fmt.Errorf("replication not paused after %v", time.Duration(timeOut)*time.Second)
@@ -747,14 +764,14 @@ func pauseReplicationWithTimeout(db *pg, timeOut int) error {
 	return nil
 }
 
-func resumeReplication(db *pg) error {
-	if ok, err := canPauseReplication(db); !ok {
+func ResumeReplication(logger *logger.LevelLog, db *Pg) error {
+	if ok, err := canPauseReplication(logger, db); !ok {
 		return err
 	}
 
-	l.Infoln("resuming replication")
+	logger.Infoln("resuming replication")
 	query := fmt.Sprintf("SELECT pg_%s_replay_resume() WHERE pg_is_in_recovery();", db.xlogOrWal)
-	l.Verboseln("executing SQL query:", query)
+	logger.Verboseln("executing SQL query:", query)
 	_, err := db.conn.Exec(query)
 	if err != nil {
 		return fmt.Errorf("could not resume replication: %s", err)

@@ -23,7 +23,7 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
 // THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-package main
+package legacy
 
 import (
 	"fmt"
@@ -32,6 +32,8 @@ import (
 	"strings"
 
 	"github.com/anmitsu/go-shlex"
+	"github.com/orgrim/pg_back/internal/helpers"
+	"github.com/orgrim/pg_back/internal/logger"
 )
 
 // Read the input file and return all lines that look like legacy configuration
@@ -130,7 +132,7 @@ out:
 	return strings.Trim(string(buf), " \t\v")
 }
 
-func convertLegacyConf(oldConf []string) string {
+func convertLegacyConf(logger *logger.LevelLog, oldConf []string) string {
 	var result string
 
 	table := map[string]string{
@@ -178,7 +180,7 @@ func convertLegacyConf(oldConf []string) string {
 			}
 			words, err := shlex.Split(v, true)
 			if err != nil {
-				l.Warnf("could not parse value of PGBK_OPTS \"%s\": %s", value, err)
+				logger.Warnf("could not parse value of PGBK_OPTS \"%s\": %s", value, err)
 				continue
 			}
 
@@ -263,19 +265,19 @@ func convertLegacyConf(oldConf []string) string {
 	return result
 }
 
-func convertLegacyConfFile(path string) (err error) {
+func ConvertLegacyConfFile(logger *logger.LevelLog, path string) (err error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return fmt.Errorf("could not convert configuration: %w", err)
 	}
-	defer WrappedClose(f, &err)
+	defer helpers.WrappedClose(f, &err)
 
 	contents, err := readLegacyConf(f)
 	if err != nil {
 		return fmt.Errorf("could not convert configuration: %w", err)
 	}
 
-	fmt.Printf("%s", convertLegacyConf(contents))
+	fmt.Printf("%s", convertLegacyConf(logger, contents))
 
 	return err
 }

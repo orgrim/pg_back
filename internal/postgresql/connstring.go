@@ -23,7 +23,7 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
 // THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-package main
+package postgresql
 
 import (
 	"fmt"
@@ -511,10 +511,10 @@ func makeUrlConnInfo(infos map[string]string) string {
 	return u.String()
 }
 
-// prepareConnInfo returns a connexion string computed from the input
+// PrepareConnInfo returns a connexion string computed from the input
 // values. When the dbname is already a connection string or a postgresql://
 // URI, it only add the application_name keyword if not set.
-func prepareConnInfo(host string, port int, username string, dbname string) (*ConnInfo, error) {
+func PrepareConnInfo(host string, port int, username string, dbname string) (*ConnInfo, error) {
 	var (
 		conninfo *ConnInfo
 		err      error
@@ -554,7 +554,6 @@ func prepareConnInfo(host string, port int, username string, dbname string) (*Co
 	}
 
 	if _, ok := conninfo.Infos["application_name"]; !ok {
-		l.Verboseln("using pg_back as application_name")
 		conninfo.Infos["application_name"] = "pg_back"
 	}
 

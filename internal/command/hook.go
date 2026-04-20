@@ -23,7 +23,7 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
 // THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-package main
+package command
 
 import (
 	"fmt"
@@ -32,14 +32,15 @@ import (
 	"strings"
 
 	"github.com/anmitsu/go-shlex"
+	"github.com/orgrim/pg_back/internal/logger"
 )
 
-func hookCommand(cmd string, logPrefix string) error {
+func hookCommand(logger *logger.LevelLog, cmd string, logPrefix string) error {
 	if cmd == "" {
 		return fmt.Errorf("unable to run an empty command")
 	}
 
-	l.Verboseln("parsing hook command")
+	logger.Verboseln("parsing hook command")
 	words, err := shlex.Split(cmd, true)
 	if err != nil {
 		return fmt.Errorf("unable to parse hook command: %s", err)
@@ -48,13 +49,13 @@ func hookCommand(cmd string, logPrefix string) error {
 	prog := words[0]
 	args := words[1:]
 
-	l.Verboseln("running:", prog, args)
+	logger.Verboseln("running:", prog, args)
 	c := exec.Command(prog, args...)
 	stdoutStderr, err := c.CombinedOutput()
 	if err != nil {
 		for line := range strings.SplitSeq(string(stdoutStderr), "\n") {
 			if line != "" {
-				l.Errorln(logPrefix, line)
+				logger.Errorln(logPrefix, line)
 			}
 		}
 		return err
@@ -62,29 +63,29 @@ func hookCommand(cmd string, logPrefix string) error {
 	if len(stdoutStderr) > 0 {
 		for line := range strings.SplitSeq(string(stdoutStderr), "\n") {
 			if line != "" {
-				l.Infoln(logPrefix, line)
+				logger.Infoln(logPrefix, line)
 			}
 		}
 	}
 	return nil
 }
 
-func preBackupHook(cmd string) error {
+func PreBackupHook(logger *logger.LevelLog, cmd string) error {
 	if cmd != "" {
-		l.Infoln("running pre-backup command:", cmd)
-		if err := hookCommand(cmd, "pre-backup:"); err != nil {
-			l.Fatalln("hook command failed:", err)
+		logger.Infoln("running pre-backup command:", cmd)
+		if err := hookCommand(logger, cmd, "pre-backup:"); err != nil {
+			logger.Fatalln("hook command failed:", err)
 			return err
 		}
 	}
 	return nil
 }
 
-func postBackupHook(cmd string) {
+func PostBackupHook(logger *logger.LevelLog, cmd string) {
 	if cmd != "" {
-		l.Infoln("running post-backup command:", cmd)
-		if err := hookCommand(cmd, "post-backup:"); err != nil {
-			l.Fatalln("hook command failed:", err)
+		logger.Infoln("running post-backup command:", cmd)
+		if err := hookCommand(logger, cmd, "post-backup:"); err != nil {
+			logger.Fatalln("hook command failed:", err)
 			os.Exit(1)
 		}
 	}

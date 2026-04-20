@@ -23,12 +23,11 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
 // THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-package main
+package config
 
 import (
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"runtime"
 	"testing"
@@ -36,6 +35,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	"github.com/orgrim/pg_back/internal/logger"
 	"github.com/spf13/pflag"
 	"gopkg.in/ini.v1"
 )
@@ -75,7 +75,6 @@ func TestValidateMode(t *testing.T) {
 		{"-8170", -8170, false},  // valid and mean do nothing (useful when using umask)
 	}
 
-	l.logger.SetOutput(io.Discard)
 	for i, st := range tests {
 		t.Run(fmt.Sprintf("%v", i), func(t *testing.T) {
 			got, err := validateMode(st.give)
@@ -103,7 +102,6 @@ func TestValidatePurgeKeepValue(t *testing.T) {
 		{"-10", -1, true},
 	}
 
-	l.logger.SetOutput(io.Discard)
 	for i, st := range tests {
 		t.Run(fmt.Sprintf("%v", i), func(t *testing.T) {
 			got, err := validatePurgeKeepValue(st.give)
@@ -210,7 +208,7 @@ func TestDefaultOptions(t *testing.T) {
 		timeFormat = "2006-01-02_15-04-05"
 	}
 
-	var want = options{
+	var want = Options{
 		Directory:               "/var/backups/postgresql",
 		Mode:                    0o600,
 		Format:                  'c',
@@ -231,7 +229,7 @@ func TestDefaultOptions(t *testing.T) {
 		B2ConcurrentConnections: 5,
 	}
 
-	got := defaultOptions()
+	got := DefaultOptions()
 
 	if diff := cmp.Diff(want, got, cmpopts.EquateEmpty()); diff != "" {
 		t.Errorf("DefaultOptions() mismatch (-want +got):\n%s", diff)
@@ -245,10 +243,10 @@ func TestParseCli(t *testing.T) {
 	}
 
 	var (
-		defaults = defaultOptions()
+		defaults = DefaultOptions()
 		tests    = []struct {
 			args       []string
-			want       options
+			want       Options
 			help       bool
 			version    bool
 			err        string
@@ -256,7 +254,7 @@ func TestParseCli(t *testing.T) {
 		}{
 			{
 				[]string{"-b", "test", "-Z", "2", "a", "b"},
-				options{
+				Options{
 					Directory:               "test",
 					Mode:                    0o600,
 					Dbnames:                 []string{"a", "b"},
@@ -284,7 +282,7 @@ func TestParseCli(t *testing.T) {
 			},
 			{
 				[]string{"-t", "--without-templates"},
-				options{
+				Options{
 					Directory:               "/var/backups/postgresql",
 					Mode:                    0o600,
 					WithTemplates:           false,
@@ -336,7 +334,7 @@ func TestParseCli(t *testing.T) {
 			},
 			{
 				[]string{"--upload", "wrong"},
-				options{
+				Options{
 					Directory:               "/var/backups/postgresql",
 					Mode:                    0o600,
 					Format:                  'c',
@@ -365,7 +363,7 @@ func TestParseCli(t *testing.T) {
 			},
 			{
 				[]string{"--download", "wrong"},
-				options{
+				Options{
 					Directory:               "/var/backups/postgresql",
 					Mode:                    0o600,
 					Format:                  'c',
@@ -402,7 +400,7 @@ func TestParseCli(t *testing.T) {
 			},
 			{
 				[]string{"--cipher-pass", "mypass"},
-				options{
+				Options{
 					Directory:               "/var/backups/postgresql",
 					Mode:                    0o600,
 					Format:                  'c',
@@ -431,7 +429,7 @@ func TestParseCli(t *testing.T) {
 			},
 			{
 				[]string{"--cipher-private-key", "mykey"},
-				options{
+				Options{
 					Directory:               "/var/backups/postgresql",
 					Mode:                    0o600,
 					Format:                  'c',
@@ -460,7 +458,7 @@ func TestParseCli(t *testing.T) {
 			},
 			{
 				[]string{"--cipher-public-key", "fakepubkey"},
-				options{
+				Options{
 					Directory:               "/var/backups/postgresql",
 					Mode:                    0o600,
 					Format:                  'c',
@@ -505,7 +503,7 @@ func TestParseCli(t *testing.T) {
 			},
 			{
 				[]string{"--b2-concurrent-connections", "0"},
-				defaultOptions(),
+				DefaultOptions(),
 				false,
 				false,
 				"b2 concurrent connections must be more than 0 (current 0)",
@@ -513,7 +511,7 @@ func TestParseCli(t *testing.T) {
 			},
 			{
 				[]string{"--delete-uploaded", "yes"},
-				options{
+				Options{
 					Directory:               "/var/backups/postgresql",
 					Mode:                    0o600,
 					Format:                  'c',
@@ -543,7 +541,7 @@ func TestParseCli(t *testing.T) {
 			},
 			{
 				[]string{"--delete-uploaded", "true"},
-				options{
+				Options{
 					Directory:               "/var/backups/postgresql",
 					Mode:                    0o600,
 					Format:                  'c',
@@ -577,7 +575,7 @@ func TestParseCli(t *testing.T) {
 	for i, st := range tests {
 		t.Run(fmt.Sprintf("%v", i), func(t *testing.T) {
 			var (
-				opts options
+				opts Options
 				err  error
 			)
 
@@ -591,14 +589,14 @@ func TestParseCli(t *testing.T) {
 				_, w, _ := os.Pipe()
 				os.Stderr = w
 				os.Stdout = w
-				opts, _, err = parseCli(st.args)
+				opts, _, err = ParseCli(st.args, "")
 				os.Stderr = oldStderr
 				os.Stdout = oldStdout
 			} else {
-				opts, _, err = parseCli(st.args)
+				opts, _, err = ParseCli(st.args, "")
 			}
 
-			var errVal *parseCliResult
+			var errVal *ParseCliResult
 
 			if err != nil {
 				if errors.As(err, &errVal) {
@@ -640,12 +638,12 @@ func TestLoadConfigurationFile(t *testing.T) {
 	var tests = []struct {
 		params []string
 		fail   bool
-		want   options
+		want   Options
 	}{
 		{
 			[]string{"backup_directory = test", "port = 5433", "backup_file_mode = 0700"},
 			false,
-			options{
+			Options{
 				Directory:               "test",
 				Mode:                    0o700,
 				Port:                    5433,
@@ -675,7 +673,7 @@ func TestLoadConfigurationFile(t *testing.T) {
 				"backup_file_mode = 0400",
 			},
 			false,
-			options{
+			Options{
 				Directory:               "test",
 				Mode:                    0o400,
 				Dbnames:                 []string{"a", "b", "postgres"},
@@ -700,7 +698,7 @@ func TestLoadConfigurationFile(t *testing.T) {
 		{
 			[]string{"timestamp_format = rfc3339"},
 			false,
-			options{
+			Options{
 				Directory:               "/var/backups/postgresql",
 				Mode:                    0o600,
 				Format:                  'c',
@@ -724,7 +722,7 @@ func TestLoadConfigurationFile(t *testing.T) {
 		{
 			[]string{"timestamp_format = legacy"},
 			false,
-			options{
+			Options{
 				Directory:               "/var/backups/postgresql",
 				Mode:                    0o600,
 				Format:                  'c',
@@ -748,12 +746,12 @@ func TestLoadConfigurationFile(t *testing.T) {
 		{
 			[]string{"timestamp_format = wrong"},
 			true,
-			defaultOptions(),
+			DefaultOptions(),
 		},
 		{ // with an error output is the default
 			[]string{},
 			true,
-			defaultOptions(),
+			DefaultOptions(),
 		},
 		{
 			[]string{
@@ -766,7 +764,7 @@ func TestLoadConfigurationFile(t *testing.T) {
 				"compress_level = 2",
 			},
 			false,
-			options{
+			Options{
 				Directory:     "test",
 				Mode:          0o600,
 				Format:        'c',
@@ -780,7 +778,7 @@ func TestLoadConfigurationFile(t *testing.T) {
 				CfgFile:       "/etc/pg_back/pg_back.conf",
 				TimeFormat:    timeFormat,
 				PgDumpOpts:    []string{"-O", "-x"},
-				PerDbOpts: map[string]*dbOpts{"db": &dbOpts{
+				PerDbOpts: map[string]*DbOpts{"db": &DbOpts{
 					Format:        'c',
 					SumAlgo:       "none",
 					Jobs:          2,
@@ -811,7 +809,7 @@ func TestLoadConfigurationFile(t *testing.T) {
 				"with_blobs = false",
 			},
 			false,
-			options{
+			Options{
 				Directory:     "test",
 				Mode:          0o600,
 				Format:        'c',
@@ -825,7 +823,7 @@ func TestLoadConfigurationFile(t *testing.T) {
 				CfgFile:       "/etc/pg_back/pg_back.conf",
 				TimeFormat:    timeFormat,
 				PgDumpOpts:    []string{"-O", "-x"},
-				PerDbOpts: map[string]*dbOpts{"db": &dbOpts{
+				PerDbOpts: map[string]*DbOpts{"db": &DbOpts{
 					Format:        'c',
 					SumAlgo:       "none",
 					CompressLevel: 3,
@@ -846,7 +844,7 @@ func TestLoadConfigurationFile(t *testing.T) {
 		{
 			[]string{"b2_concurrent_connections = 0"},
 			true,
-			defaultOptions(),
+			DefaultOptions(),
 		},
 	}
 
@@ -878,8 +876,8 @@ func TestLoadConfigurationFile(t *testing.T) {
 				defer remove()
 			}
 
-			var got options
-			got, err = loadConfigurationFile(f.Name())
+			var got Options
+			got, err = LoadConfigurationFile(f.Name(), logger.NewLevelLog())
 			if err != nil && !st.fail {
 				t.Errorf("expected an error: %s", err)
 			}
@@ -896,7 +894,7 @@ func TestMergeCliAndConfigoptions(t *testing.T) {
 		timeFormat = "2006-01-02_15-04-05"
 	}
 
-	want := options{
+	want := Options{
 		BinDirectory:            "/bin",
 		Directory:               "test",
 		Mode:                    0o600,
@@ -950,14 +948,14 @@ func TestMergeCliAndConfigoptions(t *testing.T) {
 		"dbname",
 	}
 
-	got := mergeCliAndConfigOptions(want, defaultOptions(), cliOptList)
+	got := MergeCliAndConfigOptions(want, DefaultOptions(), cliOptList)
 	if diff := cmp.Diff(want, got, cmpopts.EquateEmpty()); diff != "" {
 		t.Errorf("mergeCliAndConfigOptions() mismatch (-want +got):\n%s", diff)
 	}
 }
 
 func TestError(t *testing.T) {
-	err := &parseCliResult{}
+	err := &ParseCliResult{}
 
 	s := fmt.Sprintf("%s", err)
 	if s != "please exit now" {

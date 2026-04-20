@@ -23,7 +23,7 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
 // THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-package main
+package crypto
 
 import (
 	"errors"
@@ -34,6 +34,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"testing"
+
+	"github.com/orgrim/pg_back/internal/logger"
 )
 
 func TestChecksumFile(t *testing.T) {
@@ -89,19 +91,21 @@ func TestChecksumFile(t *testing.T) {
 		}
 	}
 
+	logger := logger.NewLevelLog()
+
 	// bad algo
-	if _, err := checksumFile("", 0o700, "none"); err != nil {
+	if _, err := ChecksumFile(logger, "", 0o700, "none"); err != nil {
 		t.Errorf("expected <nil>, got %q\n", err)
 	}
 
-	if _, err := checksumFile("", 0o700, "other"); err == nil {
+	if _, err := ChecksumFile(logger, "", 0o700, "other"); err == nil {
 		t.Errorf("expected err, got <nil>\n")
 	}
 
 	// test each algo with the file
 	for i, st := range tests {
 		t.Run(fmt.Sprintf("f%v", i), func(t *testing.T) {
-			if _, err := checksumFile("test", 0o700, st.algo); err != nil {
+			if _, err := ChecksumFile(logger, "test", 0o700, st.algo); err != nil {
 				t.Errorf("checksumFile returned: %v", err)
 			}
 
@@ -123,8 +127,10 @@ func TestChecksumFile(t *testing.T) {
 
 	// bad files
 	var e *os.PathError
-	l.logger.SetOutput(io.Discard)
-	if _, err := checksumFile("", 0o700, "sha1"); !errors.As(err, &e) {
+
+	logger.Logger.SetOutput(io.Discard)
+
+	if _, err := ChecksumFile(logger, "", 0o700, "sha1"); !errors.As(err, &e) {
 		t.Errorf("expected an *os.PathError, got %q\n", err)
 	}
 
@@ -132,13 +138,13 @@ func TestChecksumFile(t *testing.T) {
 		t.Errorf("could not chmod test.sha1 file: %q", err)
 	}
 
-	if _, err := checksumFile("test", 0o700, "sha1"); !errors.As(err, &e) {
+	if _, err := ChecksumFile(logger, "test", 0o700, "sha1"); !errors.As(err, &e) {
 		t.Errorf("expected an *os.PathError, got %q\n", err)
 	}
 	if err := os.Chmod("test.sha1", 0644); err != nil {
 		t.Errorf("could not chmod test.sha1 file: %q", err)
 	}
-	l.logger.SetOutput(os.Stderr)
+	logger.Logger.SetOutput(os.Stderr)
 
 	// create a directory and some files
 	if err := os.Mkdir("test.d", 0755); err != nil {
@@ -158,7 +164,7 @@ func TestChecksumFile(t *testing.T) {
 	// test each algo with the directory
 	for i, st := range tests {
 		t.Run(fmt.Sprintf("d%v", i), func(t *testing.T) {
-			if _, err := checksumFile("test.d", 0o700, st.algo); err != nil {
+			if _, err := ChecksumFile(logger, "test.d", 0o700, st.algo); err != nil {
 				t.Errorf("checksumFile returned: %v", err)
 			}
 

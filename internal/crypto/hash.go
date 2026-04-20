@@ -23,7 +23,7 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
 // THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-package main
+package crypto
 
 import (
 	"crypto/sha1"
@@ -34,6 +34,9 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+
+	"github.com/orgrim/pg_back/internal/helpers"
+	"github.com/orgrim/pg_back/internal/logger"
 )
 
 func computeChecksum(path string, h hash.Hash) (_ string, err error) {
@@ -43,7 +46,7 @@ func computeChecksum(path string, h hash.Hash) (_ string, err error) {
 	if err != nil {
 		return "", err
 	}
-	defer WrappedClose(f, &err)
+	defer helpers.WrappedClose(f, &err)
 
 	if _, err := io.Copy(h, f); err != nil {
 		return "", err
@@ -51,7 +54,12 @@ func computeChecksum(path string, h hash.Hash) (_ string, err error) {
 	return string(h.Sum(nil)), err
 }
 
-func checksumFile(path string, mode int, algo string) (_ string, err error) {
+func ChecksumFile(
+	logger *logger.LevelLog,
+	path string,
+	mode int,
+	algo string,
+) (_ string, err error) {
 	var h hash.Hash
 
 	switch algo {
@@ -77,22 +85,22 @@ func checksumFile(path string, mode int, algo string) (_ string, err error) {
 	}
 
 	sumFile := fmt.Sprintf("%s.%s", path, algo)
-	l.Verbosef("create checksum file: %s", sumFile)
+	logger.Verbosef("create checksum file: %s", sumFile)
 	o, err := os.Create(sumFile)
 	if err != nil {
-		l.Errorln(err)
+		logger.Errorln(err)
 		return "", err
 	}
-	defer WrappedClose(o, &err)
+	defer helpers.WrappedClose(o, &err)
 
 	if i.IsDir() {
-		l.Verboseln("dump is a directory, checksumming all file inside")
+		logger.Verboseln("dump is a directory, checksumming all file inside")
 		err = filepath.Walk(path, func(path string, info os.FileInfo, err error) error {
 			if err != nil {
 				return err
 			}
 			if info.Mode().IsRegular() {
-				l.Verboseln("computing checksum of:", path)
+				logger.Verboseln("computing checksum of:", path)
 				r, cerr := computeChecksum(path, h)
 				if cerr != nil {
 					return fmt.Errorf("could not checksum %s: %s", path, cerr)
@@ -112,14 +120,14 @@ func checksumFile(path string, mode int, algo string) (_ string, err error) {
 		// Open the file and use io.Copy to feed the data to the hash,
 		// like in the example of the doc, then write the result to a
 		// file that the standard shaXXXsum tools can understand
-		l.Verboseln("computing checksum of:", path)
+		logger.Verboseln("computing checksum of:", path)
 		r, _ := computeChecksum(path, h)
 		if _, err := fmt.Fprintf(o, "%x  %s\n", r, path); err != nil {
 
 			return "", fmt.Errorf("could not write checksum to %s: %w", path, err)
 		}
 	}
-	l.Verboseln("computing checksum with MODE", mode, path)
+	logger.Verboseln("computing checksum with MODE", mode, path)
 	if mode > 0 {
 		if err := os.Chmod(o.Name(), os.FileMode(mode)); err != nil {
 			return "", fmt.Errorf("could not chmod checksum file %s: %s", path, err)
@@ -128,7 +136,8 @@ func checksumFile(path string, mode int, algo string) (_ string, err error) {
 	return sumFile, err
 }
 
-func checksumFileList(
+func ChecksumFileList(
+	logger *logger.LevelLog,
 	paths []string,
 	mode int,
 	algo string,
@@ -154,20 +163,20 @@ func checksumFileList(
 	}
 
 	sumPath := fmt.Sprintf("%s.%s", sumFilePrefix, algo)
-	l.Verbosef("create or use checksum file: %s", sumPath)
+	logger.Verbosef("create or use checksum file: %s", sumPath)
 	o, err := os.OpenFile(sumPath, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0666)
 	if err != nil {
 		return "", fmt.Errorf("could not open %s: %w", sumPath, err)
 	}
 
-	defer WrappedClose(o, &err)
+	defer helpers.WrappedClose(o, &err)
 
 	failed := false
 	for _, path := range paths {
-		l.Verboseln("computing checksum of:", path)
+		logger.Verboseln("computing checksum of:", path)
 		r, err := computeChecksum(path, h)
 		if err != nil {
-			l.Errorf("could not checksum %s: %s", path, err)
+			logger.Errorf("could not checksum %s: %s", path, err)
 			failed = true
 			continue
 		}
