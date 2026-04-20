@@ -121,7 +121,7 @@ func genPurgeJobs(items []Item, dbname string) []purgeJob {
 	return jobList
 }
 
-func purgeDumps(directory string, dbname string, keep int, limit time.Time) error {
+func purgeDumps(directory string, dbname string, keep int, limit time.Time) (err error) {
 	l.Verboseln("purge:", dbname, "limit:", limit, "keep:", keep)
 
 	// The dbname can be put in the path of the backup directory, so we
@@ -132,7 +132,7 @@ func purgeDumps(directory string, dbname string, keep int, limit time.Time) erro
 	if err != nil {
 		return fmt.Errorf("could not purge %s: %s", dirpath, err)
 	}
-	defer dir.Close()
+	defer WrappedClose(dir, &err)
 
 	files := make([]Item, 0)
 	for {

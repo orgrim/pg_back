@@ -78,7 +78,7 @@ func dbOpen(conninfo *ConnInfo) (*pg, error) {
 	}
 
 	if err := db.Ping(); err != nil {
-		db.Close()
+		db.Close() //nolint:errcheck
 		return nil, fmt.Errorf("could not connect to database: %s", err)
 	}
 
@@ -135,7 +135,7 @@ func sqlQuoteIdent(s string) string {
 	return strings.ReplaceAll(s, "\"", "\"\"")
 }
 
-func listAllDatabases(db *pg, withTemplates bool) ([]string, error) {
+func listAllDatabases(db *pg, withTemplates bool) (_ []string, err error) {
 	var (
 		query  string
 		dbname string
@@ -153,7 +153,7 @@ func listAllDatabases(db *pg, withTemplates bool) ([]string, error) {
 	if err != nil {
 		return dbs, fmt.Errorf("could not list databases: %s", err)
 	}
-	defer rows.Close()
+	defer WrappedClose(rows, &err)
 
 	for rows.Next() {
 		err := rows.Scan(&dbname)
@@ -237,7 +237,7 @@ func (e *pgPrivError) Error() string {
 }
 
 // pg_dumpacl stuff
-func dumpCreateDBAndACL(db *pg, dbname string, force bool) (string, error) {
+func dumpCreateDBAndACL(db *pg, dbname string, force bool) (_ string, err error) {
 	var s string
 
 	if dbname == "" {
@@ -272,7 +272,7 @@ func dumpCreateDBAndACL(db *pg, dbname string, force bool) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("could not query database information for %s: %s", dbname, err)
 	}
-	defer rows.Close()
+	defer WrappedClose(rows, &err)
 
 	for rows.Next() {
 		var (
@@ -347,7 +347,7 @@ func dumpCreateDBAndACL(db *pg, dbname string, force bool) (string, error) {
 		return s, fmt.Errorf("could not retrive rows: %s", err)
 	}
 
-	return s, nil
+	return s, err
 }
 
 func makeACLCommands(aclitem string, dbname string, owner string) string {
@@ -415,7 +415,7 @@ func makeACLCommands(aclitem string, dbname string, owner string) string {
 	return s
 }
 
-func dumpDBConfig(db *pg, dbname string) (string, error) {
+func dumpDBConfig(db *pg, dbname string) (_ string, err error) {
 	var s string
 
 	if dbname == "" {
@@ -443,7 +443,7 @@ func dumpDBConfig(db *pg, dbname string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("could not query database configuration for %s: %s", dbname, err)
 	}
-	defer rows.Close()
+	defer WrappedClose(rows, &err)
 
 	for rows.Next() {
 		var (
@@ -475,10 +475,10 @@ func dumpDBConfig(db *pg, dbname string) (string, error) {
 		return "", fmt.Errorf("could not retrive rows: %s", err)
 	}
 
-	return s, nil
+	return s, err
 }
 
-func showSettings(db *pg) (string, error) {
+func showSettings(db *pg) (_ string, err error) {
 	var s, query string
 
 	if db.version < 80400 {
@@ -504,7 +504,7 @@ func showSettings(db *pg) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("could not query instance configuration: %s", err)
 	}
-	defer rows.Close()
+	defer WrappedClose(rows, &err)
 
 	for rows.Next() {
 		var (
@@ -531,7 +531,7 @@ func showSettings(db *pg) (string, error) {
 	}
 
 	if db.version >= 90500 {
-		return s, nil
+		return s, err
 	} else {
 		// when dumping settings from pg_settings, some
 		// settings may not be found because their value can
@@ -540,7 +540,7 @@ func showSettings(db *pg) (string, error) {
 	}
 }
 
-func extractFileFromSettings(db *pg, name string) (string, error) {
+func extractFileFromSettings(db *pg, name string) (_ string, err error) {
 	query := "SELECT setting, pg_read_file(setting, 0, (pg_stat_file(setting)).size) FROM pg_settings WHERE name = $1"
 
 	l.Verboseln("executing SQL query:", query)
@@ -548,7 +548,7 @@ func extractFileFromSettings(db *pg, name string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("could not query file contents from settings: %s", err)
 	}
-	defer rows.Close()
+	defer WrappedClose(rows, &err)
 
 	var result string
 
@@ -572,7 +572,7 @@ func extractFileFromSettings(db *pg, name string) (string, error) {
 		return "", fmt.Errorf("could not retrive rows: %s", err)
 	}
 
-	return result, nil
+	return result, err
 }
 
 type pgReplicaHasLocks struct{}
@@ -581,7 +581,7 @@ func (*pgReplicaHasLocks) Error() string {
 	return "replication not paused because of AccessExclusiveLock"
 }
 
-func pauseReplication(db *pg) error {
+func pauseReplication(db *pg) (err error) {
 	// If an AccessExclusiveLock is granted when the replay is
 	// paused, it will remain and pg_dump would be stuck forever
 	query := fmt.Sprintf("SELECT pg_%s_replay_pause() "+
@@ -592,7 +592,7 @@ func pauseReplication(db *pg) error {
 	if err != nil {
 		return fmt.Errorf("could not pause replication: %s", err)
 	}
-	defer rows.Close()
+	defer WrappedClose(rows, &err)
 
 	// The query returns a single row with one column of type void,
 	// which is and empty string, on success. It does not return
@@ -607,10 +607,10 @@ func pauseReplication(db *pg) error {
 	if void == "failed" {
 		return &pgReplicaHasLocks{}
 	}
-	return nil
+	return err
 }
 
-func canPauseReplication(db *pg) (bool, error) {
+func canPauseReplication(db *pg) (_ bool, err error) {
 	// hot standby exists from 9.0
 	if db.version < 90000 {
 		return false, nil
@@ -623,7 +623,7 @@ func canPauseReplication(db *pg) (bool, error) {
 	if err != nil {
 		return false, fmt.Errorf("could not check if replication is pausable: %s", err)
 	}
-	defer rows.Close()
+	defer WrappedClose(rows, &err)
 
 	// The query returns 1 on success, no row on failure
 	var one int
@@ -634,10 +634,10 @@ func canPauseReplication(db *pg) (bool, error) {
 		}
 	}
 	if one == 0 {
-		return false, nil
+		return false, err
 	}
 
-	return true, nil
+	return true, err
 }
 
 func pauseReplicationWithTimeout(db *pg, timeOut int) error {

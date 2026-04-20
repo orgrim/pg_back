@@ -173,15 +173,15 @@ func NewB2Repo(opts options) (*b2repo, error) {
 	return r, nil
 }
 
-func (r *b2repo) Upload(path string, target string) error {
+func (r *b2repo) Upload(path string, target string) (err error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer WrappedClose(f, &err)
 
 	w := r.b2Bucket.Object(target).NewWriter(r.ctx)
-	defer w.Close()
+	defer WrappedClose(w, &err)
 
 	w.ConcurrentUploads = r.concurrentConnections
 
@@ -193,12 +193,12 @@ func (r *b2repo) Upload(path string, target string) error {
 	return nil
 }
 
-func (r *b2repo) Download(target string, path string) error {
+func (r *b2repo) Download(target string, path string) (err error) {
 	f, err := os.Create(path)
 	if err != nil {
 		return fmt.Errorf("download error: %w", err)
 	}
-	defer f.Close()
+	defer WrappedClose(f, &err)
 
 	bucket := r.b2Bucket
 
@@ -206,7 +206,7 @@ func (r *b2repo) Download(target string, path string) error {
 
 	rf := bucket.Object(target).NewReader(r.ctx)
 	rf.ConcurrentDownloads = r.concurrentConnections
-	defer rf.Close()
+	defer WrappedClose(rf, &err)
 
 	if err != nil {
 		return err
@@ -311,12 +311,12 @@ func (r *s3repo) Close() error {
 	return nil
 }
 
-func (r *s3repo) Upload(path string, target string) error {
+func (r *s3repo) Upload(path string, target string) (err error) {
 	file, err := os.Open(path)
 	if err != nil {
 		return fmt.Errorf("upload error: %w", err)
 	}
-	defer file.Close()
+	defer WrappedClose(file, &err)
 
 	uploader := s3manager.NewUploader(r.session)
 
@@ -334,12 +334,12 @@ func (r *s3repo) Upload(path string, target string) error {
 	return nil
 }
 
-func (r *s3repo) Download(target string, path string) error {
+func (r *s3repo) Download(target string, path string) (err error) {
 	file, err := os.Create(path)
 	if err != nil {
 		return fmt.Errorf("download error: %w", err)
 	}
-	defer file.Close()
+	defer WrappedClose(file, &err)
 
 	downloader := s3manager.NewDownloader(r.session)
 
@@ -630,14 +630,14 @@ func (r *sftpRepo) Close() error {
 	return r.conn.Close()
 }
 
-func (r *sftpRepo) Upload(path string, target string) error {
+func (r *sftpRepo) Upload(path string, target string) (err error) {
 	l.Infof("uploading %s to %s:%s using sftp\n", path, r.host, r.baseDir)
 
 	src, err := os.Open(path)
 	if err != nil {
 		return fmt.Errorf("sftp: could not open source %s: %w", path, err)
 	}
-	defer src.Close()
+	defer WrappedClose(src, &err)
 
 	rpath := filepath.Join(r.baseDir, target)
 	targetDir := filepath.Dir(rpath)
@@ -660,23 +660,23 @@ func (r *sftpRepo) Upload(path string, target string) error {
 	if err != nil {
 		return fmt.Errorf("sftp: could not open destination %s: %w", rpath, err)
 	}
-	defer dst.Close()
+	defer WrappedClose(dst, &err)
 
 	if _, err := io.Copy(dst, src); err != nil {
 		return fmt.Errorf("sftp: could not send data with sftp: %s", err)
 	}
 
-	return nil
+	return err
 }
 
-func (r *sftpRepo) Download(target string, path string) error {
+func (r *sftpRepo) Download(target string, path string) (err error) {
 	l.Infof("downloading %s from %s:%s using sftp\n", target, r.host, r.baseDir)
 
 	dst, err := os.Create(path)
 	if err != nil {
 		return fmt.Errorf("sftp: could not open or create %s: %w", path, err)
 	}
-	defer dst.Close()
+	defer WrappedClose(dst, &err)
 
 	rpath := filepath.Join(r.baseDir, target)
 
@@ -690,13 +690,13 @@ func (r *sftpRepo) Download(target string, path string) error {
 	if err != nil {
 		return fmt.Errorf("sftp: could not open %s on %s: %w", rpath, r.host, err)
 	}
-	defer src.Close()
+	defer WrappedClose(src, &err)
 
 	if _, err := io.Copy(dst, src); err != nil {
 		return fmt.Errorf("sftp: could not receive data with sftp: %s", err)
 	}
 
-	return nil
+	return err
 }
 
 func (r *sftpRepo) List(prefix string) (items []Item, rerr error) {
@@ -789,45 +789,45 @@ func (r *gcsRepo) Close() error {
 	return r.client.Close()
 }
 
-func (r *gcsRepo) Upload(path string, target string) error {
+func (r *gcsRepo) Upload(path string, target string) (err error) {
 	file, err := os.Open(path)
 	if err != nil {
 		return fmt.Errorf("upload error: %w", err)
 	}
-	defer file.Close()
+	defer WrappedClose(file, &err)
 
 	obj := r.client.Bucket(r.bucket).Object(forwardSlashes(target)).NewWriter(context.Background())
-	defer obj.Close()
+	// The upload is done asynchronously, the error returned by Close()
+	// says if it was successful
+	defer WrappedClose(obj, &err)
 
 	l.Infof("uploading %s to GCS bucket %s\n", path, r.bucket)
 	if _, err := io.Copy(obj, file); err != nil {
 		return fmt.Errorf("could not write data to GCS object: %w", err)
 	}
 
-	// The upload is done asynchronously, the error returned by Close()
-	// says if it was successful
-	return obj.Close()
+	return err
 }
 
-func (r *gcsRepo) Download(target string, path string) error {
+func (r *gcsRepo) Download(target string, path string) (err error) {
 	file, err := os.Create(path)
 	if err != nil {
 		return fmt.Errorf("download error: %w", err)
 	}
-	defer file.Close()
+	defer WrappedClose(file, &err)
 
 	obj, err := r.client.Bucket(r.bucket).Object(forwardSlashes(target)).NewReader(context.Background())
 	if err != nil {
 		return fmt.Errorf("download error: %w", err)
 	}
-	defer obj.Close()
+	defer WrappedClose(obj, &err)
 
 	l.Infof("downloading %s from GCS bucket %s to %s\n", target, r.bucket, path)
 	if _, err := io.Copy(file, obj); err != nil {
 		return fmt.Errorf("could not read data from GCS object: %w", err)
 	}
 
-	return obj.Close()
+	return err
 }
 
 func (r *gcsRepo) List(prefix string) (items []Item, rerr error) {
@@ -916,12 +916,12 @@ func NewAzRepo(opts options) (*azRepo, error) {
 	return r, nil
 }
 
-func (r *azRepo) Upload(path string, target string) error {
+func (r *azRepo) Upload(path string, target string) (err error) {
 	file, err := os.Open(path)
 	if err != nil {
 		return fmt.Errorf("upload error: %w", err)
 	}
-	defer file.Close()
+	defer WrappedClose(file, &err)
 
 	l.Infof("uploading %s to Azure container %s\n", path, r.container)
 	_, err = r.client.UploadFile(context.Background(), r.container, path, file, nil)
@@ -929,15 +929,15 @@ func (r *azRepo) Upload(path string, target string) error {
 		return fmt.Errorf("could not upload %s to Azure: %w", path, err)
 	}
 
-	return nil
+	return err
 }
 
-func (r *azRepo) Download(target string, path string) error {
+func (r *azRepo) Download(target string, path string) (err error) {
 	file, err := os.Create(path)
 	if err != nil {
 		return fmt.Errorf("download error: %w", err)
 	}
-	defer file.Close()
+	defer WrappedClose(file, &err)
 
 	l.Infof("downloading %s from Azure container %s\n", target, r.container)
 	_, err = r.client.DownloadFile(context.Background(), r.container, target, file, nil)
@@ -945,7 +945,7 @@ func (r *azRepo) Download(target string, path string) error {
 		return fmt.Errorf("could not download %s from Azure: %w", target, err)
 	}
 
-	return nil
+	return err
 }
 
 func (r *azRepo) List(prefix string) ([]Item, error) {
