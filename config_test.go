@@ -504,7 +504,7 @@ func TestParseCli(t *testing.T) {
 				"",
 			},
 			{
-				[]string{"--b2-concurrent-upload", "0"},
+				[]string{"--b2-concurrent-connections", "0"},
 				defaultOptions(),
 				false,
 				false,
