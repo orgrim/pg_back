@@ -23,7 +23,7 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
 // THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-package main
+package postgresql
 
 import (
 	"fmt"
@@ -349,7 +349,7 @@ func TestPrepareConnInfo(t *testing.T) {
 
 	for i, subt := range tests {
 		t.Run(fmt.Sprintf("%v", i), func(t *testing.T) {
-			res, _ := prepareConnInfo(subt.host, subt.port, subt.username, subt.dbname)
+			res, _ := PrepareConnInfo(subt.host, subt.port, subt.username, subt.dbname)
 			if res.String() != subt.want {
 				t.Errorf("got '%s', want '%s'", res, subt.want)
 			}

@@ -23,7 +23,7 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
 // THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-package main
+package storage
 
 import (
 	"errors"
@@ -31,9 +31,12 @@ import (
 	"path/filepath"
 	"runtime"
 	"testing"
+
+	"github.com/orgrim/pg_back/internal/logger"
 )
 
 func TestLockPath(t *testing.T) {
+	logger := logger.NewLevelLog()
 	// Work from a tempdir
 	dir, err := os.MkdirTemp("", "test_lockpath")
 	if err != nil {
@@ -49,19 +52,19 @@ func TestLockPath(t *testing.T) {
 	var e *os.PathError
 	// On windows the directory is created even with a mode of the tempdir that should make it fail
 	if runtime.GOOS != "windows" {
-		_, _, err = lockPath(filepath.Join(dir, "subfail", "subfail", "lockfail"))
+		_, _, err = LockPath(logger, filepath.Join(dir, "subfail", "subfail", "lockfail"))
 		if !errors.As(err, &e) {
 			t.Errorf("expected a *os.PathError, got %q\n", err)
 		}
 	}
 	// path is subdir of tempdir to make os.create fail
-	_, _, err = lockPath(filepath.Join(dir, "subfail"))
+	_, _, err = LockPath(logger, filepath.Join(dir, "subfail"))
 	if !errors.As(err, &e) {
 		t.Errorf("expected a *os.PathError, got %q\n", err)
 	}
 
 	// lock a path with success
-	f, l, err := lockPath(filepath.Join(dir, "lock"))
+	f, l, err := LockPath(logger, filepath.Join(dir, "lock"))
 	if err != nil {
 		t.Errorf("expected <nil> got error %q\n", err)
 	}
@@ -71,7 +74,7 @@ func TestLockPath(t *testing.T) {
 	}
 
 	// fail to lock it again
-	f1, l1, err := lockPath(filepath.Join(dir, "lock"))
+	f1, l1, err := LockPath(logger, filepath.Join(dir, "lock"))
 	if err != nil {
 		t.Errorf("expected <nil> got error %q\n", err)
 	}
@@ -82,6 +85,7 @@ func TestLockPath(t *testing.T) {
 }
 
 func TestUnlockPath(t *testing.T) {
+	logger := logger.NewLevelLog()
 	f, err := os.CreateTemp("", "test_unlockpath")
 	if err != nil {
 		t.Fatal("could not create tempfile")
@@ -89,14 +93,14 @@ func TestUnlockPath(t *testing.T) {
 	defer os.Remove(f.Name())
 
 	// unlock shall always work even if the file is not locked
-	err = unlockPath(f)
+	err = UnlockPath(logger, f)
 	if err != nil {
 		t.Errorf("got error %q on non locked file\n", err)
 	}
 
 	// error when the locked file as already been removed
 	os.Remove(f.Name())
-	err = unlockPath(f)
+	err = UnlockPath(logger, f)
 	if err == nil {
 		t.Errorf("got <nil> instead of \"bad file descriptor\" error")
 	}

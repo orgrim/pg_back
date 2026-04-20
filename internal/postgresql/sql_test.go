@@ -23,7 +23,7 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
 // THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-package main
+package postgresql
 
 import (
 	"fmt"
@@ -34,10 +34,13 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	"github.com/orgrim/pg_back/internal/command"
+	"github.com/orgrim/pg_back/internal/logger"
 )
 
 var (
-	testdb *pg
+	testdb *Pg
+	l      = logger.NewLevelLog()
 )
 
 func needPgConn(t *testing.T) {
@@ -50,17 +53,19 @@ func needPgConn(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unable to parse PGBK_TEST_CONNINFO: %s", err)
 		}
-		testdb, err = dbOpen(conninfo)
+		testdb, err = DbOpen(l, conninfo)
 		if err != nil {
-			t.Fatalf("expected an ok on dbOpen(), got %s", err)
+			t.Fatalf("expected an ok on DbOpen(), got %s", err)
 		}
 	}
 }
 
-func needPgDump(t *testing.T) {
-	if pgToolVersion("pg_dump") >= 110000 {
+func needPgDump(t *testing.T) int {
+	v := command.PgToolVersion(l, "", "pg_dump")
+	if v >= 110000 {
 		t.Skip("testing with a pg_dump version > 11")
 	}
+	return v
 }
 
 func TestSqlQuoteLiteral(t *testing.T) {
@@ -156,17 +161,17 @@ func TestDbOpen(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to parse PGBK_TEST_CONNINFO: %s", err)
 	}
-	db, err := dbOpen(conninfo)
+	db, err := DbOpen(l, conninfo)
 	if err != nil {
-		t.Fatalf("expected an ok on dbOpen(), got %s", err)
+		t.Fatalf("expected an ok on DbOpen(), got %s", err)
 	}
 	if err := db.Close(); err != nil {
 		t.Errorf("expected an okon db.Close(), got %s", err)
 	}
 
-	testdb, err = dbOpen(conninfo)
+	testdb, err = DbOpen(l, conninfo)
 	if err != nil {
-		t.Fatalf("expected an ok on dbOpen(), got %s", err)
+		t.Fatalf("expected an ok on DbOpen(), got %s", err)
 	}
 }
 
@@ -183,7 +188,7 @@ func TestListAllDatabases(t *testing.T) {
 
 	for i, st := range tests {
 		t.Run(fmt.Sprintf("%v", i), func(t *testing.T) {
-			got, err := listAllDatabases(testdb, st.templates)
+			got, err := listAllDatabases(l, testdb, st.templates)
 			if err != nil {
 				t.Errorf("expected non nil error, got %q", err)
 			}
@@ -222,7 +227,7 @@ func TestListDatabases(t *testing.T) {
 
 	for i, st := range tests {
 		t.Run(fmt.Sprintf("%v", i), func(t *testing.T) {
-			got, err := listDatabases(testdb, st.withTemplates, st.excludedDbs, st.includedDbs)
+			got, err := ListDatabases(l, testdb, st.withTemplates, st.excludedDbs, st.includedDbs)
 			if err != nil {
 				t.Errorf("expected non nil error, got %q", err)
 			}
@@ -244,11 +249,11 @@ func TestDumpDBConfig(t *testing.T) {
 	}
 
 	needPgConn(t)
-	needPgDump(t)
+	pg_dump_v := needPgDump(t)
 
 	for i, st := range tests {
 		t.Run(fmt.Sprintf("%v", i), func(t *testing.T) {
-			got, err := dumpDBConfig(testdb, "b1")
+			got, err := DumpDBConfig(l, testdb, "b1", pg_dump_v)
 			if err != nil {
 				t.Errorf("expected non nil error, got %q", err)
 			}
@@ -263,7 +268,7 @@ func TestDumpDBConfig(t *testing.T) {
 func TestShowSettings(t *testing.T) {
 	needPgConn(t)
 
-	got, err := showSettings(testdb)
+	got, err := ShowSettings(l, testdb)
 	if err != nil {
 		t.Errorf("expected non nil error, got %q", err)
 	}
@@ -288,7 +293,7 @@ func TestShowSettings(t *testing.T) {
 
 func TestDumpCreateDBAndACL(t *testing.T) {
 	needPgConn(t)
-	needPgDump(t)
+	pg_dump_v := needPgDump(t)
 
 	var tests = []struct {
 		db   string
@@ -306,7 +311,7 @@ func TestDumpCreateDBAndACL(t *testing.T) {
 
 	for _, st := range tests {
 		t.Run(st.db, func(t *testing.T) {
-			got, err := dumpCreateDBAndACL(testdb, st.db, false)
+			got, err := DumpCreateDBAndACL(l, testdb, st.db, pg_dump_v, false)
 			if err != nil {
 				t.Errorf("expected non nil error, got %q", err)
 			}
@@ -321,7 +326,7 @@ func TestDumpCreateDBAndACL(t *testing.T) {
 func TestExtractFileFromSettings(t *testing.T) {
 	needPgConn(t)
 
-	got, err := extractFileFromSettings(testdb, "hba_file")
+	got, err := ExtractFileFromSettings(l, testdb, "hba_file")
 	if err != nil {
 		t.Errorf("expected non nil error, got %q", err)
 	}

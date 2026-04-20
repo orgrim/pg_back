@@ -26,51 +26,13 @@
 package main
 
 import (
-	"fmt"
-	"runtime"
 	"testing"
+
+	"github.com/orgrim/pg_back/internal/config"
 )
 
-func TestExecPath(t *testing.T) {
-	var tests []struct {
-		dir  string
-		prog string
-		want string
-	}
-
-	if runtime.GOOS != "windows" {
-		tests = []struct {
-			dir  string
-			prog string
-			want string
-		}{
-			{"", "pg_dump", "pg_dump"},
-			{"/path/to/bin", "prog", "/path/to/bin/prog"},
-		}
-	} else {
-		tests = []struct {
-			dir  string
-			prog string
-			want string
-		}{
-			{"", "pg_dump", "pg_dump.exe"},
-			{"C:\\path\\to\\bin", "prog", "C:\\path\\to\\bin\\prog.exe"},
-		}
-	}
-
-	for i, st := range tests {
-		t.Run(fmt.Sprintf("%v", i), func(t *testing.T) {
-			binDir = st.dir
-			got := execPath(st.prog)
-			if got != st.want {
-				t.Errorf("expected %q, got %q\n", st.want, got)
-			}
-		})
-	}
-}
-
 func TestEnsureCipherParamsPresent_NoEncryptNoDecrypt_NoParams_ReturnsNil(t *testing.T) {
-	opts := options{}
+	opts := config.Options{}
 
 	err := ensureCipherParamsPresent(&opts)
 	if err != nil {
@@ -79,7 +41,7 @@ func TestEnsureCipherParamsPresent_NoEncryptNoDecrypt_NoParams_ReturnsNil(t *tes
 }
 
 func TestEnsureCipherParamsPresent_NoEncryptNoDecrypt_HasParams_ReturnsNil(t *testing.T) {
-	opts := options{
+	opts := config.Options{
 		CipherPublicKey:  "foo1",
 		CipherPrivateKey: "bar99",
 		CipherPassphrase: "secretwords",
@@ -92,7 +54,7 @@ func TestEnsureCipherParamsPresent_NoEncryptNoDecrypt_HasParams_ReturnsNil(t *te
 }
 
 func TestEnsureCipherParamsPresent_Encrypt_NoParams_Failure(t *testing.T) {
-	opts := options{
+	opts := config.Options{
 		Encrypt:          true,
 		CipherPrivateKey: "bar99",
 	}
@@ -104,7 +66,7 @@ func TestEnsureCipherParamsPresent_Encrypt_NoParams_Failure(t *testing.T) {
 }
 
 func TestEnsureCipherParamsPresent_Encrypt_NoParamsButEnv_Success(t *testing.T) {
-	opts := options{
+	opts := config.Options{
 		Encrypt: true,
 	}
 	t.Setenv("PGBK_CIPHER_PASS", "works")

@@ -23,7 +23,7 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
 // THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-package main
+package logger
 
 import (
 	"bytes"
@@ -64,7 +64,7 @@ func TestLevelLogVerbose(t *testing.T) {
 	for i, subt := range tests {
 		t.Run(fmt.Sprintf("%v", i), func(t *testing.T) {
 			buf := new(bytes.Buffer)
-			l.logger.SetOutput(buf)
+			l.Logger.SetOutput(buf)
 			l.SetVerbosity(subt.verbose, false)
 			if subt.fOrln {
 				l.Verbosef("%s", subt.message)
@@ -82,7 +82,7 @@ func TestLevelLogVerbose(t *testing.T) {
 			if !matched {
 				t.Errorf("log output should match %q is %q", subt.re, line)
 			}
-			l.logger.SetOutput(os.Stderr)
+			l.Logger.SetOutput(os.Stderr)
 		})
 	}
 }
@@ -102,7 +102,7 @@ func TestLevelLogInfo(t *testing.T) {
 	for i, subt := range tests {
 		t.Run(fmt.Sprintf("%v", i), func(t *testing.T) {
 			buf := new(bytes.Buffer)
-			l.logger.SetOutput(buf)
+			l.Logger.SetOutput(buf)
 			if subt.fOrln {
 				l.Infof("%s", subt.message)
 			} else {
@@ -118,7 +118,7 @@ func TestLevelLogInfo(t *testing.T) {
 			if !matched {
 				t.Errorf("log output should match %q is %q", subt.re, line)
 			}
-			l.logger.SetOutput(os.Stderr)
+			l.Logger.SetOutput(os.Stderr)
 		})
 	}
 }
@@ -138,7 +138,7 @@ func TestLevelLogWarn(t *testing.T) {
 	for i, subt := range tests {
 		t.Run(fmt.Sprintf("%v", i), func(t *testing.T) {
 			buf := new(bytes.Buffer)
-			l.logger.SetOutput(buf)
+			l.Logger.SetOutput(buf)
 			if subt.fOrln {
 				l.Warnf("%s", subt.message)
 			} else {
@@ -154,7 +154,7 @@ func TestLevelLogWarn(t *testing.T) {
 			if !matched {
 				t.Errorf("log output should match %q is %q", subt.re, line)
 			}
-			l.logger.SetOutput(os.Stderr)
+			l.Logger.SetOutput(os.Stderr)
 		})
 	}
 }
@@ -174,7 +174,7 @@ func TestLevelLogError(t *testing.T) {
 	for i, subt := range tests {
 		t.Run(fmt.Sprintf("%v", i), func(t *testing.T) {
 			buf := new(bytes.Buffer)
-			l.logger.SetOutput(buf)
+			l.Logger.SetOutput(buf)
 			if subt.fOrln {
 				l.Errorf("%s", subt.message)
 			} else {
@@ -190,7 +190,7 @@ func TestLevelLogError(t *testing.T) {
 			if !matched {
 				t.Errorf("log output should match %q is %q", subt.re, line)
 			}
-			l.logger.SetOutput(os.Stderr)
+			l.Logger.SetOutput(os.Stderr)
 		})
 	}
 }
@@ -210,7 +210,7 @@ func TestLevelLogFatal(t *testing.T) {
 	for i, subt := range tests {
 		t.Run(fmt.Sprintf("%v", i), func(t *testing.T) {
 			buf := new(bytes.Buffer)
-			l.logger.SetOutput(buf)
+			l.Logger.SetOutput(buf)
 			if subt.fOrln {
 				l.Fatalf("%s", subt.message)
 			} else {
@@ -226,7 +226,7 @@ func TestLevelLogFatal(t *testing.T) {
 			if !matched {
 				t.Errorf("log output should match %q is %q", subt.re, line)
 			}
-			l.logger.SetOutput(os.Stderr)
+			l.Logger.SetOutput(os.Stderr)
 		})
 	}
 }
@@ -238,7 +238,7 @@ func TestLevelLogQuiet(t *testing.T) {
 	l.SetVerbosity(true, true)
 
 	buf := new(bytes.Buffer)
-	l.logger.SetOutput(buf)
+	l.Logger.SetOutput(buf)
 
 	l.Verbosef("test")
 	if buf.Len() > 0 {

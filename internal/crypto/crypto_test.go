@@ -23,7 +23,7 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
 // THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-package main
+package crypto
 
 import (
 	"bytes"
@@ -44,9 +44,9 @@ func TestAgeEncrypt_NilParams_Failure(t *testing.T) {
 	content := "to be encrypted"
 	reader := strings.NewReader(content)
 	writer := &bytes.Buffer{}
-	params := encryptParams{}
+	params := EncryptParams{}
 
-	err := ageEncrypt(reader, writer, params)
+	err := params.ageEncrypt(reader, writer)
 	if err == nil {
 		t.Errorf("Expected empty encryption params to fail")
 	}
@@ -56,9 +56,9 @@ func TestAgeDecrypt_NilParams_Failure(t *testing.T) {
 	content := "to be encrypted"
 	reader := strings.NewReader(content)
 	writer := &bytes.Buffer{}
-	params := decryptParams{}
+	params := DecryptParams{}
 
-	err := ageDecrypt(reader, writer, params)
+	err := params.ageDecrypt(reader, writer)
 	if err == nil {
 		t.Errorf("Expected empty encryption params to fail")
 	}
@@ -71,9 +71,9 @@ func TestAgeDecrypt_InvalidPrivateKey_Failure(t *testing.T) {
 	}
 	reader := bytes.NewReader(encrypted)
 	writer := &bytes.Buffer{}
-	params := decryptParams{PrivateKey: TEST_PUBLIC_KEY}
+	params := DecryptParams{PrivateKey: TEST_PUBLIC_KEY}
 
-	err = ageDecrypt(reader, writer, params)
+	err = params.ageDecrypt(reader, writer)
 	if err == nil {
 		t.Errorf("Expected invalid private key to fail")
 	}
@@ -83,9 +83,9 @@ func TestAgeDecrypt_InvalidPublicKey_Failure(t *testing.T) {
 	content := "to be encrypted"
 	reader := strings.NewReader(content)
 	writer := &bytes.Buffer{}
-	params := decryptParams{PrivateKey: TEST_PRIVATE_KEY}
+	params := DecryptParams{PrivateKey: TEST_PRIVATE_KEY}
 
-	err := ageDecrypt(reader, writer, params)
+	err := params.ageDecrypt(reader, writer)
 	if err == nil {
 		t.Errorf("Expected invalid public key to fail")
 	}
@@ -123,11 +123,11 @@ func TestAgeDecrypt_Golden_Success(t *testing.T) {
 	}
 	reader := bytes.NewReader(encrypted)
 	writer := &bytes.Buffer{}
-	params := decryptParams{
+	params := DecryptParams{
 		PrivateKey: TEST_PRIVATE_KEY,
 	}
 
-	err = ageDecrypt(reader, writer, params)
+	err = params.ageDecrypt(reader, writer)
 	if err != nil {
 		t.Fatalf("could not decrypt golden message: %v", err)
 	}
@@ -146,9 +146,9 @@ func TestAgeEncrypt_PublicKey_Loopback_Success(t *testing.T) {
 	content := "to be encrypted"
 	reader := strings.NewReader(content)
 	writer := &bytes.Buffer{}
-	params := encryptParams{PublicKey: identity.Recipient().String()}
+	params := EncryptParams{PublicKey: identity.Recipient().String()}
 
-	err = ageEncrypt(reader, writer, params)
+	err = params.ageEncrypt(reader, writer)
 	if err != nil {
 		t.Errorf("Unexpected error when encrypting")
 	}
@@ -160,8 +160,8 @@ func TestAgeEncrypt_PublicKey_Loopback_Success(t *testing.T) {
 
 	reader = strings.NewReader(ciphertext)
 	writer = &bytes.Buffer{}
-	decryptParams := decryptParams{PrivateKey: identity.String()}
-	err = ageDecrypt(reader, writer, decryptParams)
+	decryptParams := DecryptParams{PrivateKey: identity.String()}
+	err = decryptParams.ageDecrypt(reader, writer)
 	if err != nil {
 		t.Errorf("Unexpected error when decrypting")
 	}
@@ -175,9 +175,9 @@ func TestAgeEncrypt_Passphrase_Loopback_Success(t *testing.T) {
 	content := "to be encrypted"
 	reader := strings.NewReader(content)
 	writer := &bytes.Buffer{}
-	params := encryptParams{Passphrase: "supersecret"}
+	params := EncryptParams{Passphrase: "supersecret"}
 
-	err := ageEncrypt(reader, writer, params)
+	err := params.ageEncrypt(reader, writer)
 	if err != nil {
 		t.Errorf("Unexpected error when encrypting")
 	}
@@ -189,8 +189,8 @@ func TestAgeEncrypt_Passphrase_Loopback_Success(t *testing.T) {
 
 	reader = strings.NewReader(ciphertext)
 	writer = &bytes.Buffer{}
-	decryptParams := decryptParams{Passphrase: "supersecret"}
-	err = ageDecrypt(reader, writer, decryptParams)
+	decryptParams := DecryptParams{Passphrase: "supersecret"}
+	err = decryptParams.ageDecrypt(reader, writer)
 	if err != nil {
 		t.Errorf("Unexpected error when decrypting")
 	}
@@ -209,9 +209,9 @@ func TestAgeEncrypt_WrongPrivateKey_Loopback_Failure(t *testing.T) {
 	content := "to be encrypted"
 	reader := strings.NewReader(content)
 	writer := &bytes.Buffer{}
-	params := encryptParams{PublicKey: identity.Recipient().String()}
+	params := EncryptParams{PublicKey: identity.Recipient().String()}
 
-	err = ageEncrypt(reader, writer, params)
+	err = params.ageEncrypt(reader, writer)
 	if err != nil {
 		t.Errorf("Unexpected error when encrypting")
 	}
@@ -228,8 +228,8 @@ func TestAgeEncrypt_WrongPrivateKey_Loopback_Failure(t *testing.T) {
 
 	reader = strings.NewReader(ciphertext)
 	writer = &bytes.Buffer{}
-	decryptParams := decryptParams{PrivateKey: wrongIdentity.String()}
-	err = ageDecrypt(reader, writer, decryptParams)
+	decryptParams := DecryptParams{PrivateKey: wrongIdentity.String()}
+	err = decryptParams.ageDecrypt(reader, writer)
 	if err == nil {
 		t.Errorf("Decryption should have failed")
 	}
@@ -239,9 +239,9 @@ func TestAgeEncrypt_WrongPassphrase_Loopback_Failure(t *testing.T) {
 	content := "to be encrypted"
 	reader := strings.NewReader(content)
 	writer := &bytes.Buffer{}
-	params := encryptParams{Passphrase: "supersecret"}
+	params := EncryptParams{Passphrase: "supersecret"}
 
-	err := ageEncrypt(reader, writer, params)
+	err := params.ageEncrypt(reader, writer)
 	if err != nil {
 		t.Errorf("Unexpected error when encrypting")
 	}
@@ -253,8 +253,8 @@ func TestAgeEncrypt_WrongPassphrase_Loopback_Failure(t *testing.T) {
 
 	reader = strings.NewReader(ciphertext)
 	writer = &bytes.Buffer{}
-	decryptParams := decryptParams{Passphrase: "wrong"}
-	err = ageDecrypt(reader, writer, decryptParams)
+	decryptParams := DecryptParams{Passphrase: "wrong"}
+	err = decryptParams.ageDecrypt(reader, writer)
 	if err == nil {
 		t.Fatalf("Decryption should have failed")
 	}
