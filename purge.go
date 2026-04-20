@@ -48,7 +48,9 @@ func genPurgeJobs(items []Item, dbname string) []purgeJob {
 
 	// The files to purge must be grouped by date. depending on the options
 	// there can be up to 6 files for a database or output
-	reExt := regexp.MustCompile(`^(sql|d|dump|tar|out|createdb\.sql)(?:\.(sha\d{1,3}|age))?(?:\.(sha\d{1,3}|age))?(?:\.(sha\d{1,3}))?`)
+	reExt := regexp.MustCompile(
+		`^(sql|d|dump|tar|out|createdb\.sql)(?:\.(sha\d{1,3}|age))?(?:\.(sha\d{1,3}|age))?(?:\.(sha\d{1,3}))?`,
+	)
 
 	for _, item := range items {
 		if strings.HasPrefix(item.key, cleanDBName(dbname)+"_") {
@@ -204,7 +206,14 @@ func purgeDumps(directory string, dbname string, keep int, limit time.Time) (err
 	return nil
 }
 
-func purgeRemoteDumps(repo Repo, uploadPrefix string, directory string, dbname string, keep int, limit time.Time) error {
+func purgeRemoteDumps(
+	repo Repo,
+	uploadPrefix string,
+	directory string,
+	dbname string,
+	keep int,
+	limit time.Time,
+) error {
 	l.Verboseln("remote purge:", dbname, "limit:", limit, "keep:", keep)
 
 	// The dbname can be put in the directory tree of the dump, in this
@@ -212,7 +221,10 @@ func purgeRemoteDumps(repo Repo, uploadPrefix string, directory string, dbname s
 	// remote path along with any subdirectory. So we have to include it in
 	// the filter when listing remote files
 	dirpath := filepath.Dir(formatDumpPath(directory, "", "", dbname, time.Time{}, 0))
-	prefix := filepath.Join(uploadPrefix, relPath(directory, filepath.Join(dirpath, cleanDBName(dbname))))
+	prefix := filepath.Join(
+		uploadPrefix,
+		relPath(directory, filepath.Join(dirpath, cleanDBName(dbname))),
+	)
 
 	l.Verboseln("remote file prefix:", prefix)
 

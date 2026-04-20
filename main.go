@@ -180,19 +180,23 @@ func run() (retVal error) {
 		return fmt.Errorf("required cipher parameters not present: %w", err)
 	}
 
-	if (opts.Upload == "s3" || opts.Download == "s3" || opts.ListRemote == "s3") && opts.S3Bucket == "" {
+	if (opts.Upload == "s3" || opts.Download == "s3" || opts.ListRemote == "s3") &&
+		opts.S3Bucket == "" {
 		return fmt.Errorf("a bucket is mandatory with s3")
 	}
 
-	if (opts.Upload == "b2" || opts.Download == "b2" || opts.ListRemote == "b2") && opts.B2Bucket == "" {
+	if (opts.Upload == "b2" || opts.Download == "b2" || opts.ListRemote == "b2") &&
+		opts.B2Bucket == "" {
 		return fmt.Errorf("a bucket is mandatory with B2")
 	}
 
-	if (opts.Upload == "gcs" || opts.Download == "gcs" || opts.ListRemote == "gcs") && opts.GCSBucket == "" {
+	if (opts.Upload == "gcs" || opts.Download == "gcs" || opts.ListRemote == "gcs") &&
+		opts.GCSBucket == "" {
 		return fmt.Errorf("a bucket is mandatory with gcs")
 	}
 
-	if (opts.Upload == "azure" || opts.Download == "azure" || opts.ListRemote == "azure") && opts.AzureContainer == "" {
+	if (opts.Upload == "azure" || opts.Download == "azure" || opts.ListRemote == "azure") &&
+		opts.AzureContainer == "" {
 		return fmt.Errorf("a container is mandatory with azure")
 	}
 
@@ -224,7 +228,10 @@ func run() (retVal error) {
 		}
 
 		if opts.Decrypt {
-			params := decryptParams{PrivateKey: opts.CipherPrivateKey, Passphrase: opts.CipherPassphrase}
+			params := decryptParams{
+				PrivateKey: opts.CipherPrivateKey,
+				Passphrase: opts.CipherPassphrase,
+			}
 			if err := decryptDirectory(opts.Directory, params, opts.Jobs, globs); err != nil {
 				return err
 			}
@@ -480,12 +487,22 @@ func run() (retVal error) {
 				continue
 			}
 
-			fmt.Fprintf(f, "%s", b)
-			fmt.Fprintf(f, "%s", c)
+			if _, err := fmt.Fprintf(f, "%s", b); err != nil {
+				return fmt.Errorf("could not write to %s: %w", aclpath, err)
+			}
+			if _, err := fmt.Fprintf(f, "%s", c); err != nil {
+				return fmt.Errorf("could not write to %s: %w", aclpath, err)
+			}
 
-			f.Close()
+			if err := f.Close(); err != nil {
+				return fmt.Errorf("could not close %s: %w", aclpath, err)
+			}
 			if err := os.Chmod(aclpath, os.FileMode(d.Mode)); err != nil {
-				return fmt.Errorf("could not chmod to more secure permission for ACL %s: %w", dbname, err)
+				return fmt.Errorf(
+					"could not chmod to more secure permission for ACL %s: %w",
+					dbname,
+					err,
+				)
 			}
 
 			// Have its checksum computed
@@ -501,7 +518,9 @@ func run() (retVal error) {
 	if err := resumeReplication(db); err != nil {
 		l.Errorln(err)
 	}
-	db.Close()
+	if err := db.Close(); err != nil {
+		l.Errorln(err)
+	}
 
 	if exitCode != 0 {
 		return fmt.Errorf("some operation failed")
@@ -640,7 +659,14 @@ func (d *dump) dump(fc chan<- sumFileJob) error {
 		d.When = time.Now()
 	}
 
-	file := formatDumpPath(d.Directory, d.TimeFormat, fileEnd, dbname, d.When, d.Options.CompressLevel)
+	file := formatDumpPath(
+		d.Directory,
+		d.TimeFormat,
+		fileEnd,
+		dbname,
+		d.When,
+		d.Options.CompressLevel,
+	)
 	formatOpt := fmt.Sprintf("-F%c", d.Options.Format)
 
 	command := execPath("pg_dump")
@@ -722,7 +748,7 @@ func (d *dump) dump(fc chan<- sumFileJob) error {
 		}
 		if err := unlockPath(flock); err != nil {
 			l.Errorf("could not release lock for %s: %s", dbname, err)
-			flock.Close()
+			flock.Close() //nolint:errcheck
 		}
 		return err
 	}
@@ -735,7 +761,7 @@ func (d *dump) dump(fc chan<- sumFileJob) error {
 	}
 
 	if err := unlockPath(flock); err != nil {
-		flock.Close()
+		flock.Close() //nolint:errcheck
 		return fmt.Errorf("could not release lock for %s: %s", dbname, err)
 	}
 
@@ -820,8 +846,10 @@ func ensureCipherParamsPresent(opts *options) error {
 	}
 
 	// If we are encrypting or decrypting, make sure we either have a public/private key or a passphrase
-	needEncryptParams := opts.Encrypt && len(opts.CipherPublicKey) == 0 && len(opts.CipherPassphrase) == 0
-	needDecryptParams := opts.Decrypt && len(opts.CipherPrivateKey) == 0 && len(opts.CipherPassphrase) == 0
+	needEncryptParams := opts.Encrypt && len(opts.CipherPublicKey) == 0 &&
+		len(opts.CipherPassphrase) == 0
+	needDecryptParams := opts.Decrypt && len(opts.CipherPrivateKey) == 0 &&
+		len(opts.CipherPassphrase) == 0
 
 	if needEncryptParams || needDecryptParams { // Fallback on the environment
 		opts.CipherPassphrase = os.Getenv("PGBK_CIPHER_PASS")
@@ -882,7 +910,14 @@ func cleanDBName(dbname string) string {
 	return dbname
 }
 
-func formatDumpPath(dir string, timeFormat string, suffix string, dbname string, when time.Time, compressLevel int) string {
+func formatDumpPath(
+	dir string,
+	timeFormat string,
+	suffix string,
+	dbname string,
+	when time.Time,
+	compressLevel int,
+) string {
 	var f, s, d string
 
 	// Avoid attacks on the database name
@@ -945,7 +980,15 @@ func pgToolVersion(tool string) int {
 	return numver
 }
 
-func dumpGlobals(dir string, mode int, timeFormat string, withRolePasswords bool, conninfo *ConnInfo, fc chan<- sumFileJob, when time.Time) error {
+func dumpGlobals(
+	dir string,
+	mode int,
+	timeFormat string,
+	withRolePasswords bool,
+	conninfo *ConnInfo,
+	fc chan<- sumFileJob,
+	when time.Time,
+) error {
 	command := execPath("pg_dumpall")
 	args := []string{"-g", "-w"}
 
@@ -971,7 +1014,9 @@ func dumpGlobals(dir string, mode int, timeFormat string, withRolePasswords bool
 	// The --no-role-passwords option was added to pg_dumpall from 10
 	if !withRolePasswords {
 		if pgDumpallVersion < 100000 {
-			return fmt.Errorf("pg_dumpall does not support --no-role-passwords, use pg_dumpall >= 10")
+			return fmt.Errorf(
+				"pg_dumpall does not support --no-role-passwords, use pg_dumpall >= 10",
+			)
 		}
 
 		args = append(args, "--no-role-passwords")
@@ -1022,7 +1067,14 @@ func dumpGlobals(dir string, mode int, timeFormat string, withRolePasswords bool
 	return nil
 }
 
-func dumpSettings(dir string, mode int, timeFormat string, db *pg, fc chan<- sumFileJob, when time.Time) error {
+func dumpSettings(
+	dir string,
+	mode int,
+	timeFormat string,
+	db *pg,
+	fc chan<- sumFileJob,
+	when time.Time,
+) error {
 	if when.IsZero() {
 		when = time.Now()
 	}
@@ -1044,10 +1096,16 @@ func dumpSettings(dir string, mode int, timeFormat string, db *pg, fc chan<- sum
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(f, "%s", s)
+		if _, err := fmt.Fprintf(f, "%s", s); err != nil {
+			return fmt.Errorf("could not write to file %s: %w", file, err)
+		}
 		if mode > 0 { // otherwhise let umask do the job
 			if err := os.Chmod(f.Name(), os.FileMode(mode)); err != nil {
-				return fmt.Errorf("could not chmod to more secure permission for settings file %s: %w", f.Name(), err)
+				return fmt.Errorf(
+					"could not chmod to more secure permission for settings file %s: %w",
+					f.Name(),
+					err,
+				)
 			}
 		}
 
@@ -1061,7 +1119,14 @@ func dumpSettings(dir string, mode int, timeFormat string, db *pg, fc chan<- sum
 	return nil
 }
 
-func dumpConfigFiles(dir string, mode int, timeFormat string, db *pg, fc chan<- sumFileJob, when time.Time) error {
+func dumpConfigFiles(
+	dir string,
+	mode int,
+	timeFormat string,
+	db *pg,
+	fc chan<- sumFileJob,
+	when time.Time,
+) error {
 	for _, param := range []string{"hba_file", "ident_file"} {
 		if when.IsZero() {
 			when = time.Now()
@@ -1084,10 +1149,18 @@ func dumpConfigFiles(dir string, mode int, timeFormat string, db *pg, fc chan<- 
 			if err != nil {
 				return err
 			}
-			fmt.Fprintf(f, "%s", s)
+
+			if _, err := fmt.Fprintf(f, "%s", s); err != nil {
+				return fmt.Errorf("could not write to file %s: %w", file, err)
+			}
+
 			if mode > 0 { // otherwhise let umask do the job
 				if err := os.Chmod(f.Name(), os.FileMode(mode)); err != nil {
-					return fmt.Errorf("could not chmod to more secure permission for settings file %s: %w", f.Name(), err)
+					return fmt.Errorf(
+						"could not chmod to more secure permission for settings file %s: %w",
+						f.Name(),
+						err,
+					)
 				}
 			}
 
@@ -1176,7 +1249,11 @@ func downloadFiles(repoName string, opts options, dir string, globs []string) er
 		}
 
 		if i.isDir {
-			l.Warnf("%s is a directory, append %c* to the filter to download its contents", i.key, os.PathSeparator)
+			l.Warnf(
+				"%s is a directory, append %c* to the filter to download its contents",
+				i.key,
+				os.PathSeparator,
+			)
 			continue
 		}
 
@@ -1299,7 +1376,9 @@ func decryptDirectory(dir string, params decryptParams, workers int, globs []str
 
 	// Print a warning when no candidate files are found with a hint that the dbname is a glob
 	if c == 0 {
-		l.Warnln("no candidate file found for decryption. Maybe add a wildcard (*) to the patterns?")
+		l.Warnln(
+			"no candidate file found for decryption. Maybe add a wildcard (*) to the patterns?",
+		)
 	}
 
 	// Closing the channel will make the workers stop as soon as it is
@@ -1654,7 +1733,7 @@ func postProcessFiles(inFiles chan sumFileJob, wg *sync.WaitGroup, opts options)
 		}
 
 		if repo != nil {
-			repo.Close()
+			repo.Close() //nolint:errcheck
 		}
 
 	}()

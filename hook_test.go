@@ -43,11 +43,20 @@ func TestHookCommand(t *testing.T) {
 		re  string
 	}{
 		{"echo 'a'", `^\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} INFO: test: a\n$`},
-		{"echo a'", `^\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} ERROR: unable to parse hook command: No closing quotation\n$`},
-		{"echo 'a\r\nb'", `^\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} INFO: test: a\n\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} INFO: test: b\n$`},
+		{
+			"echo a'",
+			`^\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} ERROR: unable to parse hook command: No closing quotation\n$`,
+		},
+		{
+			"echo 'a\r\nb'",
+			`^\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} INFO: test: a\n\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} INFO: test: b\n$`,
+		},
 		{"", `^\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} ERROR: unable to run an empty command\n$`},
 		{"/nothingBLA a", `^\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} ERROR: .*/nothingBLA.*\n$`},
-		{"sh -c 'echo test; exit 1'", `^\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} ERROR: test: test\n\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} ERROR: exit status 1\n$`},
+		{
+			"sh -c 'echo test; exit 1'",
+			`^\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} ERROR: test: test\n\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} ERROR: exit status 1\n$`,
+		},
 	}
 
 	for i, subt := range tests {
@@ -78,9 +87,17 @@ func TestPreBackupHook(t *testing.T) {
 		re    string
 		fails bool
 	}{
-		{"echo 'a'", `\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} INFO: running pre-backup command: echo 'a'\n\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} INFO: pre-backup: a\n$`, false},
+		{
+			"echo 'a'",
+			`\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} INFO: running pre-backup command: echo 'a'\n\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} INFO: pre-backup: a\n$`,
+			false,
+		},
 		{"", "", false},
-		{"/nothingBLA a", `\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} INFO: running pre-backup command: /nothingBLA a\n\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} FATAL: .*/nothingBLA.*\n$`, true},
+		{
+			"/nothingBLA a",
+			`\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} INFO: running pre-backup command: /nothingBLA a\n\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} FATAL: .*/nothingBLA.*\n$`,
+			true,
+		},
 	}
 	for i, subt := range tests {
 		t.Run(fmt.Sprintf("%v", i), func(t *testing.T) {

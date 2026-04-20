@@ -22,7 +22,10 @@ func TestExpandHomeDir(t *testing.T) {
 		{"/truc/truc/../muche", "/truc/muche"},
 		{"./truc/muche", "truc/muche"},
 		{"~/truc/muche/dir", filepath.Clean(filepath.Join(u.HomeDir, "/truc/muche/dir"))},
-		{fmt.Sprintf("~%s/truc/muche", u.Username), filepath.Clean(filepath.Join(u.HomeDir, "/truc/muche"))},
+		{
+			fmt.Sprintf("~%s/truc/muche", u.Username),
+			filepath.Clean(filepath.Join(u.HomeDir, "/truc/muche")),
+		},
 	}
 
 	if runtime.GOOS == "windows" {
@@ -34,7 +37,10 @@ func TestExpandHomeDir(t *testing.T) {
 			{"/truc/truc/../muche", "\\truc\\muche"},
 			{"./truc/muche", "truc\\muche"},
 			{"~/truc/muche/dir", filepath.Clean(filepath.Join(u.HomeDir, "/truc/muche/dir"))},
-			{fmt.Sprintf("~%s/truc/muche", u.Username), filepath.Clean(filepath.Join(u.HomeDir, "/truc/muche"))},
+			{
+				fmt.Sprintf("~%s/truc/muche", u.Username),
+				filepath.Clean(filepath.Join(u.HomeDir, "/truc/muche")),
+			},
 		}
 	}
 

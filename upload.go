@@ -153,7 +153,11 @@ func NewB2Repo(opts options) (*b2repo, error) {
 		keyID:                 opts.B2KeyID,
 	}
 
-	l.Verbosef("starting b2 client with %d connections to endpoint to bucket %s \n", r.concurrentConnections, r.bucket)
+	l.Verbosef(
+		"starting b2 client with %d connections to endpoint to bucket %s \n",
+		r.concurrentConnections,
+		r.bucket,
+	)
 	client, err := b2.NewClient(r.ctx, r.keyID, r.appKey)
 
 	if err != nil {
@@ -626,8 +630,7 @@ func NewSFTPRepo(opts options) (*sftpRepo, error) {
 }
 
 func (r *sftpRepo) Close() error {
-	r.client.Close()
-	return r.conn.Close()
+	return errors.Join(r.client.Close(), r.conn.Close())
 }
 
 func (r *sftpRepo) Upload(path string, target string) (err error) {
@@ -816,7 +819,9 @@ func (r *gcsRepo) Download(target string, path string) (err error) {
 	}
 	defer WrappedClose(file, &err)
 
-	obj, err := r.client.Bucket(r.bucket).Object(forwardSlashes(target)).NewReader(context.Background())
+	obj, err := r.client.Bucket(r.bucket).
+		Object(forwardSlashes(target)).
+		NewReader(context.Background())
 	if err != nil {
 		return fmt.Errorf("download error: %w", err)
 	}
@@ -833,7 +838,8 @@ func (r *gcsRepo) Download(target string, path string) (err error) {
 func (r *gcsRepo) List(prefix string) (items []Item, rerr error) {
 	items = make([]Item, 0)
 
-	it := r.client.Bucket(r.bucket).Objects(context.Background(), &storage.Query{Prefix: forwardSlashes(prefix)})
+	it := r.client.Bucket(r.bucket).
+		Objects(context.Background(), &storage.Query{Prefix: forwardSlashes(prefix)})
 	for {
 		attrs, err := it.Next()
 		if err == iterator.Done {

@@ -44,7 +44,11 @@ func lockPath(path string) (*os.File, bool, error) {
 	info, err := os.Stat(path)
 	if err == nil {
 		if info.IsDir() {
-			return nil, false, &os.PathError{Op: "stat", Path: path, Err: fmt.Errorf("unexpected directory")}
+			return nil, false, &os.PathError{
+				Op:   "stat",
+				Path: path,
+				Err:  fmt.Errorf("unexpected directory"),
+			}
 		}
 		return nil, false, err
 	}
