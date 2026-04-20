@@ -170,7 +170,7 @@ func convertLegacyConf(oldConf []string) string {
 			// it is a shell array. When the value is not a shell
 			// array we need to trim quotes to ensure shlex splits
 			// the options.
-			v := value
+			var v string
 			if strings.HasPrefix(value, "(") {
 				v = strings.Trim(value, "()")
 			} else {

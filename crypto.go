@@ -45,7 +45,7 @@ func ageEncrypt(src io.Reader, dst io.Writer, params encryptParams) error {
 		return ageEncryptPassphrase(src, dst, params.Passphrase)
 	}
 
-	return fmt.Errorf("Unexpected condition: no public key or passphrase")
+	return fmt.Errorf("unexpected condition: no public key or passphrase")
 }
 
 func ageEncryptPassphrase(src io.Reader, dst io.Writer, passphrase string) error {
@@ -92,7 +92,7 @@ func ageDecrypt(src io.Reader, dst io.Writer, params decryptParams) error {
 		return ageDecryptPassphrase(src, dst, params.Passphrase)
 	}
 
-	return fmt.Errorf("No private key or passphrase specified")
+	return fmt.Errorf("no private key or passphrase specified")
 }
 
 func ageDecryptPrivateKey(src io.Reader, dst io.Writer, privateKey string) error {

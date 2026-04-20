@@ -103,7 +103,7 @@ func checksumFile(path string, mode int, algo string) (string, error) {
 		})
 
 		if err != nil {
-			return "", fmt.Errorf("error walking the path %q: %v\n", path, err)
+			return "", fmt.Errorf("error walking the path %q: %v", path, err)
 		}
 	} else {
 

@@ -202,8 +202,8 @@ func parseUrlConnInfo(connstring string) (map[string]string, error) {
 			// correctly
 			hosts := make([]string, 0)
 			ports := make([]string, 0)
+			var hostPort []string
 			for _, fullHost := range fullHosts {
-				hostPort := make([]string, 0)
 				if strings.HasPrefix(fullHost, "[") {
 					// Handle literal IPv6 addresses
 					hostPort = strings.Split(strings.TrimPrefix(fullHost, "["), "]:")

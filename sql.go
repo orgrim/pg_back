@@ -291,7 +291,7 @@ func dumpCreateDBAndACL(db *pg, dbname string, force bool) (string, error) {
 		}
 
 		if dbname != "template0" {
-			s += fmt.Sprintf("--\n-- Database creation\n--\n\n")
+			s += "--\n-- Database creation\n--\n\n"
 			s += fmt.Sprintf("CREATE DATABASE \"%s\" WITH TEMPLATE = template0 OWNER = \"%s\"", sqlQuoteIdent(dbname), sqlQuoteIdent(owner))
 			s += fmt.Sprintf(" ENCODING = %s", sqlQuoteLiteral(encoding))
 			s += fmt.Sprintf(" LC_COLLATE = %s", sqlQuoteLiteral(collate))
@@ -304,7 +304,7 @@ func dumpCreateDBAndACL(db *pg, dbname string, force bool) (string, error) {
 			if connlimit != -1 {
 				s += fmt.Sprintf(" CONNECTION LIMIT = %d", connlimit)
 			}
-			s += fmt.Sprintf(";\n\n")
+			s += ";\n\n"
 
 			if istemplate {
 				s += fmt.Sprintf("UPDATE pg_catalog.pg_database SET datistemplate = 't' WHERE datname = %s;\n", sqlQuoteLiteral(dbname))
@@ -319,10 +319,10 @@ func dumpCreateDBAndACL(db *pg, dbname string, force bool) (string, error) {
 		if len(acl.Elements) > 0 {
 			var (
 				t         string
-				revokeAll bool = true
+				revokeAll = true
 			)
 
-			s += fmt.Sprintf("--\n-- Database privileges \n--\n\n")
+			s += "--\n-- Database privileges \n--\n\n"
 
 			for _, e := range acl.Elements {
 				if e.Status == pgtype.Null {
@@ -401,16 +401,16 @@ func makeACLCommands(aclitem string, dbname string, owner string) string {
 
 		if i+1 < len(privs) {
 			if privs[i+1] == '*' {
-				s += fmt.Sprintf(" WITH GRANT OPTION;\n")
+				s += " WITH GRANT OPTION;\n"
 			} else if privs[i] != '*' {
-				s += fmt.Sprintf(";\n")
+				s += ";\n"
 			}
 		} else if privs[i] != '*' {
-			s += fmt.Sprintf(";\n")
+			s += ";\n"
 		}
 	}
 	if grantor != owner {
-		s += fmt.Sprintf("RESET SESSION AUTHORIZATION;\n")
+		s += "RESET SESSION AUTHORIZATION;\n"
 	}
 	return s
 }
@@ -677,7 +677,7 @@ func pauseReplicationWithTimeout(db *pg, timeOut int) error {
 			case <-stop:
 				return
 			case <-ticker.C:
-				break
+				// wait for next tick
 			}
 		}
 	}()
