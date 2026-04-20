@@ -54,7 +54,12 @@ func TestChecksumFile(t *testing.T) {
 	if err != nil {
 		t.Fatal("could not create tempdir:", err)
 	}
-	defer os.RemoveAll(dir)
+	defer func() {
+		if err := os.RemoveAll(dir); err != nil {
+			t.Fatal("could not remove tempdir:", err)
+
+		}
+	}()
 
 	var cwd string
 	cwd, err = os.Getwd()
@@ -66,14 +71,22 @@ func TestChecksumFile(t *testing.T) {
 	if err != nil {
 		t.Fatal("could not change to tempdir:", err)
 	}
-	defer os.Chdir(cwd)
+	defer func() {
+		if err := os.Chdir(cwd); err != nil {
+			t.Fatal("could not rollback to cwd:", err)
+		}
+	}()
 
 	// create a test file
 	if f, err := os.Create("test"); err != nil {
 		t.Fatal("could not create test file")
 	} else {
-		fmt.Fprintf(f, "abdc\n")
-		f.Close()
+		if _, err := fmt.Fprintf(f, "abdc\n"); err != nil {
+			t.Fatal("could not write to test file:", err)
+		}
+		if err := f.Close(); err != nil {
+			t.Fatal("could not close test file")
+		}
 	}
 
 	// bad algo
@@ -115,11 +128,16 @@ func TestChecksumFile(t *testing.T) {
 		t.Errorf("expected an *os.PathError, got %q\n", err)
 	}
 
-	os.Chmod("test.sha1", 0444)
+	if err := os.Chmod("test.sha1", 0444); err != nil {
+		t.Errorf("could not chmod test.sha1 file: %q", err)
+	}
+
 	if _, err := checksumFile("test", 0o700, "sha1"); !errors.As(err, &e) {
 		t.Errorf("expected an *os.PathError, got %q\n", err)
 	}
-	os.Chmod("test.sha1", 0644)
+	if err := os.Chmod("test.sha1", 0644); err != nil {
+		t.Errorf("could not chmod test.sha1 file: %q", err)
+	}
 	l.logger.SetOutput(os.Stderr)
 
 	// create a directory and some files
@@ -132,7 +150,9 @@ func TestChecksumFile(t *testing.T) {
 			t.Fatal("could not create test file")
 		}
 		fmt.Fprintf(f, "abdc%d", i)
-		f.Close()
+		if err := f.Close(); err != nil {
+			t.Fatal("could not close test file")
+		}
 	}
 
 	// test each algo with the directory

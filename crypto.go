@@ -78,7 +78,9 @@ func ageEncryptInternal(src io.Reader, dst io.Writer, recipient age.Recipient) e
 	}
 
 	// It is mandatory to Close the writer from age so that it flushes its data
-	w.Close()
+	if err := w.Close(); err != nil {
+		return fmt.Errorf("failed to close encrypted file: %w", err)
+	}
 
 	return nil
 }
@@ -130,7 +132,12 @@ func ageDecryptInternal(src io.Reader, dst io.Writer, identity age.Identity) err
 	return nil
 }
 
-func encryptFile(path string, mode int, params encryptParams, keep bool) ([]string, error) {
+func encryptFile(
+	path string,
+	mode int,
+	params encryptParams,
+	keep bool,
+) (_ []string, err error) {
 	encrypted := make([]string, 0)
 
 	i, err := os.Stat(path)
@@ -152,7 +159,7 @@ func encryptFile(path string, mode int, params encryptParams, keep bool) ([]stri
 					l.Errorln(err)
 					return err
 				}
-				defer src.Close()
+				defer WrappedClose(src, &err)
 
 				dstFile := fmt.Sprintf("%s.age", path)
 				dst, err := os.Create(dstFile)
@@ -160,24 +167,30 @@ func encryptFile(path string, mode int, params encryptParams, keep bool) ([]stri
 					l.Errorln(err)
 					return err
 				}
-				defer dst.Close()
+				defer WrappedClose(dst, &err)
 
 				if err := ageEncrypt(src, dst, params); err != nil {
-					dst.Close()
-					os.Remove(dstFile)
+					// explicitly ignore error on close and remove
+					dst.Close()        //nolint:errcheck
+					os.Remove(dstFile) //nolint:errcheck
 					return fmt.Errorf("could not encrypt %s: %s", path, err)
 				}
 
 				encrypted = append(encrypted, dstFile)
 				if mode > 0 {
 					if err := os.Chmod(dstFile, os.FileMode(mode)); err != nil {
-						return fmt.Errorf("could not chmod to more secure permission for encrypted file: %w", err)
+						return fmt.Errorf(
+							"could not chmod to more secure permission for encrypted file: %w",
+							err,
+						)
 					}
 				}
 
 				if !keep {
 					l.Verboseln("removing source file:", path)
-					src.Close()
+					if err := src.Close(); err != nil {
+						return fmt.Errorf("could not close %s: %w", path, err)
+					}
 					if err := os.Remove(path); err != nil {
 						return fmt.Errorf("could not remove %s: %w", path, err)
 					}
@@ -197,7 +210,7 @@ func encryptFile(path string, mode int, params encryptParams, keep bool) ([]stri
 			return encrypted, err
 		}
 
-		defer src.Close()
+		defer WrappedClose(src, &err)
 
 		dstFile := fmt.Sprintf("%s.age", path)
 		dst, err := os.Create(dstFile)
@@ -206,11 +219,12 @@ func encryptFile(path string, mode int, params encryptParams, keep bool) ([]stri
 			return encrypted, err
 		}
 
-		defer dst.Close()
+		defer WrappedClose(dst, &err)
 
 		if err := ageEncrypt(src, dst, params); err != nil {
-			dst.Close()
-			os.Remove(dstFile)
+			// explicitly ignore error here, we already return an error
+			dst.Close()        //nolint:errcheck
+			os.Remove(dstFile) //nolint:errcheck
 			return encrypted, fmt.Errorf("could not encrypt %s: %s", path, err)
 		}
 
@@ -222,17 +236,19 @@ func encryptFile(path string, mode int, params encryptParams, keep bool) ([]stri
 		}
 		if !keep {
 			l.Verboseln("removing source file:", path)
-			src.Close()
+			if err := src.Close(); err != nil {
+				return encrypted, fmt.Errorf("could not close %s: %w", path, err)
+			}
 			if err := os.Remove(path); err != nil {
 				return encrypted, fmt.Errorf("could not remove %s: %w", path, err)
 			}
 		}
 	}
 
-	return encrypted, nil
+	return encrypted, err
 }
 
-func decryptFile(path string, params decryptParams) error {
+func decryptFile(path string, params decryptParams) (err error) {
 	l.Infoln("decrypting", path)
 
 	src, err := os.Open(path)
@@ -240,7 +256,7 @@ func decryptFile(path string, params decryptParams) error {
 		return err
 	}
 
-	defer src.Close()
+	defer WrappedClose(src, &err)
 
 	dstFile := strings.TrimSuffix(path, ".age")
 	dst, err := os.Create(dstFile)
@@ -248,13 +264,14 @@ func decryptFile(path string, params decryptParams) error {
 		return err
 	}
 
-	defer dst.Close()
+	defer WrappedClose(dst, &err)
 
 	if err := ageDecrypt(src, dst, params); err != nil {
-		dst.Close()
-		os.Remove(dstFile)
+		// explicitly ignore error on close and remove
+		dst.Close()        //nolint:errcheck
+		os.Remove(dstFile) //nolint:errcheck
 		return fmt.Errorf("could not decrypt %s: %s", path, err)
 	}
 
-	return nil
+	return err
 }

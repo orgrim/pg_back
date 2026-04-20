@@ -263,12 +263,12 @@ func convertLegacyConf(oldConf []string) string {
 	return result
 }
 
-func convertLegacyConfFile(path string) error {
+func convertLegacyConfFile(path string) (err error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return fmt.Errorf("could not convert configuration: %w", err)
 	}
-	defer f.Close()
+	defer WrappedClose(f, &err)
 
 	contents, err := readLegacyConf(f)
 	if err != nil {
@@ -277,5 +277,5 @@ func convertLegacyConfFile(path string) error {
 
 	fmt.Printf("%s", convertLegacyConf(contents))
 
-	return nil
+	return err
 }
