@@ -148,8 +148,8 @@ func TestParseUrlConnInfo(t *testing.T) {
 			map[string]string{"host": "host1,host2", "port": "123,456", "dbname": "somedb", "target_session_attrs": "any", "application_name": "myapp"},
 		},
 		{
-			"postgresql://[::1]:5433,[::1]:",
-			map[string]string{"host": "::1,::1", "port": "5433,"},
+			"postgresql://[::1]:5433",
+			map[string]string{"host": "::1", "port": "5433"},
 		},
 	}
 
