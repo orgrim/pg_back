@@ -606,10 +606,18 @@ func TestParseCli(t *testing.T) {
 						t.Errorf("got %v, want %v for help flag\n", errVal.ShowHelp, st.help)
 					}
 					if errVal.ShowVersion != st.version {
-						t.Errorf("got %v, want %v for version flag\n", errVal.ShowVersion, st.version)
+						t.Errorf(
+							"got %v, want %v for version flag\n",
+							errVal.ShowVersion,
+							st.version,
+						)
 					}
 					if errVal.LegacyConfig != st.legacyConf {
-						t.Errorf("got %v, want %v for convert legacy config flag\n", errVal.LegacyConfig, st.legacyConf)
+						t.Errorf(
+							"got %v, want %v for convert legacy config flag\n",
+							errVal.LegacyConfig,
+							st.legacyConf,
+						)
 					}
 				} else if st.err != err.Error() {
 					t.Errorf("got error %v, expected %v", st.err, err)
@@ -660,7 +668,12 @@ func TestLoadConfigurationFile(t *testing.T) {
 			},
 		},
 		{ // ensure comma separated lists work
-			[]string{"backup_directory = test", "include_dbs = a, b, postgres", "compress_level = 9", "backup_file_mode = 0400"},
+			[]string{
+				"backup_directory = test",
+				"include_dbs = a, b, postgres",
+				"compress_level = 9",
+				"backup_file_mode = 0400",
+			},
 			false,
 			options{
 				Directory:               "test",
@@ -846,14 +859,23 @@ func TestLoadConfigurationFile(t *testing.T) {
 				t.Errorf("could not setup test: %v\n", err)
 			}
 			for _, l := range st.params {
-				fmt.Fprintf(f, "%s\n", l)
+				if _, err := fmt.Fprintf(f, "%s\n", l); err != nil {
+					t.Errorf("could not write data to test file: %v", err)
+				}
 			}
-			f.Close()
+			if err := f.Close(); err != nil {
+				t.Errorf("could not close test file: %v", err)
+			}
 
+			remove := func() {
+				if err := os.Remove(f.Name()); err != nil {
+					t.Errorf("could not remove test file: %v", err)
+				}
+			}
 			if st.fail {
-				os.Remove(f.Name())
+				remove()
 			} else {
-				defer os.Remove(f.Name())
+				defer remove()
 			}
 
 			var got options
@@ -951,7 +973,11 @@ func TestValidateConfigurationFile(t *testing.T) {
 	}{
 		{"bin_directory = /usr/bin\nbackup_directory = /backups\n", false, ""},
 		{"wrong = fails\n", true, "unknown parameter in configuration file: wrong"},
-		{"bin_directory = /usr/bin\n[b1]\nwith_blobs = true\n\n[b2]\nwrong = fails\n", true, "unknown parameter in configuration file for db b2: wrong"},
+		{
+			"bin_directory = /usr/bin\n[b1]\nwith_blobs = true\n\n[b2]\nwrong = fails\n",
+			true,
+			"unknown parameter in configuration file for db b2: wrong",
+		},
 	}
 
 	for i, st := range tests {
