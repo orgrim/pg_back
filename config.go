@@ -365,7 +365,9 @@ func parseCli(args []string) (options, []string, error) {
 	// Do not use the default pflag.Parse() that use os.Args[1:],
 	// but pass it explicitly so that unit-tests can feed any set
 	// of flags
-	pflag.CommandLine.Parse(args)
+	if err := pflag.CommandLine.Parse(args); err != nil {
+		return opts, []string{}, err
+	}
 
 	// Record the list of flags set on the command line to allow
 	// overriding the configuration later, if an alternate
