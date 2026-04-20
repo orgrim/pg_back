@@ -113,7 +113,7 @@ func TestValidatePurgeKeepValue(t *testing.T) {
 				t.Errorf("did not want an error, got %s", err)
 			}
 			if got != st.want {
-				t.Errorf("got %q, want %q", got, st.want)
+				t.Errorf("got %v, want %v", got, st.want)
 			}
 		})
 	}
