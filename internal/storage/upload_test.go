@@ -1,4 +1,4 @@
-package main
+package storage
 
 import (
 	"fmt"
@@ -6,6 +6,9 @@ import (
 	"path/filepath"
 	"runtime"
 	"testing"
+
+	"github.com/orgrim/pg_back/internal/helpers"
+	"github.com/orgrim/pg_back/internal/logger"
 )
 
 func TestExpandHomeDir(t *testing.T) {
@@ -81,7 +84,7 @@ func TestRelPath(t *testing.T) {
 
 	for i, st := range tests {
 		t.Run(fmt.Sprintf("%v", i), func(t *testing.T) {
-			got := relPath(st.basedir, st.path)
+			got := helpers.RelPath(logger.NewLevelLog(), st.basedir, st.path)
 			if got != st.want {
 				t.Errorf("got: %v, want %v", got, st.want)
 			}

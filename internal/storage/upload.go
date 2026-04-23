@@ -23,7 +23,7 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
 // THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-package main
+package storage
 
 import (
 	"context"
@@ -45,6 +45,9 @@ import (
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
+	"github.com/orgrim/pg_back/internal/config"
+	"github.com/orgrim/pg_back/internal/helpers"
+	"github.com/orgrim/pg_back/internal/logger"
 	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/agent"
@@ -56,14 +59,14 @@ import (
 // A Repo is a remote service where we can upload files
 type Repo interface {
 	// Upload a path to the remote naming it target
-	Upload(path string, target string) error
+	Upload(logger *logger.LevelLog, path string, target string) error
 
 	// Download target from the remote and store it into path
-	Download(target string, path string) error
+	Download(logger *logger.LevelLog, target string, path string) error
 
 	// List remote files starting with a prefix. the prefix can be empty to
 	// list all files
-	List(prefix string) ([]Item, error)
+	List(logger *logger.LevelLog, prefix string) ([]Item, error)
 
 	// Remove path from the remote
 	Remove(path string) error
@@ -73,9 +76,9 @@ type Repo interface {
 }
 
 type Item struct {
-	key     string
+	Key     string
 	modtime time.Time
-	isDir   bool
+	IsDir   bool
 }
 
 // Replace any backslashes from windows to forward slashed
@@ -83,7 +86,7 @@ func forwardSlashes(target string) string {
 	return strings.ReplaceAll(target, fmt.Sprintf("%c", os.PathSeparator), "/")
 }
 
-func NewRepo(kind string, opts options) (Repo, error) {
+func NewRepo(kind string, opts config.Options) (Repo, error) {
 	var (
 		repo Repo
 		err  error
@@ -143,7 +146,7 @@ type s3repo struct {
 	session    *session.Session
 }
 
-func NewB2Repo(opts options) (*b2repo, error) {
+func NewB2Repo(opts config.Options) (*b2repo, error) {
 	r := &b2repo{
 		appKey:                opts.B2AppKey,
 		bucket:                opts.B2Bucket,
@@ -153,11 +156,11 @@ func NewB2Repo(opts options) (*b2repo, error) {
 		keyID:                 opts.B2KeyID,
 	}
 
-	l.Verbosef(
-		"starting b2 client with %d connections to endpoint to bucket %s \n",
-		r.concurrentConnections,
-		r.bucket,
-	)
+	// logger.Verbosef(
+	// 	"starting b2 client with %d connections to endpoint to bucket %s \n",
+	// 	r.concurrentConnections,
+	// 	r.bucket,
+	// )
 	client, err := b2.NewClient(r.ctx, r.keyID, r.appKey)
 
 	if err != nil {
@@ -177,19 +180,19 @@ func NewB2Repo(opts options) (*b2repo, error) {
 	return r, nil
 }
 
-func (r *b2repo) Upload(path string, target string) (err error) {
+func (r *b2repo) Upload(logger *logger.LevelLog, path string, target string) (err error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return err
 	}
-	defer WrappedClose(f, &err)
+	defer helpers.WrappedClose(f, &err)
 
 	w := r.b2Bucket.Object(target).NewWriter(r.ctx)
-	defer WrappedClose(w, &err)
+	defer helpers.WrappedClose(w, &err)
 
 	w.ConcurrentUploads = r.concurrentConnections
 
-	l.Infof("uploading %s to B2 bucket %s\n", path, r.bucket)
+	logger.Infof("uploading %s to B2 bucket %s\n", path, r.bucket)
 	if _, err := io.Copy(w, f); err != nil {
 		return err
 	}
@@ -197,20 +200,20 @@ func (r *b2repo) Upload(path string, target string) (err error) {
 	return nil
 }
 
-func (r *b2repo) Download(target string, path string) (err error) {
+func (r *b2repo) Download(logger *logger.LevelLog, target string, path string) (err error) {
 	f, err := os.Create(path)
 	if err != nil {
 		return fmt.Errorf("download error: %w", err)
 	}
-	defer WrappedClose(f, &err)
+	defer helpers.WrappedClose(f, &err)
 
 	bucket := r.b2Bucket
 
-	l.Infof("downloading %s from B2 bucket %s to %s\n", target, r.bucket, path)
+	logger.Infof("downloading %s from B2 bucket %s to %s\n", target, r.bucket, path)
 
 	rf := bucket.Object(target).NewReader(r.ctx)
 	rf.ConcurrentDownloads = r.concurrentConnections
-	defer WrappedClose(rf, &err)
+	defer helpers.WrappedClose(rf, &err)
 
 	if err != nil {
 		return err
@@ -227,7 +230,7 @@ func (r *b2repo) Close() error {
 	return nil
 }
 
-func (r *b2repo) List(prefix string) ([]Item, error) {
+func (r *b2repo) List(_ *logger.LevelLog, prefix string) ([]Item, error) {
 
 	files := make([]Item, 0)
 
@@ -242,7 +245,7 @@ func (r *b2repo) List(prefix string) ([]Item, error) {
 		}
 
 		files = append(files, Item{
-			key:     obj.Name(),
+			Key:     obj.Name(),
 			modtime: attributes.LastModified,
 		},
 		)
@@ -259,7 +262,7 @@ func (r *b2repo) Remove(path string) error {
 	return r.b2Bucket.Object(path).Delete(ctx)
 }
 
-func NewS3Repo(opts options) (*s3repo, error) {
+func NewS3Repo(opts config.Options) (*s3repo, error) {
 	r := &s3repo{
 		region:     opts.S3Region,
 		bucket:     opts.S3Bucket,
@@ -315,16 +318,16 @@ func (r *s3repo) Close() error {
 	return nil
 }
 
-func (r *s3repo) Upload(path string, target string) (err error) {
+func (r *s3repo) Upload(logger *logger.LevelLog, path string, target string) (err error) {
 	file, err := os.Open(path)
 	if err != nil {
 		return fmt.Errorf("upload error: %w", err)
 	}
-	defer WrappedClose(file, &err)
+	defer helpers.WrappedClose(file, &err)
 
 	uploader := s3manager.NewUploader(r.session)
 
-	l.Infof("uploading %s to S3 bucket %s\n", path, r.bucket)
+	logger.Infof("uploading %s to S3 bucket %s\n", path, r.bucket)
 	_, err = uploader.Upload(&s3manager.UploadInput{
 		Bucket: aws.String(r.bucket),
 		Key:    aws.String(forwardSlashes(target)),
@@ -338,16 +341,16 @@ func (r *s3repo) Upload(path string, target string) (err error) {
 	return nil
 }
 
-func (r *s3repo) Download(target string, path string) (err error) {
+func (r *s3repo) Download(logger *logger.LevelLog, target string, path string) (err error) {
 	file, err := os.Create(path)
 	if err != nil {
 		return fmt.Errorf("download error: %w", err)
 	}
-	defer WrappedClose(file, &err)
+	defer helpers.WrappedClose(file, &err)
 
 	downloader := s3manager.NewDownloader(r.session)
 
-	l.Infof("downloading %s from S3 bucket %s to %s\n", target, r.bucket, path)
+	logger.Infof("downloading %s from S3 bucket %s to %s\n", target, r.bucket, path)
 	_, err = downloader.Download(file, &s3.GetObjectInput{
 		Bucket: aws.String(r.bucket),
 		Key:    aws.String(forwardSlashes(target)),
@@ -360,7 +363,7 @@ func (r *s3repo) Download(target string, path string) (err error) {
 	return nil
 }
 
-func (r *s3repo) List(prefix string) ([]Item, error) {
+func (r *s3repo) List(_ *logger.LevelLog, prefix string) ([]Item, error) {
 	svc := s3.New(r.session)
 
 	files := make([]Item, 0)
@@ -380,7 +383,7 @@ func (r *s3repo) List(prefix string) ([]Item, error) {
 
 		for _, item := range resp.Contents {
 			file := Item{
-				key:     *item.Key,
+				Key:     *item.Key,
 				modtime: *item.LastModified,
 			}
 
@@ -557,7 +560,7 @@ func pubKeyAuth(identity string, passphrase string) ([]ssh.Signer, error) {
 	return signers, nil
 }
 
-func NewSFTPRepo(opts options) (*sftpRepo, error) {
+func NewSFTPRepo(opts config.Options) (*sftpRepo, error) {
 	r := &sftpRepo{
 		host:             opts.SFTPHost,
 		port:             opts.SFTPPort,
@@ -633,14 +636,14 @@ func (r *sftpRepo) Close() error {
 	return errors.Join(r.client.Close(), r.conn.Close())
 }
 
-func (r *sftpRepo) Upload(path string, target string) (err error) {
-	l.Infof("uploading %s to %s:%s using sftp\n", path, r.host, r.baseDir)
+func (r *sftpRepo) Upload(logger *logger.LevelLog, path string, target string) (err error) {
+	logger.Infof("uploading %s to %s:%s using sftp\n", path, r.host, r.baseDir)
 
 	src, err := os.Open(path)
 	if err != nil {
 		return fmt.Errorf("sftp: could not open source %s: %w", path, err)
 	}
-	defer WrappedClose(src, &err)
+	defer helpers.WrappedClose(src, &err)
 
 	rpath := filepath.Join(r.baseDir, target)
 	targetDir := filepath.Dir(rpath)
@@ -650,7 +653,7 @@ func (r *sftpRepo) Upload(path string, target string) (err error) {
 		rpath = strings.ReplaceAll(rpath, string(os.PathSeparator), "/")
 		targetDir = strings.ReplaceAll(targetDir, string(os.PathSeparator), "/")
 	}
-	l.Verboseln("sftp remote path is:", rpath)
+	logger.Verboseln("sftp remote path is:", rpath)
 
 	// Target directory must be created first
 	if targetDir != "." && targetDir != "/" {
@@ -663,7 +666,7 @@ func (r *sftpRepo) Upload(path string, target string) (err error) {
 	if err != nil {
 		return fmt.Errorf("sftp: could not open destination %s: %w", rpath, err)
 	}
-	defer WrappedClose(dst, &err)
+	defer helpers.WrappedClose(dst, &err)
 
 	if _, err := io.Copy(dst, src); err != nil {
 		return fmt.Errorf("sftp: could not send data with sftp: %s", err)
@@ -672,14 +675,14 @@ func (r *sftpRepo) Upload(path string, target string) (err error) {
 	return err
 }
 
-func (r *sftpRepo) Download(target string, path string) (err error) {
-	l.Infof("downloading %s from %s:%s using sftp\n", target, r.host, r.baseDir)
+func (r *sftpRepo) Download(logger *logger.LevelLog, target string, path string) (err error) {
+	logger.Infof("downloading %s from %s:%s using sftp\n", target, r.host, r.baseDir)
 
 	dst, err := os.Create(path)
 	if err != nil {
 		return fmt.Errorf("sftp: could not open or create %s: %w", path, err)
 	}
-	defer WrappedClose(dst, &err)
+	defer helpers.WrappedClose(dst, &err)
 
 	rpath := filepath.Join(r.baseDir, target)
 
@@ -687,13 +690,13 @@ func (r *sftpRepo) Download(target string, path string) (err error) {
 	if os.PathSeparator != '/' {
 		rpath = strings.ReplaceAll(rpath, string(os.PathSeparator), "/")
 	}
-	l.Verboseln("sftp remote path is:", rpath)
+	logger.Verboseln("sftp remote path is:", rpath)
 
 	src, err := r.client.Open(rpath)
 	if err != nil {
 		return fmt.Errorf("sftp: could not open %s on %s: %w", rpath, r.host, err)
 	}
-	defer WrappedClose(src, &err)
+	defer helpers.WrappedClose(src, &err)
 
 	if _, err := io.Copy(dst, src); err != nil {
 		return fmt.Errorf("sftp: could not receive data with sftp: %s", err)
@@ -702,7 +705,7 @@ func (r *sftpRepo) Download(target string, path string) (err error) {
 	return err
 }
 
-func (r *sftpRepo) List(prefix string) (items []Item, rerr error) {
+func (r *sftpRepo) List(logger *logger.LevelLog, prefix string) (items []Item, rerr error) {
 	items = make([]Item, 0)
 
 	// sftp requires slash as path separator
@@ -714,16 +717,15 @@ func (r *sftpRepo) List(prefix string) (items []Item, rerr error) {
 	w := r.client.Walk(baseDir)
 	for w.Step() {
 		if err := w.Err(); err != nil {
-			l.Warnln("could not list remote file:", err)
 			rerr = err
 			continue
 		}
 
-		// relPath() makes use of functions of the filepath std module
+		// RelPath() makes use of functions of the filepath std module
 		// that take care of putting back the proper os.PathSeparator
 		// if it find some slashes, so we can compare paths without
 		// worrying about path separators
-		path := relPath(baseDir, w.Path())
+		path := helpers.RelPath(logger, baseDir, w.Path())
 
 		if !strings.HasPrefix(path, prefix) {
 			continue
@@ -731,9 +733,9 @@ func (r *sftpRepo) List(prefix string) (items []Item, rerr error) {
 
 		finfo := w.Stat()
 		items = append(items, Item{
-			key:     path,
+			Key:     path,
 			modtime: finfo.ModTime(),
-			isDir:   finfo.IsDir(),
+			IsDir:   finfo.IsDir(),
 		})
 	}
 
@@ -762,7 +764,7 @@ type gcsRepo struct {
 	client  *storage.Client
 }
 
-func NewGCSRepo(opts options) (*gcsRepo, error) {
+func NewGCSRepo(opts config.Options) (*gcsRepo, error) {
 	r := &gcsRepo{
 		bucket:  opts.GCSBucket,
 		url:     opts.GCSEndPoint,
@@ -792,19 +794,19 @@ func (r *gcsRepo) Close() error {
 	return r.client.Close()
 }
 
-func (r *gcsRepo) Upload(path string, target string) (err error) {
+func (r *gcsRepo) Upload(logger *logger.LevelLog, path string, target string) (err error) {
 	file, err := os.Open(path)
 	if err != nil {
 		return fmt.Errorf("upload error: %w", err)
 	}
-	defer WrappedClose(file, &err)
+	defer helpers.WrappedClose(file, &err)
 
 	obj := r.client.Bucket(r.bucket).Object(forwardSlashes(target)).NewWriter(context.Background())
 	// The upload is done asynchronously, the error returned by Close()
 	// says if it was successful
-	defer WrappedClose(obj, &err)
+	defer helpers.WrappedClose(obj, &err)
 
-	l.Infof("uploading %s to GCS bucket %s\n", path, r.bucket)
+	logger.Infof("uploading %s to GCS bucket %s\n", path, r.bucket)
 	if _, err := io.Copy(obj, file); err != nil {
 		return fmt.Errorf("could not write data to GCS object: %w", err)
 	}
@@ -812,12 +814,12 @@ func (r *gcsRepo) Upload(path string, target string) (err error) {
 	return err
 }
 
-func (r *gcsRepo) Download(target string, path string) (err error) {
+func (r *gcsRepo) Download(logger *logger.LevelLog, target string, path string) (err error) {
 	file, err := os.Create(path)
 	if err != nil {
 		return fmt.Errorf("download error: %w", err)
 	}
-	defer WrappedClose(file, &err)
+	defer helpers.WrappedClose(file, &err)
 
 	obj, err := r.client.Bucket(r.bucket).
 		Object(forwardSlashes(target)).
@@ -825,9 +827,9 @@ func (r *gcsRepo) Download(target string, path string) (err error) {
 	if err != nil {
 		return fmt.Errorf("download error: %w", err)
 	}
-	defer WrappedClose(obj, &err)
+	defer helpers.WrappedClose(obj, &err)
 
-	l.Infof("downloading %s from GCS bucket %s to %s\n", target, r.bucket, path)
+	logger.Infof("downloading %s from GCS bucket %s to %s\n", target, r.bucket, path)
 	if _, err := io.Copy(file, obj); err != nil {
 		return fmt.Errorf("could not read data from GCS object: %w", err)
 	}
@@ -835,7 +837,7 @@ func (r *gcsRepo) Download(target string, path string) (err error) {
 	return err
 }
 
-func (r *gcsRepo) List(prefix string) (items []Item, rerr error) {
+func (r *gcsRepo) List(logger *logger.LevelLog, prefix string) (items []Item, rerr error) {
 	items = make([]Item, 0)
 
 	it := r.client.Bucket(r.bucket).
@@ -847,13 +849,13 @@ func (r *gcsRepo) List(prefix string) (items []Item, rerr error) {
 		}
 
 		if err != nil {
-			l.Warnln("could not list remote file:", err)
+			logger.Warnln("could not list remote file:", err)
 			rerr = err
 			break
 		}
 
 		items = append(items, Item{
-			key:     attrs.Name,
+			Key:     attrs.Name,
 			modtime: attrs.Updated,
 		})
 	}
@@ -877,7 +879,7 @@ type azRepo struct {
 	client    *azblob.Client
 }
 
-func NewAzRepo(opts options) (*azRepo, error) {
+func NewAzRepo(opts config.Options) (*azRepo, error) {
 	r := &azRepo{
 		container: opts.AzureContainer,
 		account:   opts.AzureAccount,
@@ -922,14 +924,14 @@ func NewAzRepo(opts options) (*azRepo, error) {
 	return r, nil
 }
 
-func (r *azRepo) Upload(path string, target string) (err error) {
+func (r *azRepo) Upload(logger *logger.LevelLog, path string, target string) (err error) {
 	file, err := os.Open(path)
 	if err != nil {
 		return fmt.Errorf("upload error: %w", err)
 	}
-	defer WrappedClose(file, &err)
+	defer helpers.WrappedClose(file, &err)
 
-	l.Infof("uploading %s to Azure container %s\n", path, r.container)
+	logger.Infof("uploading %s to Azure container %s\n", path, r.container)
 	_, err = r.client.UploadFile(context.Background(), r.container, path, file, nil)
 	if err != nil {
 		return fmt.Errorf("could not upload %s to Azure: %w", path, err)
@@ -938,14 +940,14 @@ func (r *azRepo) Upload(path string, target string) (err error) {
 	return err
 }
 
-func (r *azRepo) Download(target string, path string) (err error) {
+func (r *azRepo) Download(logger *logger.LevelLog, target string, path string) (err error) {
 	file, err := os.Create(path)
 	if err != nil {
 		return fmt.Errorf("download error: %w", err)
 	}
-	defer WrappedClose(file, &err)
+	defer helpers.WrappedClose(file, &err)
 
-	l.Infof("downloading %s from Azure container %s\n", target, r.container)
+	logger.Infof("downloading %s from Azure container %s\n", target, r.container)
 	_, err = r.client.DownloadFile(context.Background(), r.container, target, file, nil)
 	if err != nil {
 		return fmt.Errorf("could not download %s from Azure: %w", target, err)
@@ -954,7 +956,7 @@ func (r *azRepo) Download(target string, path string) (err error) {
 	return err
 }
 
-func (r *azRepo) List(prefix string) ([]Item, error) {
+func (r *azRepo) List(_ *logger.LevelLog, prefix string) ([]Item, error) {
 	p := forwardSlashes(prefix)
 	pager := r.client.NewListBlobsFlatPager(r.container, &azblob.ListBlobsFlatOptions{
 		Prefix: &p,
@@ -969,7 +971,7 @@ func (r *azRepo) List(prefix string) ([]Item, error) {
 
 		for _, v := range resp.Segment.BlobItems {
 			file := Item{
-				key:     *v.Name,
+				Key:     *v.Name,
 				modtime: *v.Properties.LastModified,
 			}
 

@@ -23,7 +23,7 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
 // THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-package main
+package storage
 
 import (
 	"errors"
@@ -35,6 +35,9 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/orgrim/pg_back/internal/helpers"
+	"github.com/orgrim/pg_back/internal/logger"
 )
 
 type purgeJob struct {
@@ -53,8 +56,8 @@ func genPurgeJobs(items []Item, dbname string) []purgeJob {
 	)
 
 	for _, item := range items {
-		if strings.HasPrefix(item.key, cleanDBName(dbname)+"_") {
-			dateNExt := strings.TrimPrefix(item.key, cleanDBName(dbname)+"_")
+		if strings.HasPrefix(item.Key, helpers.CleanDBName(dbname)+"_") {
+			dateNExt := strings.TrimPrefix(item.Key, helpers.CleanDBName(dbname)+"_")
 			parts := strings.SplitN(dateNExt, ".", 2)
 
 			var (
@@ -98,10 +101,10 @@ func genPurgeJobs(items []Item, dbname string) []purgeJob {
 					job.datetime = date
 				}
 
-				if item.isDir {
-					job.dirs = append(job.dirs, item.key)
+				if item.IsDir {
+					job.dirs = append(job.dirs, item.Key)
 				} else {
-					job.files = append(job.files, item.key)
+					job.files = append(job.files, item.Key)
 				}
 
 				jobs[parts[0]] = job
@@ -123,18 +126,24 @@ func genPurgeJobs(items []Item, dbname string) []purgeJob {
 	return jobList
 }
 
-func purgeDumps(directory string, dbname string, keep int, limit time.Time) (err error) {
-	l.Verboseln("purge:", dbname, "limit:", limit, "keep:", keep)
+func PurgeDumps(
+	logger *logger.LevelLog,
+	directory string,
+	dbname string,
+	keep int,
+	limit time.Time,
+) (err error) {
+	logger.Verboseln("purge:", dbname, "limit:", limit, "keep:", keep)
 
 	// The dbname can be put in the path of the backup directory, so we
 	// have to compute it first. This is why a dbname is required to purge
 	// old dumps
-	dirpath := filepath.Dir(formatDumpPath(directory, "", "", dbname, time.Time{}, 0))
+	dirpath := filepath.Dir(helpers.FormatDumpPath(directory, "", "", dbname, time.Time{}, 0))
 	dir, err := os.Open(dirpath)
 	if err != nil {
 		return fmt.Errorf("could not purge %s: %s", dirpath, err)
 	}
-	defer WrappedClose(dir, &err)
+	defer helpers.WrappedClose(dir, &err)
 
 	files := make([]Item, 0)
 	for {
@@ -149,7 +158,7 @@ func purgeDumps(directory string, dbname string, keep int, limit time.Time) (err
 			return fmt.Errorf("could not purge %s: %s", dirpath, err)
 		}
 
-		files = append(files, Item{key: f[0].Name(), modtime: f[0].ModTime(), isDir: f[0].IsDir()})
+		files = append(files, Item{Key: f[0].Name(), modtime: f[0].ModTime(), IsDir: f[0].IsDir()})
 	}
 
 	// Parse and group by date. We remove groups of files produced by
@@ -160,11 +169,11 @@ func purgeDumps(directory string, dbname string, keep int, limit time.Time) (err
 		// Show the files kept in verbose mode
 		for _, j := range jobs[:keep] {
 			for _, f := range j.files {
-				l.Verboseln("keeping (count)", filepath.Join(dirpath, f))
+				logger.Verboseln("keeping (count)", filepath.Join(dirpath, f))
 			}
 
 			for _, d := range j.dirs {
-				l.Verboseln("keeping (count)", filepath.Join(dirpath, d))
+				logger.Verboseln("keeping (count)", filepath.Join(dirpath, d))
 			}
 		}
 
@@ -174,26 +183,26 @@ func purgeDumps(directory string, dbname string, keep int, limit time.Time) (err
 			if j.datetime.Before(limit) {
 				for _, f := range j.files {
 					path := filepath.Join(dirpath, f)
-					l.Infoln("removing", path)
+					logger.Infoln("removing", path)
 					if err = os.Remove(path); err != nil {
-						l.Errorln(err)
+						logger.Errorln(err)
 					}
 				}
 
 				for _, d := range j.dirs {
 					path := filepath.Join(dirpath, d)
-					l.Infoln("removing", path)
+					logger.Infoln("removing", path)
 					if err = os.RemoveAll(path); err != nil {
-						l.Errorln(err)
+						logger.Errorln(err)
 					}
 				}
 			} else {
 				for _, f := range j.files {
-					l.Verboseln("keeping (age)", filepath.Join(dirpath, f))
+					logger.Verboseln("keeping (age)", filepath.Join(dirpath, f))
 				}
 
 				for _, d := range j.dirs {
-					l.Verboseln("keeping (age)", filepath.Join(dirpath, d))
+					logger.Verboseln("keeping (age)", filepath.Join(dirpath, d))
 				}
 			}
 		}
@@ -206,7 +215,8 @@ func purgeDumps(directory string, dbname string, keep int, limit time.Time) (err
 	return nil
 }
 
-func purgeRemoteDumps(
+func PurgeRemoteDumps(
+	logger *logger.LevelLog,
 	repo Repo,
 	uploadPrefix string,
 	directory string,
@@ -214,23 +224,23 @@ func purgeRemoteDumps(
 	keep int,
 	limit time.Time,
 ) error {
-	l.Verboseln("remote purge:", dbname, "limit:", limit, "keep:", keep)
+	logger.Verboseln("remote purge:", dbname, "limit:", limit, "keep:", keep)
 
 	// The dbname can be put in the directory tree of the dump, in this
 	// case the directory containing {dbname} in its name is kept on the
 	// remote path along with any subdirectory. So we have to include it in
 	// the filter when listing remote files
-	dirpath := filepath.Dir(formatDumpPath(directory, "", "", dbname, time.Time{}, 0))
+	dirpath := filepath.Dir(helpers.FormatDumpPath(directory, "", "", dbname, time.Time{}, 0))
 	prefix := filepath.Join(
 		uploadPrefix,
-		relPath(directory, filepath.Join(dirpath, cleanDBName(dbname))),
+		helpers.RelPath(logger, directory, filepath.Join(dirpath, helpers.CleanDBName(dbname))),
 	)
 
-	l.Verboseln("remote file prefix:", prefix)
+	logger.Verboseln("remote file prefix:", prefix)
 
 	// Get the list of files from the repository, this includes the
 	// contents of dumps in the directory format.
-	remoteFiles, err := repo.List(prefix)
+	remoteFiles, err := repo.List(logger, prefix)
 	if err != nil {
 		return fmt.Errorf("could not purge: %w", err)
 	}
@@ -244,13 +254,13 @@ func purgeRemoteDumps(
 
 	files := make([]Item, 0)
 	for _, i := range remoteFiles {
-		f, err := filepath.Rel(parentDir, i.key)
+		f, err := filepath.Rel(parentDir, i.Key)
 		if err != nil {
-			l.Warnf("could not process remote file %s: %s", i.key, err)
+			logger.Warnf("could not process remote file %s: %s", i.Key, err)
 			continue
 		}
 
-		files = append(files, Item{key: f, modtime: i.modtime, isDir: i.isDir})
+		files = append(files, Item{Key: f, modtime: i.modtime, IsDir: i.IsDir})
 	}
 
 	// Parse and group by date. We remove groups of files produced by
@@ -261,11 +271,11 @@ func purgeRemoteDumps(
 		// Show the files kept in verbose mode
 		for _, j := range jobs[:keep] {
 			for _, f := range j.files {
-				l.Verboseln("keeping remote (count)", filepath.Join(parentDir, f))
+				logger.Verboseln("keeping remote (count)", filepath.Join(parentDir, f))
 			}
 
 			for _, d := range j.dirs {
-				l.Verboseln("keeping remote (count)", filepath.Join(parentDir, d))
+				logger.Verboseln("keeping remote (count)", filepath.Join(parentDir, d))
 			}
 		}
 
@@ -275,27 +285,27 @@ func purgeRemoteDumps(
 			if j.datetime.Before(limit) {
 				for _, f := range j.files {
 					path := filepath.Join(parentDir, f)
-					l.Infoln("removing remote", path)
+					logger.Infoln("removing remote", path)
 					if err = repo.Remove(path); err != nil {
-						l.Errorln(err)
+						logger.Errorln(err)
 					}
 				}
 
 				for _, d := range j.dirs {
 					path := filepath.Join(parentDir, d)
-					l.Infoln("removing remote", path)
+					logger.Infoln("removing remote", path)
 					if err = repo.Remove(path); err != nil {
-						l.Errorln(err)
+						logger.Errorln(err)
 					}
 				}
 
 			} else {
 				for _, f := range j.files {
-					l.Verboseln("keeping remote (age)", filepath.Join(parentDir, f))
+					logger.Verboseln("keeping remote (age)", filepath.Join(parentDir, f))
 				}
 
 				for _, d := range j.dirs {
-					l.Verboseln("keeping remote (age)", filepath.Join(parentDir, d))
+					logger.Verboseln("keeping remote (age)", filepath.Join(parentDir, d))
 				}
 			}
 		}

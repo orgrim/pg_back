@@ -31,22 +31,35 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"strings"
 	"sync"
 	"time"
+
+	_ "embed"
+
+	pgcommand "github.com/orgrim/pg_back/internal/command"
+	"github.com/orgrim/pg_back/internal/config"
+	"github.com/orgrim/pg_back/internal/crypto"
+	"github.com/orgrim/pg_back/internal/helpers"
+	"github.com/orgrim/pg_back/internal/legacy"
+	"github.com/orgrim/pg_back/internal/logger"
+	"github.com/orgrim/pg_back/internal/postgresql"
+	"github.com/orgrim/pg_back/internal/storage"
 )
 
-var version = "2.6.0"
+//go:embed pg_back.conf
+var defaultCfg string
+
 var binDir string
+var l = logger.NewLevelLog()
 
 type dump struct {
 	// Name of the database to dump
 	Database string
 
 	// Per database pg_dump options to filter schema, tables, etc.
-	Options *dbOpts
+	Options *config.DbOpts
 
 	// Path is the output file or directory of the dump
 	// a directory is output with the directory format of pg_dump
@@ -63,7 +76,7 @@ type dump struct {
 	TimeFormat string
 
 	// Connection parameters
-	ConnString *ConnInfo
+	ConnString *postgresql.ConnInfo
 
 	// Cipher passphrase, when not empty cipher the file
 	CipherPassphrase string
@@ -82,44 +95,6 @@ type dump struct {
 	PgDumpVersion int
 }
 
-type dbOpts struct {
-	// Format of the dump
-	Format rune
-
-	// Algorithm of the checksum of the file, "none" is used to
-	// disable checksuming
-	SumAlgo string
-
-	// Number of parallel jobs for directory format
-	Jobs int
-
-	// Compression level for compressed formats, -1 means the default
-	CompressLevel int
-
-	// Purge configuration
-	PurgeInterval time.Duration
-	PurgeKeep     int
-
-	// Limit schemas
-	Schemas         []string
-	ExcludedSchemas []string
-
-	// Limit dumped tables
-	Tables         []string
-	ExcludedTables []string
-
-	// Other pg_dump options to use
-	PgDumpOpts []string
-
-	// Whether to force the dump of large objects or not with pg_dump -b or
-	// -B, or let pg_dump use its default. 0 means default, 1 include
-	// blobs, 2 exclude blobs.
-	WithBlobs int
-
-	// Connection user for that database
-	Username string
-}
-
 func main() {
 	// Use another function to allow the use of defer for cleanup, as
 	// os.Exit() does not run deferred functions
@@ -133,8 +108,8 @@ func run() (retVal error) {
 	// Parse commanline arguments first so that we can quit if we
 	// have shown usage or version string. We may have to load a
 	// non default configuration file
-	cliOpts, cliOptList, err := parseCli(os.Args[1:])
-	var pce *parseCliResult
+	cliOpts, cliOptList, err := config.ParseCli(os.Args[1:], defaultCfg)
+	var pce *config.ParseCliResult
 	if err != nil {
 		if errors.As(err, &pce) {
 			// Convert the configuration file if a path as been
@@ -144,7 +119,7 @@ func run() (retVal error) {
 			// output the result on stdout and exit to let the user
 			// check the result
 			if len(pce.LegacyConfig) > 0 {
-				if err := convertLegacyConfFile(pce.LegacyConfig); err != nil {
+				if err := legacy.ConvertLegacyConfFile(l, pce.LegacyConfig); err != nil {
 					return err
 				}
 			}
@@ -157,15 +132,15 @@ func run() (retVal error) {
 	// Enable verbose mode or quiet mode as soon as possible
 	l.SetVerbosity(cliOpts.Verbose, cliOpts.Quiet)
 
-	var cliOptions options
+	var cliOptions config.Options
 
 	if cliOpts.NoConfigFile {
 		l.Infoln("Skipping reading config file")
-		cliOptions = defaultOptions()
+		cliOptions = config.DefaultOptions()
 	} else {
 		// Load configuration file and allow the default configuration
 		// file to be absent
-		cliOptions, err = loadConfigurationFile(cliOpts.CfgFile)
+		cliOptions, err = config.LoadConfigurationFile(cliOpts.CfgFile, l)
 		if err != nil {
 			return err
 		}
@@ -173,7 +148,7 @@ func run() (retVal error) {
 
 	// override options from the configuration file with ones from
 	// the command line
-	opts := mergeCliAndConfigOptions(cliOpts, cliOptions, cliOptList)
+	opts := config.MergeCliAndConfigOptions(cliOpts, cliOptions, cliOptList)
 
 	err = ensureCipherParamsPresent(&opts)
 	if err != nil {
@@ -228,7 +203,8 @@ func run() (retVal error) {
 		}
 
 		if opts.Decrypt {
-			params := decryptParams{
+			params := crypto.DecryptParams{
+				Logger:     l,
 				PrivateKey: opts.CipherPrivateKey,
 				Passphrase: opts.CipherPassphrase,
 			}
@@ -251,20 +227,24 @@ func run() (retVal error) {
 	}
 
 	// Ensure that pg_dump accepts the options we will give it
-	pgDumpVersion := pgToolVersion("pg_dump")
+	pgDumpVersion := pgcommand.PgToolVersion(l, binDir, "pg_dump")
+
 	if pgDumpVersion < 80400 {
 		return fmt.Errorf("provided pg_dump is older than 8.4, unable use it")
 	}
 
 	// Parse the connection information
 	l.Verboseln("processing input connection parameters")
-	conninfo, err := prepareConnInfo(opts.Host, opts.Port, opts.Username, opts.ConnDb)
+	conninfo, err := postgresql.PrepareConnInfo(opts.Host, opts.Port, opts.Username, opts.ConnDb)
 	if err != nil {
 		return fmt.Errorf("could not compute connection string: %w", err)
 	}
+	if conninfo.Infos["application_name"] == "pg_back" {
+		l.Verboseln("using pg_back as application_name")
+	}
 
-	defer postBackupHook(opts.PostHook)
-	if err := preBackupHook(opts.PreHook); err != nil {
+	defer pgcommand.PostBackupHook(l, opts.PostHook)
+	if err := pgcommand.PreBackupHook(l, opts.PreHook); err != nil {
 		return err
 	}
 
@@ -304,11 +284,11 @@ func run() (retVal error) {
 	defer close(producedFiles)
 
 	// Connect before running pg_dumpall so that we know if the user is superuser
-	db, err := dbOpen(conninfo)
+	db, err := postgresql.DbOpen(l, conninfo)
 	if err != nil {
 		return fmt.Errorf("connection to PostgreSQL failed: %w", err)
 	}
-	defer WrappedClose(db, &retVal)
+	defer helpers.WrappedClose(db, &retVal)
 
 	// Generate a single datetime that will be used in all files generated by pg_back
 	var fileTime time.Time
@@ -317,13 +297,13 @@ func run() (retVal error) {
 	}
 
 	if !opts.DumpOnly {
-		if !db.superuser {
+		if !db.Superuser {
 			l.Infoln("connection user is not superuser, some information will not be dumped")
 		}
 
 		// Then we can implicitely avoid dumping role password when using a
 		// regular user
-		dumpRolePasswords := opts.WithRolePasswords && db.superuser
+		dumpRolePasswords := opts.WithRolePasswords && db.Superuser
 		if dumpRolePasswords {
 			l.Infoln("dumping globals")
 		} else {
@@ -335,8 +315,8 @@ func run() (retVal error) {
 
 		l.Infoln("dumping instance configuration")
 		var (
-			verr *pgVersionError
-			perr *pgPrivError
+			verr *postgresql.PgVersionError
+			perr *postgresql.PgPrivError
 		)
 
 		if err := dumpSettings(opts.Directory, opts.Mode, opts.TimeFormat, db, producedFiles, fileTime); err != nil {
@@ -352,13 +332,19 @@ func run() (retVal error) {
 		}
 	}
 
-	databases, err := listDatabases(db, opts.WithTemplates, opts.ExcludeDbs, opts.Dbnames)
+	databases, err := postgresql.ListDatabases(
+		l,
+		db,
+		opts.WithTemplates,
+		opts.ExcludeDbs,
+		opts.Dbnames,
+	)
 	if err != nil {
 		return err
 	}
 	l.Verboseln("databases to dump:", databases)
 
-	if err := pauseReplicationWithTimeout(db, opts.PauseTimeout); err != nil {
+	if err := postgresql.PauseReplicationWithTimeout(l, db, opts.PauseTimeout); err != nil {
 		return err
 	}
 
@@ -442,8 +428,8 @@ func run() (retVal error) {
 				force = true
 			}
 
-			b, err = dumpCreateDBAndACL(db, dbname, force)
-			var verr *pgVersionError
+			b, err = postgresql.DumpCreateDBAndACL(l, db, dbname, pgDumpVersion, force)
+			var verr *postgresql.PgVersionError
 			if err != nil {
 				if !errors.As(err, &verr) {
 					l.Errorln(err)
@@ -457,9 +443,9 @@ func run() (retVal error) {
 
 		if canDumpConfig {
 			l.Verboseln("dumping configuration of", dbname)
-			c, err = dumpDBConfig(db, dbname)
+			c, err = postgresql.DumpDBConfig(l, db, dbname, pgDumpVersion)
 			if err != nil {
-				var verr *pgVersionError
+				var verr *postgresql.PgVersionError
 				if !errors.As(err, &verr) {
 					l.Errorln(err)
 					exitCode = 1
@@ -473,7 +459,14 @@ func run() (retVal error) {
 		// Write ACL and configuration to an SQL file
 		if len(b) > 0 || len(c) > 0 {
 
-			aclpath := formatDumpPath(d.Directory, d.TimeFormat, "createdb.sql", dbname, d.When, 0)
+			aclpath := helpers.FormatDumpPath(
+				d.Directory,
+				d.TimeFormat,
+				"createdb.sql",
+				dbname,
+				d.When,
+				0,
+			)
 			if err := os.MkdirAll(filepath.Dir(aclpath), 0700); err != nil {
 				l.Errorln(err)
 				exitCode = 1
@@ -515,7 +508,7 @@ func run() (retVal error) {
 		}
 	}
 
-	if err := resumeReplication(db); err != nil {
+	if err := postgresql.ResumeReplication(l, db); err != nil {
 		l.Errorln(err)
 	}
 	if err := db.Close(); err != nil {
@@ -539,31 +532,31 @@ func run() (retVal error) {
 	// (globals and settings) like databases
 	l.Infoln("purging old dumps")
 
-	var repo Repo
+	var repo storage.Repo
 
 	switch opts.Upload {
 	case "s3":
-		repo, err = NewS3Repo(opts)
+		repo, err = storage.NewS3Repo(opts)
 		if err != nil {
 			return fmt.Errorf("failed to prepare upload to S3: %w", err)
 		}
 	case "b2":
-		repo, err = NewB2Repo(opts)
+		repo, err = storage.NewB2Repo(opts)
 		if err != nil {
 			return fmt.Errorf("failed to prepare upload to B2: %w", err)
 		}
 	case "sftp":
-		repo, err = NewSFTPRepo(opts)
+		repo, err = storage.NewSFTPRepo(opts)
 		if err != nil {
 			return fmt.Errorf("failed to prepare upload over SFTP: %w", err)
 		}
 	case "gcs":
-		repo, err = NewGCSRepo(opts)
+		repo, err = storage.NewGCSRepo(opts)
 		if err != nil {
 			return fmt.Errorf("failed to prepare upload to GCS: %w", err)
 		}
 	case "azure":
-		repo, err = NewAzRepo(opts)
+		repo, err = storage.NewAzRepo(opts)
 		if err != nil {
 			return fmt.Errorf("failed to prepare upload to Azure: %w", err)
 		}
@@ -576,12 +569,12 @@ func run() (retVal error) {
 		}
 		limit := now.Add(o.PurgeInterval)
 
-		if err := purgeDumps(opts.Directory, dbname, o.PurgeKeep, limit); err != nil {
+		if err := storage.PurgeDumps(l, opts.Directory, dbname, o.PurgeKeep, limit); err != nil {
 			retVal = err
 		}
 
 		if opts.PurgeRemote && repo != nil {
-			if err := purgeRemoteDumps(repo, opts.UploadPrefix, opts.Directory, dbname, o.PurgeKeep, limit); err != nil {
+			if err := storage.PurgeRemoteDumps(l, repo, opts.UploadPrefix, opts.Directory, dbname, o.PurgeKeep, limit); err != nil {
 				retVal = err
 			}
 		}
@@ -590,12 +583,12 @@ func run() (retVal error) {
 	if !opts.DumpOnly {
 		for _, other := range []string{"pg_globals", "pg_settings", "hba_file", "ident_file"} {
 			limit := now.Add(defDbOpts.PurgeInterval)
-			if err := purgeDumps(opts.Directory, other, defDbOpts.PurgeKeep, limit); err != nil {
+			if err := storage.PurgeDumps(l, opts.Directory, other, defDbOpts.PurgeKeep, limit); err != nil {
 				retVal = err
 			}
 
 			if opts.PurgeRemote && repo != nil {
-				if err := purgeRemoteDumps(repo, opts.UploadPrefix, opts.Directory, other, defDbOpts.PurgeKeep, limit); err != nil {
+				if err := storage.PurgeRemoteDumps(l, repo, opts.UploadPrefix, opts.Directory, other, defDbOpts.PurgeKeep, limit); err != nil {
 					retVal = err
 				}
 			}
@@ -605,8 +598,8 @@ func run() (retVal error) {
 	return
 }
 
-func defaultDbOpts(opts options) *dbOpts {
-	dbo := dbOpts{
+func defaultDbOpts(opts config.Options) *config.DbOpts {
+	dbo := config.DbOpts{
 		Format:        opts.Format,
 		Jobs:          opts.DirJobs,
 		CompressLevel: opts.CompressLevel,
@@ -629,8 +622,8 @@ func (d *dump) dump(fc chan<- sumFileJob) error {
 	// dump to prevent stacking pg_back processes if pg_dump last
 	// longer than a schedule of pg_back. If the lock cannot be
 	// acquired, skip the dump and exit with an error.
-	lock := formatDumpPath(d.Directory, d.TimeFormat, "lock", dbname, time.Time{}, 0)
-	flock, locked, err := lockPath(lock)
+	lock := helpers.FormatDumpPath(d.Directory, d.TimeFormat, "lock", dbname, time.Time{}, 0)
+	flock, locked, err := storage.LockPath(l, lock)
 	if err != nil {
 		return fmt.Errorf("unable to lock %s: %s", lock, err)
 	}
@@ -659,7 +652,7 @@ func (d *dump) dump(fc chan<- sumFileJob) error {
 		d.When = time.Now()
 	}
 
-	file := formatDumpPath(
+	file := helpers.FormatDumpPath(
 		d.Directory,
 		d.TimeFormat,
 		fileEnd,
@@ -669,7 +662,7 @@ func (d *dump) dump(fc chan<- sumFileJob) error {
 	)
 	formatOpt := fmt.Sprintf("-F%c", d.Options.Format)
 
-	command := execPath("pg_dump")
+	command := pgcommand.ExecPath(binDir, "pg_dump")
 	args := []string{formatOpt, "-f", file, "-w"}
 
 	if fileEnd == "d" && d.Options.Jobs > 1 {
@@ -746,7 +739,7 @@ func (d *dump) dump(fc chan<- sumFileJob) error {
 				l.Errorf("[%s] %s\n", dbname, line)
 			}
 		}
-		if err := unlockPath(flock); err != nil {
+		if err := storage.UnlockPath(l, flock); err != nil {
 			l.Errorf("could not release lock for %s: %s", dbname, err)
 			flock.Close() //nolint:errcheck
 		}
@@ -760,7 +753,7 @@ func (d *dump) dump(fc chan<- sumFileJob) error {
 		}
 	}
 
-	if err := unlockPath(flock); err != nil {
+	if err := storage.UnlockPath(l, flock); err != nil {
 		flock.Close() //nolint:errcheck
 		return fmt.Errorf("could not release lock for %s: %s", dbname, err)
 	}
@@ -839,7 +832,7 @@ func dumper(jobs <-chan *dump, results chan<- *dump, fc chan<- sumFileJob) {
 	}
 }
 
-func ensureCipherParamsPresent(opts *options) error {
+func ensureCipherParamsPresent(opts *config.Options) error {
 	// Nothing needs to be done if we are not encrypting or decrypting
 	if !opts.Encrypt && !opts.Decrypt {
 		return nil
@@ -862,134 +855,16 @@ func ensureCipherParamsPresent(opts *options) error {
 	return nil
 }
 
-func relPath(basedir, path string) string {
-	target, err := filepath.Rel(basedir, path)
-	if err != nil {
-		l.Warnf("could not get relative path from %s: %s\n", path, err)
-		target = path
-	}
-
-	prefix := fmt.Sprintf("..%c", os.PathSeparator)
-	for strings.HasPrefix(target, prefix) {
-		target = strings.TrimPrefix(target, prefix)
-	}
-
-	return target
-}
-
-func execPath(prog string) string {
-	binFile := prog
-	if runtime.GOOS == "windows" {
-		binFile = fmt.Sprintf("%s.exe", prog)
-	}
-
-	if binDir != "" {
-		return filepath.Join(binDir, binFile)
-	}
-
-	return binFile
-}
-
-func cleanDBName(dbname string) string {
-	// We do not want a database name starting with a dot to avoid creating hidden files
-	if strings.HasPrefix(dbname, ".") {
-		dbname = "_" + dbname
-	}
-
-	// If there is a path separator in the database name, we do not want to
-	// create the dump in a subdirectory or in a parent directory
-	if strings.ContainsRune(dbname, os.PathSeparator) {
-		dbname = strings.ReplaceAll(dbname, string(os.PathSeparator), "_")
-	}
-
-	// Always remove slashes to avoid issues with filenames on windows
-	if strings.ContainsRune(dbname, '/') {
-		dbname = strings.ReplaceAll(dbname, "/", "_")
-	}
-
-	return dbname
-}
-
-func formatDumpPath(
-	dir string,
-	timeFormat string,
-	suffix string,
-	dbname string,
-	when time.Time,
-	compressLevel int,
-) string {
-	var f, s, d string
-
-	// Avoid attacks on the database name
-	dbname = cleanDBName(dbname)
-
-	d = dir
-	if dbname != "" {
-		d = strings.ReplaceAll(dir, "{dbname}", dbname)
-	}
-
-	s = suffix
-	if suffix == "" {
-		s = "dump"
-	}
-
-	// Output is "dir(formatted)/dbname_date.suffix" when the
-	// input time is not zero, otherwise do not include the date
-	// and time. Reference time for time.Format(): "Mon Jan 2
-	// 15:04:05 MST 2006"
-	if when.IsZero() {
-		f = fmt.Sprintf("%s.%s", dbname, s)
-	} else {
-		f = fmt.Sprintf("%s_%s.%s", dbname, when.Format(timeFormat), s)
-	}
-
-	if suffix == "sql" && compressLevel > 0 {
-		f = f + ".gz"
-	}
-
-	return filepath.Join(d, f)
-}
-
-func pgToolVersion(tool string) int {
-	vs, err := exec.Command(execPath(tool), "--version").Output()
-	if err != nil {
-		l.Warnf("failed to retrieve version of %s: %s", tool, err)
-		return 0
-	}
-
-	var maj, min, rev, numver int
-	n, _ := fmt.Sscanf(string(vs), tool+" (PostgreSQL) %d.%d.%d", &maj, &min, &rev)
-
-	switch n {
-	case 3:
-		// Before PostgreSQL 10, the format si MAJ.MIN.REV
-		numver = (maj*100+min)*100 + rev
-	case 2:
-		// From PostgreSQL 10, the format si MAJ.REV, so the rev ends
-		// up in min with the scan
-		numver = maj*10000 + min
-	default:
-		// We have the special case of the development version, where the
-		// format is MAJdevel
-		fmt.Sscanf(string(vs), tool+" (PostgreSQL) %ddevel", &maj)
-		numver = maj * 10000
-	}
-
-	l.Verboseln(tool, "version is:", numver)
-
-	return numver
-}
-
 func dumpGlobals(
 	dir string,
 	mode int,
 	timeFormat string,
 	withRolePasswords bool,
-	conninfo *ConnInfo,
+	conninfo *postgresql.ConnInfo,
 	fc chan<- sumFileJob,
 	when time.Time,
 ) error {
-	command := execPath("pg_dumpall")
+	command := pgcommand.ExecPath(binDir, "pg_dumpall")
 	args := []string{"-g", "-w"}
 
 	// pg_dumpall only connects to another database if it is given
@@ -1003,7 +878,8 @@ func dumpGlobals(
 	// information
 	var env []string
 
-	pgDumpallVersion := pgToolVersion("pg_dumpall")
+	pgDumpallVersion := pgcommand.PgToolVersion(l, binDir, "pg_dumpall")
+
 	if pgDumpallVersion < 90300 {
 		env = os.Environ()
 		env = append(env, conninfo.MakeEnv()...)
@@ -1026,7 +902,7 @@ func dumpGlobals(
 		when = time.Now()
 	}
 
-	file := formatDumpPath(dir, timeFormat, "sql", "pg_globals", when, 0)
+	file := helpers.FormatDumpPath(dir, timeFormat, "sql", "pg_globals", when, 0)
 	args = append(args, "-f", file)
 
 	if err := os.MkdirAll(filepath.Dir(file), 0700); err != nil {
@@ -1071,7 +947,7 @@ func dumpSettings(
 	dir string,
 	mode int,
 	timeFormat string,
-	db *pg,
+	db *postgresql.Pg,
 	fc chan<- sumFileJob,
 	when time.Time,
 ) error {
@@ -1079,13 +955,13 @@ func dumpSettings(
 		when = time.Now()
 	}
 
-	file := formatDumpPath(dir, timeFormat, "out", "pg_settings", when, 0)
+	file := helpers.FormatDumpPath(dir, timeFormat, "out", "pg_settings", when, 0)
 
 	if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
 		return err
 	}
 
-	s, err := showSettings(db)
+	s, err := postgresql.ShowSettings(l, db)
 	if err != nil {
 		return err
 	}
@@ -1123,7 +999,7 @@ func dumpConfigFiles(
 	dir string,
 	mode int,
 	timeFormat string,
-	db *pg,
+	db *postgresql.Pg,
 	fc chan<- sumFileJob,
 	when time.Time,
 ) error {
@@ -1131,13 +1007,13 @@ func dumpConfigFiles(
 		if when.IsZero() {
 			when = time.Now()
 		}
-		file := formatDumpPath(dir, timeFormat, "out", param, when, 0)
+		file := helpers.FormatDumpPath(dir, timeFormat, "out", param, when, 0)
 
 		if err := os.MkdirAll(filepath.Dir(file), 0700); err != nil {
 			return err
 		}
 
-		s, err := extractFileFromSettings(db, param)
+		s, err := postgresql.ExtractFileFromSettings(l, db, param)
 		if err != nil {
 			return err
 		}
@@ -1176,13 +1052,13 @@ func dumpConfigFiles(
 	return nil
 }
 
-func listRemoteFiles(repoName string, opts options, globs []string) error {
-	repo, err := NewRepo(repoName, opts)
+func listRemoteFiles(repoName string, opts config.Options, globs []string) error {
+	repo, err := storage.NewRepo(repoName, opts)
 	if err != nil {
 		return err
 	}
 
-	remoteFiles, err := repo.List("")
+	remoteFiles, err := repo.List(l, "")
 	if err != nil {
 		return fmt.Errorf("could not list contents of remote location: %w", err)
 	}
@@ -1194,7 +1070,7 @@ func listRemoteFiles(repoName string, opts options, globs []string) error {
 		}
 
 		for _, glob := range globs {
-			keep, err = filepath.Match(glob, i.key)
+			keep, err = filepath.Match(glob, i.Key)
 			if err != nil {
 				return fmt.Errorf("bad patern: %w", err)
 			}
@@ -1208,14 +1084,14 @@ func listRemoteFiles(repoName string, opts options, globs []string) error {
 			continue
 		}
 
-		fmt.Println(i.key)
+		fmt.Println(i.Key)
 	}
 
 	return nil
 }
 
-func downloadFiles(repoName string, opts options, dir string, globs []string) error {
-	repo, err := NewRepo(repoName, opts)
+func downloadFiles(repoName string, opts config.Options, dir string, globs []string) error {
+	repo, err := storage.NewRepo(repoName, opts)
 	if err != nil {
 		return err
 	}
@@ -1225,7 +1101,7 @@ func downloadFiles(repoName string, opts options, dir string, globs []string) er
 		return fmt.Errorf("no filter given to download files, use globs as command line arguments")
 	}
 
-	remoteFiles, err := repo.List("")
+	remoteFiles, err := repo.List(l, "")
 	if err != nil {
 		return fmt.Errorf("could not list contents of remote location: %w", err)
 	}
@@ -1233,7 +1109,7 @@ func downloadFiles(repoName string, opts options, dir string, globs []string) er
 	for _, i := range remoteFiles {
 		keep := false
 		for _, glob := range globs {
-			keep, err = filepath.Match(glob, i.key)
+			keep, err = filepath.Match(glob, i.Key)
 			if err != nil {
 				return fmt.Errorf("bad patern: %w", err)
 			}
@@ -1244,27 +1120,27 @@ func downloadFiles(repoName string, opts options, dir string, globs []string) er
 		}
 
 		if !keep {
-			l.Verboseln("skipping:", i.key)
+			l.Verboseln("skipping:", i.Key)
 			continue
 		}
 
-		if i.isDir {
+		if i.IsDir {
 			l.Warnf(
 				"%s is a directory, append %c* to the filter to download its contents",
-				i.key,
+				i.Key,
 				os.PathSeparator,
 			)
 			continue
 		}
 
 		// Create any parent directory under target dir
-		path := filepath.Join(dir, i.key)
+		path := filepath.Join(dir, i.Key)
 		parent := filepath.Dir(path)
 		if err := os.MkdirAll(parent, 0700); err != nil {
 			return fmt.Errorf("could not create directory %s: %w", parent, err)
 		}
 
-		if err := repo.Download(i.key, path); err != nil {
+		if err := repo.Download(l, i.Key, path); err != nil {
 			return err
 		}
 	}
@@ -1272,7 +1148,7 @@ func downloadFiles(repoName string, opts options, dir string, globs []string) er
 	return nil
 }
 
-func decryptDirectory(dir string, params decryptParams, workers int, globs []string) error {
+func decryptDirectory(dir string, params crypto.DecryptParams, workers int, globs []string) error {
 
 	// Run a pool of workers to decrypt concurrently
 	var wg sync.WaitGroup
@@ -1298,7 +1174,7 @@ func decryptDirectory(dir string, params decryptParams, workers int, globs []str
 				}
 
 				l.Verbosef("[%d] processing: %s\n", id, file)
-				if err := decryptFile(file, params); err != nil {
+				if err := params.DecryptFile(file); err != nil {
 					l.Errorln(err)
 					failed = true
 				}
@@ -1409,28 +1285,12 @@ type sumFileJob struct {
 	SumAlgo string
 }
 
-type encryptParams struct {
-	// Encrypt with a passphrase
-	Passphrase string
-
-	// Encrypt with an AGE public key encoded in Bech32
-	PublicKey string
-}
-
-type decryptParams struct {
-	// A passphrase to use for decryption
-	Passphrase string
-
-	// An AGE private key encoded in Bech32
-	PrivateKey string
-}
-
 type encryptFileJob struct {
 	// Path of the file or directory to checksum
 	Path string
 
 	// How to encrypt the file
-	Params encryptParams
+	Params crypto.EncryptParams
 
 	KeepSrc bool
 
@@ -1456,7 +1316,7 @@ type uploadJob struct {
 // postProcessFiles is the entrypoint for common tasks to perform on files
 // produced during execution, checksum and encryption. Different go routines
 // are spawn to process the files as soon as possible
-func postProcessFiles(inFiles chan sumFileJob, wg *sync.WaitGroup, opts options) chan error {
+func postProcessFiles(inFiles chan sumFileJob, wg *sync.WaitGroup, opts config.Options) chan error {
 	// Create a channel for errors so that we can inform the main goroutine
 	// that a job failed and have the program exit with a non-zero
 	// status. This chan is buffered with the number of goroutines using it
@@ -1498,7 +1358,7 @@ func postProcessFiles(inFiles chan sumFileJob, wg *sync.WaitGroup, opts options)
 
 				if j.SumAlgo != "none" {
 					l.Infoln("computing checksum of", j.Path)
-					p, err := checksumFile(j.Path, opts.Mode, j.SumAlgo)
+					p, err := crypto.ChecksumFile(l, j.Path, opts.Mode, j.SumAlgo)
 					if err != nil {
 						l.Errorln("checksum failed:", err)
 						if !failed {
@@ -1512,7 +1372,8 @@ func postProcessFiles(inFiles chan sumFileJob, wg *sync.WaitGroup, opts options)
 					if opts.Encrypt {
 						encIn <- encryptFileJob{
 							Path: p,
-							Params: encryptParams{
+							Params: crypto.EncryptParams{
+								Logger:     l,
 								Passphrase: opts.CipherPassphrase,
 								PublicKey:  opts.CipherPublicKey,
 							},
@@ -1532,7 +1393,8 @@ func postProcessFiles(inFiles chan sumFileJob, wg *sync.WaitGroup, opts options)
 				if opts.Encrypt {
 					encIn <- encryptFileJob{
 						Path: j.Path,
-						Params: encryptParams{
+						Params: crypto.EncryptParams{
+							Logger:     l,
 							Passphrase: opts.CipherPassphrase,
 							PublicKey:  opts.CipherPublicKey,
 						},
@@ -1593,7 +1455,7 @@ func postProcessFiles(inFiles chan sumFileJob, wg *sync.WaitGroup, opts options)
 
 				if opts.Encrypt {
 					l.Infoln("encrypting", j.Path)
-					encFiles, err := encryptFile(j.Path, opts.Mode, j.Params, j.KeepSrc)
+					encFiles, err := j.Params.EncryptFile(j.Path, opts.Mode, j.KeepSrc)
 					if err != nil {
 						l.Errorln("encryption failed:", err)
 						if !failed {
@@ -1643,7 +1505,7 @@ func postProcessFiles(inFiles chan sumFileJob, wg *sync.WaitGroup, opts options)
 
 				if j.SumAlgo != "none" {
 					l.Infoln("computing checksum of", j.SumFile)
-					p, err := checksumFileList(j.Paths, opts.Mode, j.SumAlgo, j.SumFile)
+					p, err := crypto.ChecksumFileList(l, j.Paths, opts.Mode, j.SumAlgo, j.SumFile)
 					if err != nil {
 						l.Errorln("checksum of encrypted files failed:", err)
 						if !failed {
@@ -1664,7 +1526,7 @@ func postProcessFiles(inFiles chan sumFileJob, wg *sync.WaitGroup, opts options)
 		}(i)
 	}
 
-	repo, err := NewRepo(opts.Upload, opts)
+	repo, err := storage.NewRepo(opts.Upload, opts)
 	if err != nil {
 		l.Errorln(err)
 		ret <- err
@@ -1687,7 +1549,7 @@ func postProcessFiles(inFiles chan sumFileJob, wg *sync.WaitGroup, opts options)
 
 				if opts.Upload != "none" && repo != nil {
 					// Prepend the global prefix to the relative path of the dump
-					if err := repo.Upload(j.Path, filepath.Join(opts.UploadPrefix, relPath(opts.Directory, j.Path))); err != nil {
+					if err := repo.Upload(l, j.Path, filepath.Join(opts.UploadPrefix, helpers.RelPath(l, opts.Directory, j.Path))); err != nil {
 						l.Errorln(err)
 						if !failed {
 							ret <- err

@@ -23,7 +23,7 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
 // THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-package main
+package legacy
 
 import (
 	"bytes"
@@ -32,6 +32,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	"github.com/orgrim/pg_back/internal/logger"
 )
 
 func TestReadLegacyConf(t *testing.T) {
@@ -171,10 +172,10 @@ func TestConvertLegacyConf(t *testing.T) {
 		}, "format = plain\n" +
 			"pg_dump_options = --create\n"},
 	}
-
+	logger := logger.NewLevelLog()
 	for i, st := range tests {
 		t.Run(fmt.Sprintf("%v", i), func(t *testing.T) {
-			got := convertLegacyConf(st.input)
+			got := convertLegacyConf(logger, st.input)
 			if got != st.want {
 				t.Errorf("got %v, want %v", got, st.want)
 			}

@@ -25,7 +25,7 @@
 
 //go:build !windows
 
-package main
+package command
 
 import (
 	"bytes"
@@ -35,6 +35,8 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/orgrim/pg_back/internal/logger"
 )
 
 func TestHookCommand(t *testing.T) {
@@ -58,14 +60,14 @@ func TestHookCommand(t *testing.T) {
 			`^\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} ERROR: test: test\n\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} ERROR: exit status 1\n$`,
 		},
 	}
-
+	logger := logger.NewLevelLog()
 	for i, subt := range tests {
 		t.Run(fmt.Sprintf("%v", i), func(t *testing.T) {
 			buf := new(bytes.Buffer)
-			l.logger.SetOutput(buf)
+			logger.Logger.SetOutput(buf)
 
-			if err := hookCommand(subt.cmd, "test:"); err != nil {
-				l.Errorln(err)
+			if err := hookCommand(logger, subt.cmd, "test:"); err != nil {
+				logger.Errorln(err)
 			}
 
 			lines := strings.ReplaceAll(buf.String(), "\r", "")
@@ -76,7 +78,7 @@ func TestHookCommand(t *testing.T) {
 			if !matched {
 				t.Errorf("expected a match of %q, got %q\n", subt.re, lines)
 			}
-			l.logger.SetOutput(os.Stderr)
+			logger.Logger.SetOutput(os.Stderr)
 		})
 	}
 }
@@ -99,12 +101,13 @@ func TestPreBackupHook(t *testing.T) {
 			true,
 		},
 	}
+	logger := logger.NewLevelLog()
 	for i, subt := range tests {
 		t.Run(fmt.Sprintf("%v", i), func(t *testing.T) {
 			buf := new(bytes.Buffer)
-			l.logger.SetOutput(buf)
+			logger.Logger.SetOutput(buf)
 
-			if err := preBackupHook(subt.cmd); err != nil {
+			if err := PreBackupHook(logger, subt.cmd); err != nil {
 				if !subt.fails {
 					t.Errorf("function test must not fail, got error: %q\n", err)
 				}
@@ -122,15 +125,16 @@ func TestPreBackupHook(t *testing.T) {
 			if !matched {
 				t.Errorf("expected a match of %q, got %q\n", subt.re, lines)
 			}
-			l.logger.SetOutput(os.Stderr)
+			logger.Logger.SetOutput(os.Stderr)
 		})
 	}
 }
 
 func TestPostBackupHook(t *testing.T) {
+	logger := logger.NewLevelLog()
 	t.Run("0", func(t *testing.T) {
 		if os.Getenv("_TEST_HOOK") == "1" {
-			postBackupHook("false")
+			PostBackupHook(logger, "false")
 			return
 		}
 		cmd := exec.Command(os.Args[0], "-test.run=TestPostBackupHook")
@@ -144,8 +148,8 @@ func TestPostBackupHook(t *testing.T) {
 
 	t.Run("1", func(t *testing.T) {
 		buf := new(bytes.Buffer)
-		l.logger.SetOutput(buf)
-		postBackupHook("")
+		logger.Logger.SetOutput(buf)
+		PostBackupHook(logger, "")
 		lines := buf.String()
 		if len(lines) != 0 {
 			t.Errorf("did not expect any output, got %q\n", lines)

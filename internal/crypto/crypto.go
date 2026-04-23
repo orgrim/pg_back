@@ -23,7 +23,7 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
 // THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-package main
+package crypto
 
 import (
 	"errors"
@@ -34,9 +34,31 @@ import (
 	"strings"
 
 	"filippo.io/age"
+	"github.com/orgrim/pg_back/internal/helpers"
+	"github.com/orgrim/pg_back/internal/logger"
 )
 
-func ageEncrypt(src io.Reader, dst io.Writer, params encryptParams) error {
+type EncryptParams struct {
+	Logger *logger.LevelLog
+
+	// Encrypt with a passphrase
+	Passphrase string
+
+	// Encrypt with an AGE public key encoded in Bech32
+	PublicKey string
+}
+
+type DecryptParams struct {
+	Logger *logger.LevelLog
+
+	// A passphrase to use for decryption
+	Passphrase string
+
+	// An AGE private key encoded in Bech32
+	PrivateKey string
+}
+
+func (params *EncryptParams) ageEncrypt(src io.Reader, dst io.Writer) error {
 	if params.PublicKey != "" {
 		return ageEncryptPublicKey(src, dst, params.PublicKey)
 	}
@@ -85,7 +107,7 @@ func ageEncryptInternal(src io.Reader, dst io.Writer, recipient age.Recipient) e
 	return nil
 }
 
-func ageDecrypt(src io.Reader, dst io.Writer, params decryptParams) error {
+func (params *DecryptParams) ageDecrypt(src io.Reader, dst io.Writer) error {
 	if params.PrivateKey != "" {
 		return ageDecryptPrivateKey(src, dst, params.PrivateKey)
 	}
@@ -132,10 +154,9 @@ func ageDecryptInternal(src io.Reader, dst io.Writer, identity age.Identity) err
 	return nil
 }
 
-func encryptFile(
+func (params *EncryptParams) EncryptFile(
 	path string,
 	mode int,
-	params encryptParams,
 	keep bool,
 ) (_ []string, err error) {
 	encrypted := make([]string, 0)
@@ -146,30 +167,30 @@ func encryptFile(
 	}
 
 	if i.IsDir() {
-		l.Verboseln("dump is a directory, encrypting all files inside")
+		params.Logger.Verboseln("dump is a directory, encrypting all files inside")
 		err = filepath.Walk(path, func(path string, info os.FileInfo, err error) error {
 			if err != nil {
 				return err
 			}
 			if info.Mode().IsRegular() {
-				l.Verboseln("encrypting:", path)
+				params.Logger.Verboseln("encrypting:", path)
 
 				src, err := os.Open(path)
 				if err != nil {
-					l.Errorln(err)
+					params.Logger.Errorln(err)
 					return err
 				}
-				defer WrappedClose(src, &err)
+				defer helpers.WrappedClose(src, &err)
 
 				dstFile := fmt.Sprintf("%s.age", path)
 				dst, err := os.Create(dstFile)
 				if err != nil {
-					l.Errorln(err)
+					params.Logger.Errorln(err)
 					return err
 				}
-				defer WrappedClose(dst, &err)
+				defer helpers.WrappedClose(dst, &err)
 
-				if err := ageEncrypt(src, dst, params); err != nil {
+				if err := params.ageEncrypt(src, dst); err != nil {
 					// explicitly ignore error on close and remove
 					dst.Close()        //nolint:errcheck
 					os.Remove(dstFile) //nolint:errcheck
@@ -187,7 +208,7 @@ func encryptFile(
 				}
 
 				if !keep {
-					l.Verboseln("removing source file:", path)
+					params.Logger.Verboseln("removing source file:", path)
 					if err := src.Close(); err != nil {
 						return fmt.Errorf("could not close %s: %w", path, err)
 					}
@@ -203,25 +224,25 @@ func encryptFile(
 			return encrypted, fmt.Errorf("error walking the path %q: %v", path, err)
 		}
 	} else {
-		l.Verboseln("encrypting:", path)
+		params.Logger.Verboseln("encrypting:", path)
 		src, err := os.Open(path)
 		if err != nil {
-			l.Errorln(err)
+			params.Logger.Errorln(err)
 			return encrypted, err
 		}
 
-		defer WrappedClose(src, &err)
+		defer helpers.WrappedClose(src, &err)
 
 		dstFile := fmt.Sprintf("%s.age", path)
 		dst, err := os.Create(dstFile)
 		if err != nil {
-			l.Errorln(err)
+			params.Logger.Errorln(err)
 			return encrypted, err
 		}
 
-		defer WrappedClose(dst, &err)
+		defer helpers.WrappedClose(dst, &err)
 
-		if err := ageEncrypt(src, dst, params); err != nil {
+		if err := params.ageEncrypt(src, dst); err != nil {
 			// explicitly ignore error here, we already return an error
 			dst.Close()        //nolint:errcheck
 			os.Remove(dstFile) //nolint:errcheck
@@ -235,7 +256,7 @@ func encryptFile(
 			}
 		}
 		if !keep {
-			l.Verboseln("removing source file:", path)
+			params.Logger.Verboseln("removing source file:", path)
 			if err := src.Close(); err != nil {
 				return encrypted, fmt.Errorf("could not close %s: %w", path, err)
 			}
@@ -248,15 +269,15 @@ func encryptFile(
 	return encrypted, err
 }
 
-func decryptFile(path string, params decryptParams) (err error) {
-	l.Infoln("decrypting", path)
+func (params *DecryptParams) DecryptFile(path string) (err error) {
+	params.Logger.Infoln("decrypting", path)
 
 	src, err := os.Open(path)
 	if err != nil {
 		return err
 	}
 
-	defer WrappedClose(src, &err)
+	defer helpers.WrappedClose(src, &err)
 
 	dstFile := strings.TrimSuffix(path, ".age")
 	dst, err := os.Create(dstFile)
@@ -264,9 +285,9 @@ func decryptFile(path string, params decryptParams) (err error) {
 		return err
 	}
 
-	defer WrappedClose(dst, &err)
+	defer helpers.WrappedClose(dst, &err)
 
-	if err := ageDecrypt(src, dst, params); err != nil {
+	if err := params.ageDecrypt(src, dst); err != nil {
 		// explicitly ignore error on close and remove
 		dst.Close()        //nolint:errcheck
 		os.Remove(dstFile) //nolint:errcheck
