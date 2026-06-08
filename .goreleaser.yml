@@ -1,5 +1,6 @@
 # .goreleaser.yml created for goreleaser version v1.16.1
 # Documentation at http://goreleaser.com
+version: 2
 before:
   hooks:
     # You may remove this if you don't use go modules.
@@ -17,11 +18,11 @@ builds:
 archives:
   - format_overrides:
       - goos: windows
-        format: zip
+        formats: zip
 checksum:
   name_template: 'checksums.txt'
 snapshot:
-  name_template: "dev-{{.Commit}}"
+  version_template: "dev-{{.Commit}}"
 changelog:
   sort: asc
   filters:
