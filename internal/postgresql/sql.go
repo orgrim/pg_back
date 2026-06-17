@@ -707,6 +707,22 @@ func canPauseReplication(logger *logger.LevelLog, db *Pg) (_ bool, err error) {
 	return true, err
 }
 
+func isReplicationPaused(logger *logger.LevelLog, db *Pg) (_ bool, err error) {
+	// pg_get_wal_replay_pause_state() was added in PostgreSQL 14 and returns
+	// 'not paused', 'pause requested', or 'paused'. On older versions,
+	// pg_is_{wal|xlog}_replay_paused() only returns true when fully paused.
+	query := "SELECT pg_get_wal_replay_pause_state() = 'paused' AND pg_is_in_recovery()"
+	if db.version < 140000 {
+		query = fmt.Sprintf("SELECT pg_is_%s_replay_paused() AND pg_is_in_recovery()", db.xlogOrWal)
+	} 
+	logger.Verboseln("executing SQL query:", query)
+	var paused bool
+	if err := db.conn.QueryRow(query).Scan(&paused); err != nil {
+		return false, fmt.Errorf("could not check replication pause state: %w", err)
+	}
+	return paused, nil
+}
+
 func PauseReplicationWithTimeout(logger *logger.LevelLog, db *Pg, timeOut int) error {
 
 	if ok, err := canPauseReplication(logger, db); !ok {
@@ -736,8 +752,15 @@ func PauseReplicationWithTimeout(logger *logger.LevelLog, db *Pg, timeOut int) e
 					return
 				}
 			} else {
-				done <- true
-				return
+				// pg_wal_replay_pause() is asynchronous: the pause may not be
+				// in effect yet when the function returns. Loop until confirmed.
+				if paused, err := isReplicationPaused(logger, db); err != nil {
+					fail <- err
+					return
+				} else if paused {
+					done <- true
+					return
+				}
 			}
 
 			select {
