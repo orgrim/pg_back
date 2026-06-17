@@ -718,7 +718,7 @@ func isReplicationPaused(logger *logger.LevelLog, db *Pg) (_ bool, err error) {
 	logger.Verboseln("executing SQL query:", query)
 	var paused bool
 	if err := db.conn.QueryRow(query).Scan(&paused); err != nil {
-		return false, fmt.Errorf("could not check replication pause state: %s", err)
+		return false, fmt.Errorf("could not check replication pause state: %w", err)
 	}
 	return paused, nil
 }
