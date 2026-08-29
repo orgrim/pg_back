@@ -205,12 +205,12 @@ func validateMode(s string) (int, error) {
 	if (strings.HasPrefix(s, "0") && len(s) <= 5) || (strings.HasPrefix(s, "-")) {
 		mode, err := strconv.ParseInt(s, 0, 32)
 		if err != nil {
-			return 0, fmt.Errorf("Invalid permission %q", s)
+			return 0, fmt.Errorf("invalid permission %q", s)
 		}
 		return int(mode), nil
 	}
 	return 0, fmt.Errorf(
-		"Invalid permission %q, must be octal (start by 0 and max 5 digits) number or negative",
+		"invalid permission %q, must be octal (start by 0 and max 5 digits) number or negative",
 		s,
 	)
 }
@@ -235,11 +235,11 @@ func validatePurgeKeepValue(k string) (int, error) {
 	keep, err := strconv.ParseInt(k, 10, 0)
 	if err != nil {
 		// return -1 too when the input is not convertible to an int
-		return -1, fmt.Errorf("Invalid input for keep: %w", err)
+		return -1, fmt.Errorf("invalid input for keep: %w", err)
 	}
 
 	if keep < 0 {
-		return -1, fmt.Errorf("Invalid input for keep: negative value: %d", keep)
+		return -1, fmt.Errorf("invalid input for keep: negative value: %d", keep)
 	}
 
 	return int(keep), nil
@@ -248,7 +248,7 @@ func validatePurgeKeepValue(k string) (int, error) {
 func validatePurgeTimeLimitValue(i string) (time.Duration, error) {
 	if days, err := strconv.ParseInt(i, 10, 0); err != nil {
 		if errors.Is(err, strconv.ErrRange) {
-			return 0, errors.New("Invalid input for purge interval, number too big")
+			return 0, errors.New("invalid input for purge interval, number too big")
 		}
 	} else {
 		return time.Duration(-days*24) * time.Hour, nil
@@ -582,12 +582,14 @@ func ParseCli(args []string, defaultCfg string) (Options, []string, error) {
 	// Do not use the default pflag.Parse() that use os.Args[1:],
 	// but pass it explicitly so that unit-tests can feed any set
 	// of flags
-	pflag.CommandLine.Parse(args)
+	changed := make([]string, 0)
+	if err := pflag.CommandLine.Parse(args); err != nil {
+		return opts, changed, fmt.Errorf("imposibile to parse command line argument: %w", err)
+	}
 
 	// Record the list of flags set on the command line to allow
 	// overriding the configuration later, if an alternate
 	// configuration file has been provided
-	changed := make([]string, 0)
 	pflag.Visit(func(f *pflag.Flag) {
 		changed = append(changed, f.Name)
 	})
@@ -837,7 +839,7 @@ func LoadConfigurationFile(path string, l *logger.LevelLog) (Options, error) {
 			return opts, nil
 		}
 
-		return opts, fmt.Errorf("Could load configuration file: %v", err)
+		return opts, fmt.Errorf("could load configuration file: %v", err)
 	}
 
 	if err := validateConfigurationFile(cfg); err != nil {

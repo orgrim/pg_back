@@ -45,7 +45,11 @@ func TestPurgeDumps(t *testing.T) {
 	if err != nil {
 		t.Fatal("could not create tempdir:", err)
 	}
-	defer os.RemoveAll(dir)
+	defer func() {
+		if err := os.RemoveAll(dir); err != nil {
+			t.Fatal("could not remove tmpdir:", err)
+		}
+	}()
 
 	// empty path - on windows chmod does not work as expected
 	wd := filepath.Join(dir, "real", "bad")
@@ -54,12 +58,16 @@ func TestPurgeDumps(t *testing.T) {
 	}
 
 	if runtime.GOOS != "windows" {
-		os.Chmod(filepath.Dir(wd), 0444)
+		if err := os.Chmod(filepath.Dir(wd), 0444); err != nil {
+			t.Fatal("could not change permision on working dir:", wd, err)
+		}
 		err = PurgeDumps(logger, wd, "", 0, time.Time{})
 		if err == nil {
 			t.Errorf("empty path gave error <nil>\n")
 		}
-		os.Chmod(filepath.Dir(wd), 0755)
+		if err := os.Chmod(filepath.Dir(wd), 0755); err != nil {
+			t.Fatal("could not remove working dir:", err)
+		}
 	}
 
 	// empty dbname
@@ -70,8 +78,12 @@ func TestPurgeDumps(t *testing.T) {
 		t.Errorf("could not create temp file %s: %s", tf, err)
 	}
 
-	f.Close()
-	os.Chtimes(tf, when, when)
+	if err := f.Close(); err != nil {
+		t.Fatal("could not close:", f, err)
+	}
+	if err := os.Chtimes(tf, when, when); err != nil {
+		t.Fatal("could change access time:", tf, err)
+	}
 
 	err = PurgeDumps(logger, wd, "", 0, time.Now())
 	if err != nil {
@@ -84,25 +96,40 @@ func TestPurgeDumps(t *testing.T) {
 	// file without write perms
 	if runtime.GOOS != "windows" {
 		tf = helpers.FormatDumpPath(wd, time.RFC3339, "dump", "db", time.Now().Add(-time.Hour), 0)
-		os.WriteFile(tf, []byte("truc\n"), 0644)
-		os.Chmod(filepath.Dir(tf), 0555)
+		if err := os.WriteFile(tf, []byte("truc\n"), 0644); err != nil {
+			t.Errorf("cannot write file %s: %v", tf, err)
+		}
+		tfDir := filepath.Dir(tf)
+
+		if err := os.Chmod(tfDir, 0555); err != nil {
+			t.Errorf("cannot chmod on %s", tfDir)
+		}
 
 		err = PurgeDumps(logger, wd, "db", 0, time.Now())
 		if err == nil {
 			t.Errorf("bad perms on file did not gave an error")
 		}
-		os.Chmod(filepath.Dir(tf), 0755)
+		if err := os.Chmod(tfDir, 0755); err != nil {
+			t.Errorf("cannot chmod on %s: %v", tfDir, err)
+		}
 
 		// dir without write perms
 		tf = helpers.FormatDumpPath(wd, time.RFC3339, "d", "db", time.Now().Add(-time.Hour), 0)
-		os.MkdirAll(tf, 0755)
-		os.Chmod(filepath.Dir(tf), 0555)
+		if err := os.MkdirAll(tf, 0755); err != nil {
+			t.Errorf("can't create dir %s: %v", tf, err)
+		}
+		if err := os.Chmod(tfDir, 0555); err != nil {
+			t.Errorf("cannot chmod on %s: %v", tfDir, err)
+		}
 
 		err = PurgeDumps(logger, wd, "db", 0, time.Now())
 		if err == nil {
 			t.Errorf("bad perms on dir did not gave an error")
 		}
-		os.Chmod(filepath.Dir(tf), 0755)
+
+		if err := os.Chmod(tfDir, 0755); err != nil {
+			t.Logf("cannot chmod %s: %v", tfDir, err)
+		}
 	}
 
 	// time and keep limits
@@ -142,8 +169,12 @@ func TestPurgeDumps(t *testing.T) {
 			for i := 1; i <= 3; i++ {
 				when := time.Now().Add(-time.Hour * time.Duration(i))
 				tf = helpers.FormatDumpPath(wd, st.format, "dump", "db", when, 0)
-				os.WriteFile(tf, []byte("truc\n"), 0644)
-				os.Chtimes(tf, when, when)
+				if err := os.WriteFile(tf, []byte("truc\n"), 0644); err != nil {
+					t.Logf("cannot write on %s: %v", tf, err)
+				}
+				if err := os.Chtimes(tf, when, when); err != nil {
+					t.Logf("cannot change times on %s: %v", tf, err)
+				}
 			}
 
 			if err := PurgeDumps(logger, wd, "db", st.keep, st.limit); err != nil {
@@ -154,7 +185,7 @@ func TestPurgeDumps(t *testing.T) {
 			if err != nil {
 				t.Fatal("could not open workdir:", err)
 			}
-			defer dir.Close()
+			helpers.WrappedClose(dir, &err)
 
 			fi, err := dir.Readdir(-1)
 			if err != nil {
@@ -175,7 +206,9 @@ func TestPurgeDumps(t *testing.T) {
 				)
 			}
 
-			os.RemoveAll(wd)
+			if err := os.RemoveAll(wd); err != nil {
+				t.Fatal("coult not remove directory", wd, err)
+			}
 		})
 	}
 }
