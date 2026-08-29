@@ -32,6 +32,7 @@ import (
 	"runtime"
 	"testing"
 
+	"github.com/orgrim/pg_back/internal/helpers"
 	"github.com/orgrim/pg_back/internal/logger"
 )
 
@@ -42,7 +43,11 @@ func TestLockPath(t *testing.T) {
 	if err != nil {
 		t.Fatal("could not create tempdir:", err)
 	}
-	defer os.RemoveAll(dir)
+	defer func() {
+		if err := os.RemoveAll(dir); err != nil {
+			t.Logf("cannot remove %s: %v", dir, err)
+		}
+	}()
 
 	// tempdir with perms for mkdirall failure
 	if err := os.MkdirAll(filepath.Join(dir, "subfail"), 0444); err != nil {
@@ -68,7 +73,7 @@ func TestLockPath(t *testing.T) {
 	if err != nil {
 		t.Errorf("expected <nil> got error %q\n", err)
 	}
-	defer f.Close()
+	defer helpers.WrappedClose(f, &err)
 	if !l {
 		t.Errorf("expected a true for locked, got false")
 	}
@@ -81,7 +86,7 @@ func TestLockPath(t *testing.T) {
 	if l1 {
 		t.Errorf("expected a false for failed locked, got true")
 	}
-	f1.Close()
+	defer helpers.WrappedClose(f1, &err)
 }
 
 func TestUnlockPath(t *testing.T) {
@@ -90,7 +95,11 @@ func TestUnlockPath(t *testing.T) {
 	if err != nil {
 		t.Fatal("could not create tempfile")
 	}
-	defer os.Remove(f.Name())
+	defer func() {
+		if err := os.Remove(f.Name()); err != nil {
+			t.Logf("cannot remove %s: %v", f.Name(), err)
+		}
+	}()
 
 	// unlock shall always work even if the file is not locked
 	err = UnlockPath(logger, f)
@@ -99,7 +108,9 @@ func TestUnlockPath(t *testing.T) {
 	}
 
 	// error when the locked file as already been removed
-	os.Remove(f.Name())
+	if err := os.Remove(f.Name()); err != nil {
+		t.Errorf("cannot remove %s: %v", f.Name(), err)
+	}
 	err = UnlockPath(logger, f)
 	if err == nil {
 		t.Errorf("got <nil> instead of \"bad file descriptor\" error")

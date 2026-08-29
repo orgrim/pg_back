@@ -155,7 +155,9 @@ func TestChecksumFile(t *testing.T) {
 		if err != nil {
 			t.Fatal("could not create test file")
 		}
-		fmt.Fprintf(f, "abdc%d", i)
+		if _, err := fmt.Fprintf(f, "abdc%d", i); err != nil {
+			t.Fatalf("could not format test file: %v", err)
+		}
 		if err := f.Close(); err != nil {
 			t.Fatal("could not close test file")
 		}

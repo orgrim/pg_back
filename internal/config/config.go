@@ -582,12 +582,14 @@ func ParseCli(args []string, defaultCfg string) (Options, []string, error) {
 	// Do not use the default pflag.Parse() that use os.Args[1:],
 	// but pass it explicitly so that unit-tests can feed any set
 	// of flags
-	pflag.CommandLine.Parse(args)
+	changed := make([]string, 0)
+	if err := pflag.CommandLine.Parse(args); err != nil {
+		return opts, changed, fmt.Errorf("imposibile to parse command line argument: %w", err)
+	}
 
 	// Record the list of flags set on the command line to allow
 	// overriding the configuration later, if an alternate
 	// configuration file has been provided
-	changed := make([]string, 0)
 	pflag.Visit(func(f *pflag.Flag) {
 		changed = append(changed, f.Name)
 	})

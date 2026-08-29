@@ -43,7 +43,7 @@ func PgToolVersion(logger *logger.LevelLog, binDir, tool string) int {
 	default:
 		// We have the special case of the development version, where the
 		// format is MAJdevel
-		fmt.Sscanf(string(vs), tool+" (PostgreSQL) %ddevel", &maj)
+		_, _ = fmt.Sscanf(string(vs), tool+" (PostgreSQL) %ddevel", &maj)
 		numver = maj * 10000
 	}
 
