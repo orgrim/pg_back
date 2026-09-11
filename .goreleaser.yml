@@ -5,7 +5,8 @@ before:
     # You may remove this if you don't use go modules.
     - go mod download
 builds:
-  - env:
+  - id: standard
+    env:
       - CGO_ENABLED=0
     goos:
       - linux
@@ -14,6 +15,13 @@ builds:
     goarch:
       - amd64
       - arm64
+  - id: powerpc
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+    goarch:
+      - ppc64le
 archives:
   - format_overrides:
       - goos: windows
